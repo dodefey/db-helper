@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-25 (America/Chicago)
-Status: Phases 1-2 complete within current scope; later phases not started
+Status: Phases 1-3 complete within current scope; Phase 4 still pending
 Branch baseline: main
 Sequence: sync contract first, sync execution second, shared mongo hardening third
 ```
@@ -27,8 +27,8 @@ This document is the canonical working record for the sync cleanup. It should be
 
 - allowed path enforcement exists in code
 - operator confirmation exists unless `--yes` is provided
-- sync currently uses `appConfig.defaultDropOnRestore` rather than explicit sync-owned drop semantics
-- cleanup still spans sync and Mongo helper layers, but command-layer archive lifecycle logic has been removed
+- sync no longer depends on `appConfig.defaultDropOnRestore` and explicitly restores with `drop: true`
+- cleanup still spans sync and Mongo helper layers, but command-layer archive lifecycle logic has been removed and shared remote cleanup behavior is now explicit in the Mongo layer
 
 ### Current repo state
 
@@ -52,15 +52,15 @@ The destructive semantics are less explicit than they should be because sync cur
 
 ### Cleanup behavior exists but is not yet a stable contract
 
-Local temp cleanup currently happens in a `finally` path in [src/commands/sync.ts](/Users/davidodefey/projects/dbtools/src/commands/sync.ts).
+Local temp cleanup currently happens in a `finally` path in [src/lib/sync.ts](/Users/davidodefey/projects/dbtools/src/lib/sync.ts).
 
-Remote temp cleanup currently happens inside lower-level helpers in [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts).
+Remote temp cleanup currently happens inside lower-level helpers in [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts), now through an explicit shared cleanup helper.
 
-The current code does attempt cleanup, but original sync failures versus cleanup failures are not yet described as an explicit contract that the refactor can preserve.
+The current code now makes the local sync error-precedence rule explicit: cleanup is always attempted, and cleanup failure does not replace the original sync failure.
 
 ### Sync currently has no direct tests
 
-Allowed-path behavior, confirmation behavior, explicit drop semantics, basic execution ordering, and local cleanup on restore failure are now covered by direct sync tests.
+Allowed-path behavior, confirmation behavior, explicit drop semantics, basic execution ordering, sync progress output, cleanup-on-failure behavior, and local error precedence are now covered by direct sync tests.
 
 That test coverage is enough to support the Phase 2 extraction, but later phases still need stronger cleanup and error-contract coverage.
 
@@ -143,6 +143,10 @@ Status:
 
 - split or clarify shared mongo helpers only as needed to support sync cleanup cleanly
 - make cleanup and error precedence behavior explicit in the implementation
+
+Status:
+
+- complete within current scope
 
 ### Phase 4
 

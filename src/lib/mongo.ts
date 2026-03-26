@@ -23,6 +23,15 @@ function remoteArchivePath(
   );
 }
 
+async function cleanupRemoteArchive(
+  env: EnvironmentConfig,
+  remotePath: string
+): Promise<void> {
+  await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`).catch(
+    () => undefined
+  );
+}
+
 async function runRemote(
   env: EnvironmentConfig,
   remoteCommand: string
@@ -140,9 +149,7 @@ export async function createArchiveBackup(
     );
     await copyFromRemote(env, remotePath, destinationFile);
   } finally {
-    await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`).catch(
-      () => undefined
-    );
+    await cleanupRemoteArchive(env, remotePath);
   }
 }
 
@@ -176,9 +183,7 @@ export async function restoreArchiveToEnvironment(
       `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`
     );
   } finally {
-    await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`).catch(
-      () => undefined
-    );
+    await cleanupRemoteArchive(env, remotePath);
   }
 }
 

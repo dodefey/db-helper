@@ -74,6 +74,7 @@ function createRunSyncDependencies(
 ): {
   dependencies: RunSyncDependencies;
   calls: {
+    output: string[];
     tempFiles: string[];
     dumps: Array<{ source: EnvironmentId; destination: string }>;
     restores: Array<{ target: EnvironmentId; archive: string; drop: boolean }>;
@@ -81,6 +82,7 @@ function createRunSyncDependencies(
   };
 } {
   const calls = {
+    output: [] as string[],
     tempFiles: [] as string[],
     dumps: [] as Array<{ source: EnvironmentId; destination: string }>,
     restores: [] as Array<{
@@ -92,6 +94,9 @@ function createRunSyncDependencies(
   };
 
   const dependencies: RunSyncDependencies = {
+    writeStdout(message: string): void {
+      calls.output.push(message);
+    },
     createLocalTempFile(): string {
       const path = "/tmp/db-helper/test-sync.archive.gz";
       calls.tempFiles.push(path);
@@ -270,6 +275,12 @@ test("runSync performs dump then restore then cleanup", async () => {
     "restore:development:/tmp/db-helper/test-sync.archive.gz:true",
     "cleanup:/tmp/db-helper/test-sync.archive.gz"
   ]);
+  assert.deepEqual(calls.output, [
+    "Starting sync production -> development\n",
+    "Dumping source production...\n",
+    "Restoring target development...\n",
+    "Cleaning up sync temp artifacts...\n"
+  ]);
 });
 
 test("runSync forces drop semantics even when config default is false", async () => {
@@ -307,4 +318,24 @@ test("runSync attempts cleanup when restore fails", async () => {
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
+});
+
+test("runSync preserves the original failure when cleanup fails too", async () => {
+  const { dependencies } = createRunSyncDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new Error("restore failed");
+    },
+    async unlink(): Promise<void> {
+      throw new Error("cleanup failed");
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development" },
+      dependencies
+    ),
+    /restore failed/
+  );
 });

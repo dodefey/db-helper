@@ -7,6 +7,7 @@ import {
 } from "./mongo.js";
 
 export interface RunSyncDependencies {
+  writeStdout: (message: string) => void;
   createLocalTempFile: (appConfig: AppConfig, suffix: string) => string;
   createArchiveBackup: typeof createArchiveBackup;
   restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
@@ -14,6 +15,7 @@ export interface RunSyncDependencies {
 }
 
 const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
+  writeStdout: (message: string) => process.stdout.write(message),
   createLocalTempFile,
   createArchiveBackup,
   restoreArchiveToEnvironment,
@@ -33,10 +35,10 @@ export async function runSync(
   );
 
   try {
-    process.stdout.write(`Starting sync ${input.from} -> ${input.to}\n`);
-    process.stdout.write(`Dumping source ${input.from}...\n`);
+    dependencies.writeStdout(`Starting sync ${input.from} -> ${input.to}\n`);
+    dependencies.writeStdout(`Dumping source ${input.from}...\n`);
     await dependencies.createArchiveBackup(source, appConfig, tempArchive);
-    process.stdout.write(`Restoring target ${input.to}...\n`);
+    dependencies.writeStdout(`Restoring target ${input.to}...\n`);
     await dependencies.restoreArchiveToEnvironment(
       target,
       appConfig,
@@ -44,7 +46,7 @@ export async function runSync(
       { drop: true }
     );
   } finally {
-    process.stdout.write(`Cleaning up sync temp artifacts...\n`);
+    dependencies.writeStdout(`Cleaning up sync temp artifacts...\n`);
     await dependencies.unlink(tempArchive).catch(() => undefined);
   }
 }
