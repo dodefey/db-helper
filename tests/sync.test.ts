@@ -530,7 +530,7 @@ test("runSync attempts cleanup when restore fails", async () => {
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync failed during restore.*Target development may be dirty\./s
+    /Sync failed during restore.*Target database may be dirty\./s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
@@ -568,7 +568,7 @@ test("runSync fails when verification finds mismatches", async () => {
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync failed during verify.*Target development may be dirty\./s
+    /Sync failed during verify.*Target database may be dirty\./s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
@@ -587,7 +587,7 @@ test("runSync attempts cleanup when dump fails", async () => {
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync failed during dump.*Target development was not modified\..*dump failed/s
+    /Sync failed during dump.*Target database was not modified\..*dump failed/s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
@@ -610,7 +610,7 @@ test("runSync preserves the original failure when cleanup fails too", async () =
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync failed during restore.*Target development may be dirty\..*Temp artifact cleanup also failed\..*restore failed/s
+    /Sync failed during restore.*Target database may be dirty\..*Attempted to delete temporary sync artifacts, but cleanup may not have finished\..*restore failed/s
   );
 });
 
@@ -628,7 +628,7 @@ test("runSync reports interrupt state and cleanup attempt on ctrl-c during resto
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync interrupted during restore.*Target development may be dirty\..*Temp artifact cleanup attempted\..*Command interrupted: mongorestore/s
+    /Sync interrupted during restore.*Target database may be dirty\..*Attempted to delete temporary sync artifacts, but cleanup success is not confirmed\..*The sync was interrupted by the operator\./s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);

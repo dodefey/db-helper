@@ -144,18 +144,22 @@ function formatSyncFailure(
       : input.phase;
   const actionLabel = input.interrupted ? "interrupted" : "failed";
   const targetStatus = input.targetMayBeDirty
-    ? `Target ${input.to} may be dirty.`
-    : `Target ${input.to} was not modified.`;
+    ? `Target database may be dirty. Restore it from a known good backup or rerun sync before trusting it.`
+    : `Target database was not modified.`;
   const cleanupStatus = input.cleanupFailed
-    ? " Temp artifact cleanup also failed."
+    ? "Attempted to delete temporary sync artifacts, but cleanup may not have finished."
     : input.interrupted
-      ? " Temp artifact cleanup attempted."
+      ? "Attempted to delete temporary sync artifacts, but cleanup success is not confirmed."
     : "";
+  const details = input.interrupted
+    ? "The sync was interrupted by the operator."
+    : input.details;
 
   return (
     `Sync ${actionLabel} during ${phaseLabel} for ${input.from} -> ${input.to}.\n` +
-    `${targetStatus}${cleanupStatus}\n` +
-    `${input.details}`
+    `${targetStatus}\n` +
+    `${cleanupStatus}\n` +
+    `${details}`
   );
 }
 
