@@ -23,7 +23,10 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
       await recoverDatabase(appConfig);
       return;
     case "backup-production":
-      await backupCreate(appConfig, { from: "production" });
+      await backupCreate(appConfig, {
+        from: "production",
+        outputMode: "default"
+      });
       return;
     case "sync-prod-dev":
       await syncDatabase(appConfig, {

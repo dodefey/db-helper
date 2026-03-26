@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Phase 3 complete; later phases pending
+Status: Phase 4 complete; later phases pending
 Branch baseline: main
 Sequence: backup contract first, backup execution second, backup output and interruption hardening third
 ```
@@ -31,7 +31,7 @@ This document is the canonical working record for backup cleanup. It should be u
 - backup create now has a phase-aware interruption and failure contract in [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts)
 - incomplete backup artifacts are now cleanup-attempted when create fails or is interrupted
 - cleanup failure is now reported without replacing the primary backup failure
-- backup create still does not have a dedicated operator-output model; later phases should focus there next
+- backup create now has a dedicated operator-output model with `default`, `quiet`, and `verbose` behavior
 
 ### Current repo state
 
@@ -69,11 +69,11 @@ Current code now treats incomplete backup directories as invalid and cleanup-att
 
 The remaining gap is operator experience, not failure semantics: backup still needs phase-oriented output and a clearer success summary.
 
-### Backup output is still closer to raw command output than operator output
+### Backup output now has a usable baseline, but README and broader coverage still remain
 
-Backup create currently inherits subprocess chatter more directly than sync does.
+Backup create now emits phase-oriented output in default mode and suppresses summaries in quiet mode while still allowing raw subprocess output in verbose mode.
 
-It does not yet have a clean default-mode phase model, final success summary, or interruption messaging contract.
+The remaining work is documentation and any later command-surface coverage, not basic backup-create output plumbing.
 
 ### Backup now has a spec and a dedicated execution layer
 
@@ -203,7 +203,7 @@ Notes:
 
 Status:
 
-- pending
+- complete
 
 Notes:
 
@@ -211,7 +211,8 @@ Notes:
 - keep backup output practical and phase-oriented
 - default-mode output should focus on real phase boundaries only: metadata, archive, manifest, validation, cleanup
 - do not add synthetic progress indicators for archive creation unless they are backed by real subprocess evidence
-- the next code slice should focus on backup create output without reopening cleanup semantics unless real testing shows a gap
+- backup create now prints phase boundaries and a final success summary in default mode
+- quiet mode suppresses summary output while still threading quiet behavior down into Mongo helpers
 
 ### Phase 5
 
@@ -225,7 +226,7 @@ Status:
 Notes:
 
 - current backup tests already exist and should be extended rather than replaced
-- failure cleanup and interruption tests now exist; the next missing tests are output behavior and any later command-surface expectations
+- failure cleanup, interruption, and output tests now exist; the next missing tests are any later command-surface expectations
 - prefer testing [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts) directly with injected dependencies before adding command-surface tests
 - when later phases add cleanup behavior, include explicit assertions for partial-directory removal attempts and primary-error preservation
 
@@ -260,7 +261,7 @@ Status:
 ## Next Implementation Notes
 
 - The next code change should begin in [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts), not in [src/commands/backup.ts](/Users/davidodefey/projects/dbtools/src/commands/backup.ts).
-- Phase 4 should add output behavior without changing the public CLI shape.
+- Phase 5 should add any remaining tests without changing the public CLI shape.
 - Incomplete backup cleanup is now framed around the backup directory as the unit of validity: if a create run does not complete validation, the directory is treated as invalid and cleanup-attempted.
 - Interruption handling now follows the same practical pattern used for sync: phase-aware messaging, conservative claims about cleanup, and no low-level command dump in the primary user-facing message.
 - [src/lib/backups.ts](/Users/davidodefey/projects/dbtools/src/lib/backups.ts) should remain the artifact helper layer; avoid moving orchestration back into it while implementing later phases.

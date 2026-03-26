@@ -44,11 +44,15 @@ function createBackupDependencies(
 ): {
   dependencies: RunBackupCreateDependencies;
   calls: {
+    stdout: string[];
     removeInterruptHandlerCount: number;
     ensuredDirs: string[];
     listedCollections: EnvironmentId[];
     countedCollections: Array<{ env: EnvironmentId; collections: string[] }>;
+    listedCollectionOutputModes: Array<string | undefined>;
+    countedCollectionOutputModes: Array<string | undefined>;
     archives: string[];
+    archiveOutputModes: Array<string | undefined>;
     manifests: BackupManifest[];
     ensuredArtifacts: string[];
     removedBackups: string[];
@@ -57,11 +61,15 @@ function createBackupDependencies(
 } {
   let interruptHandler: (() => void) | undefined;
   const calls = {
+    stdout: [] as string[],
     removeInterruptHandlerCount: 0,
     ensuredDirs: [] as string[],
     listedCollections: [] as EnvironmentId[],
     countedCollections: [] as Array<{ env: EnvironmentId; collections: string[] }>,
+    listedCollectionOutputModes: [] as Array<string | undefined>,
+    countedCollectionOutputModes: [] as Array<string | undefined>,
     archives: [] as string[],
+    archiveOutputModes: [] as Array<string | undefined>,
     manifests: [] as BackupManifest[],
     ensuredArtifacts: [] as string[],
     removedBackups: [] as string[]
@@ -75,6 +83,9 @@ function createBackupDependencies(
         interruptHandler = undefined;
       };
     },
+    writeStdout(message: string): void {
+      calls.stdout.push(message);
+    },
     async ensureDirectory(dirPath: string): Promise<void> {
       calls.ensuredDirs.push(dirPath);
     },
@@ -84,16 +95,19 @@ function createBackupDependencies(
     archivePathForBackup(root: string, backupName: string): string {
       return `${root}/${backupName}/dump.archive.gz`;
     },
-    async listCollections(env): Promise<string[]> {
+    async listCollections(env, options): Promise<string[]> {
       calls.listedCollections.push(env.id);
+      calls.listedCollectionOutputModes.push(options?.outputMode);
       return ["orders", "system.views", "customers"];
     },
-    async getCollectionCounts(env, collections): Promise<Record<string, number>> {
+    async getCollectionCounts(env, collections, options): Promise<Record<string, number>> {
       calls.countedCollections.push({ env: env.id, collections });
+      calls.countedCollectionOutputModes.push(options?.outputMode);
       return Object.fromEntries(collections.map((name) => [name, 1]));
     },
-    async createArchiveBackup(_env, _appConfig, archiveFile): Promise<void> {
+    async createArchiveBackup(_env, _appConfig, archiveFile, options): Promise<void> {
       calls.archives.push(archiveFile);
+      calls.archiveOutputModes.push(options?.outputMode);
     },
     async writeBackupManifest(_backupRoot, manifest): Promise<void> {
       calls.manifests.push(manifest);
@@ -129,17 +143,30 @@ test("runBackupCreate builds a valid backup record", async () => {
     {
       from: "development",
       note: "known-good",
-      tags: ["known-good"]
+      tags: ["known-good"],
+      outputMode: "default"
     },
     dependencies
   );
 
   assert.equal(record.name, "2026-03-26T12-00-00-development");
+  assert.deepEqual(calls.stdout, [
+    "Starting backup from development\n",
+    "Collecting source metadata...\n",
+    "Creating archive...\n",
+    "Writing manifest...\n",
+    "Validating backup...\n",
+    "Backup complete: 2026-03-26T12-00-00-development\n",
+    "Path: /tmp/db-helper-backups/2026-03-26T12-00-00-development\n"
+  ]);
   assert.deepEqual(calls.listedCollections, ["development"]);
+  assert.deepEqual(calls.listedCollectionOutputModes, ["default"]);
   assert.deepEqual(calls.countedCollections, [
     { env: "development", collections: ["orders", "customers"] }
   ]);
+  assert.deepEqual(calls.countedCollectionOutputModes, ["default"]);
   assert.equal(calls.archives[0], "/tmp/db-helper-backups/2026-03-26T12-00-00-development/dump.archive.gz");
+  assert.deepEqual(calls.archiveOutputModes, ["default"]);
   assert.equal(calls.manifests[0].sourceEnvironment, "development");
   assert.deepEqual(calls.manifests[0].collectionList, ["orders", "customers"]);
   assert.deepEqual(calls.manifests[0].tags, ["known-good"]);
@@ -156,7 +183,12 @@ test("runBackupCreate attempts cleanup when archive creation fails", async () =>
   });
 
   await assert.rejects(
-    () => runBackupCreate(buildAppConfig(), { from: "development" }, dependencies),
+    () =>
+      runBackupCreate(
+        buildAppConfig(),
+        { from: "development", outputMode: "default" },
+        dependencies
+      ),
     /Backup failed during archive creation for development\.\nThe backup may be incomplete or invalid and must not be trusted\.\nCleanup of incomplete backup artifacts was attempted\.\narchive write failed/
   );
 
@@ -176,7 +208,12 @@ test("runBackupCreate preserves the primary failure when cleanup fails", async (
   });
 
   await assert.rejects(
-    () => runBackupCreate(buildAppConfig(), { from: "development" }, dependencies),
+    () =>
+      runBackupCreate(
+        buildAppConfig(),
+        { from: "development", outputMode: "default" },
+        dependencies
+      ),
     /Backup failed during validation for development\.\nThe backup may be incomplete or invalid and must not be trusted\.\nCleanup of incomplete backup artifacts was attempted but may not have completed\.\nbackup validation failed/
   );
 
@@ -196,10 +233,30 @@ test("runBackupCreate reports interruption during archive creation", async () =>
   });
 
   await assert.rejects(
-    () => runBackupCreate(buildAppConfig(), { from: "development" }, dependencies),
+    () =>
+      runBackupCreate(
+        buildAppConfig(),
+        { from: "development", outputMode: "default" },
+        dependencies
+      ),
     /Backup interrupted during archive creation for development\.\nThe backup may be incomplete or invalid and must not be trusted\.\nCleanup of incomplete backup artifacts was attempted\.\nThe backup was interrupted by the operator\./
   );
 
   assert.deepEqual(calls.removedBackups, ["2026-03-26T12-00-00-development"]);
   assert.equal(calls.removeInterruptHandlerCount, 1);
+});
+
+test("runBackupCreate suppresses summary output in quiet mode", async () => {
+  const { dependencies, calls } = createBackupDependencies();
+
+  await runBackupCreate(
+    buildAppConfig(),
+    { from: "development", outputMode: "quiet" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.stdout, []);
+  assert.deepEqual(calls.listedCollectionOutputModes, ["quiet"]);
+  assert.deepEqual(calls.countedCollectionOutputModes, ["quiet"]);
+  assert.deepEqual(calls.archiveOutputModes, ["quiet"]);
 });

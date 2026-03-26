@@ -5,6 +5,7 @@ import {
   readBackup
 } from "../lib/backups.js";
 import { runBackupCreate } from "../lib/backup.js";
+import { OutputMode } from "../lib/output.js";
 
 export async function backupCreate(
   appConfig: AppConfig,
@@ -13,6 +14,7 @@ export async function backupCreate(
     note?: string;
     tags?: string[];
     backupName?: string;
+    outputMode: OutputMode;
   }
 ): Promise<BackupRecord> {
   return runBackupCreate(appConfig, input);

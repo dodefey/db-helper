@@ -14,10 +14,12 @@ import {
   getCollectionCounts,
   listCollections
 } from "./mongo.js";
+import { OutputMode, shouldPrintCommandSummary } from "./output.js";
 import { TOOL_VERSION } from "../version.js";
 
 export interface RunBackupCreateDependencies {
   installInterruptHandler: (onInterrupt: () => void) => () => void;
+  writeStdout: (message: string) => void;
   ensureDirectory: typeof ensureDirectory;
   buildBackupName: typeof buildBackupName;
   archivePathForBackup: typeof archivePathForBackup;
@@ -35,6 +37,7 @@ const DEFAULT_RUN_BACKUP_CREATE_DEPENDENCIES: RunBackupCreateDependencies = {
     process.on("SIGINT", onInterrupt);
     return () => process.removeListener("SIGINT", onInterrupt);
   },
+  writeStdout: (message: string) => process.stdout.write(message),
   ensureDirectory,
   buildBackupName,
   archivePathForBackup,
@@ -109,6 +112,7 @@ export async function runBackupCreate(
     note?: string;
     tags?: string[];
     backupName?: string;
+    outputMode: OutputMode;
   },
   dependencies: RunBackupCreateDependencies = DEFAULT_RUN_BACKUP_CREATE_DEPENDENCIES
 ): Promise<BackupRecord> {
@@ -124,24 +128,39 @@ export async function runBackupCreate(
     interrupted = true;
     abortController.abort();
   });
+  const printSummary = shouldPrintCommandSummary(input.outputMode);
   let currentPhase: BackupCreatePhase = "metadata";
   let cleanupFailed = false;
 
   try {
+    if (printSummary) {
+      dependencies.writeStdout(`Starting backup from ${input.from}\n`);
+      dependencies.writeStdout(`Collecting source metadata...\n`);
+    }
     await dependencies.ensureDirectory(appConfig.backupRoot);
     await dependencies.ensureDirectory(path.dirname(archiveFile));
 
     const collectionList = filterBackupCollections(
-      await dependencies.listCollections(env, { signal: abortController.signal })
+      await dependencies.listCollections(env, {
+        outputMode: input.outputMode,
+        signal: abortController.signal
+      })
     );
     const collectionCounts = await dependencies.getCollectionCounts(
       env,
       collectionList,
-      { signal: abortController.signal }
+      {
+        outputMode: input.outputMode,
+        signal: abortController.signal
+      }
     );
 
     currentPhase = "archive";
+    if (printSummary) {
+      dependencies.writeStdout(`Creating archive...\n`);
+    }
     await dependencies.createArchiveBackup(env, appConfig, archiveFile, {
+      outputMode: input.outputMode,
       signal: abortController.signal
     });
 
@@ -159,12 +178,23 @@ export async function runBackupCreate(
     };
 
     currentPhase = "manifest";
+    if (printSummary) {
+      dependencies.writeStdout(`Writing manifest...\n`);
+    }
     await dependencies.writeBackupManifest(appConfig.backupRoot, manifest);
 
     currentPhase = "validation";
+    if (printSummary) {
+      dependencies.writeStdout(`Validating backup...\n`);
+    }
     await dependencies.ensureBackupArtifacts(appConfig.backupRoot, backupName);
 
-    return dependencies.readBackup(appConfig.backupRoot, backupName);
+    const record = await dependencies.readBackup(appConfig.backupRoot, backupName);
+    if (printSummary) {
+      dependencies.writeStdout(`Backup complete: ${record.name}\n`);
+      dependencies.writeStdout(`Path: ${record.path}\n`);
+    }
+    return record;
   } catch (error) {
     const interruptedFailure = interrupted || isInterruptedError(error);
 

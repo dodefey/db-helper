@@ -75,7 +75,7 @@ function printHelp(): void {
 
 Commands:
   interactive
-  backup create --from <environment> [--note <text>] [--tag <tag>]
+  backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
   backup list [--from <environment>] [--tag <tag>]
   backup inspect --backup <backup-name>
   sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
@@ -107,12 +107,12 @@ async function main(): Promise<void> {
       return;
     case "backup":
       if (subcommand === "create") {
-        const record = await backupCreate(appConfig, {
+        await backupCreate(appConfig, {
           from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
           note: getFlag(args.flags, "note"),
-          tags: getFlag(args.flags, "tag") ? [getFlag(args.flags, "tag")!] : []
+          tags: getFlag(args.flags, "tag") ? [getFlag(args.flags, "tag")!] : [],
+          outputMode
         });
-        process.stdout.write(`${record.name}\n`);
         return;
       }
       if (subcommand === "list") {

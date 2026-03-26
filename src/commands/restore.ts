@@ -69,7 +69,8 @@ export async function restoreFull(
       await backupCreate(appConfig, {
         from: "production",
         note: `automatic pre-restore backup before restoring ${input.backup}`,
-        tags: ["pre-restore"]
+        tags: ["pre-restore"],
+        outputMode: "default"
       });
     }
   }
