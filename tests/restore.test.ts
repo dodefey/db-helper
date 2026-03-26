@@ -34,6 +34,16 @@ function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
   };
 }
 
+function buildRemoteEnvironment(id: EnvironmentId): EnvironmentConfig {
+  return {
+    ...buildEnvironment(id),
+    kind: "remote",
+    host: `${id}.example.com`,
+    sshUser: "ubuntu",
+    sshKeyPath: "/tmp/test-key.pem"
+  };
+}
+
 function buildAppConfig(defaultDropOnRestore = true): AppConfig {
   return {
     backupRoot: "/tmp/backups",
@@ -492,6 +502,31 @@ test("runRestoreFull reports dirty-target risk when interrupted during restore",
         dependencies
       ),
     /Restore interrupted during restore for backup-name -> development\.\nTarget database may be dirty\./
+  );
+});
+
+test("runRestoreFull reports remote cleanup attempt when interrupted during restore", async () => {
+  const appConfig = buildAppConfig();
+  appConfig.environments.development = buildRemoteEnvironment("development");
+  const { dependencies } = createRunRestoreDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new Error("Command interrupted: mongorestore");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      runRestoreFull(
+        appConfig,
+        {
+          backup: "backup-name",
+          to: "development",
+          skipPreBackup: false,
+          outputMode: "default"
+        },
+        dependencies
+      ),
+    /Restore interrupted during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nTemporary restore artifact cleanup was attempted but may not have completed\.\nThe restore was interrupted by the operator\./
   );
 });
 

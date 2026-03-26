@@ -1,4 +1,9 @@
-import { AppConfig, BackupRecord, EnvironmentId } from "../config/types.js";
+import {
+  AppConfig,
+  BackupRecord,
+  EnvironmentConfig,
+  EnvironmentId
+} from "../config/types.js";
 import {
   archivePathForBackup,
   ensureBackupArtifacts,
@@ -62,6 +67,7 @@ function formatRestoreFailure(options: {
   phase: RestorePhase;
   targetMayBeDirty: boolean;
   interrupted: boolean;
+  cleanupLine?: string;
   details?: string;
 }): string {
   const phaseLabel =
@@ -83,6 +89,10 @@ function formatRestoreFailure(options: {
 
   const lines = [statusLine, targetLine];
 
+  if (options.cleanupLine) {
+    lines.push(options.cleanupLine);
+  }
+
   if (options.interrupted) {
     lines.push("The restore was interrupted by the operator.");
   } else if (options.details) {
@@ -90,6 +100,25 @@ function formatRestoreFailure(options: {
   }
 
   return lines.join("\n");
+}
+
+function cleanupLineForFailure(
+  phase: RestorePhase,
+  target: EnvironmentConfig
+): string | undefined {
+  if (target.kind !== "remote") {
+    return undefined;
+  }
+
+  if (phase === "restore") {
+    return "Temporary restore artifact cleanup was attempted but may not have completed.";
+  }
+
+  if (phase === "verify") {
+    return "Temporary restore artifact cleanup was already attempted before verification began.";
+  }
+
+  return undefined;
 }
 
 function formatRestoreVerificationFailure(
@@ -132,6 +161,7 @@ export async function runRestoreFull(
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
   const printSummary = input.outputMode !== "quiet";
+  const target = appConfig.environments[input.to];
   const removeInterruptHandler = dependencies.installInterruptHandler(() => {
     abortController.abort();
   });
@@ -144,7 +174,6 @@ export async function runRestoreFull(
     }
     await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
     const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
-    const target = appConfig.environments[input.to];
 
     if (target.isProduction && !input.skipPreBackup) {
       currentPhase = "pre_restore_backup";
@@ -206,6 +235,7 @@ export async function runRestoreFull(
         phase: currentPhase,
         targetMayBeDirty,
         interrupted: isInterruptedError(error),
+        cleanupLine: cleanupLineForFailure(currentPhase, target),
         details: getErrorDetails(error)
       }),
       { cause: error }
@@ -229,6 +259,7 @@ export async function runRestoreCollection(
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
   const printSummary = input.outputMode !== "quiet";
+  const target = appConfig.environments[input.to];
   const removeInterruptHandler = dependencies.installInterruptHandler(() => {
     abortController.abort();
   });
@@ -255,7 +286,7 @@ export async function runRestoreCollection(
       );
     }
     await dependencies.restoreArchiveToEnvironment(
-      appConfig.environments[input.to],
+      target,
       appConfig,
       dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
       {
@@ -278,6 +309,7 @@ export async function runRestoreCollection(
         phase: currentPhase,
         targetMayBeDirty,
         interrupted: isInterruptedError(error),
+        cleanupLine: cleanupLineForFailure(currentPhase, target),
         details: getErrorDetails(error)
       }),
       { cause: error }

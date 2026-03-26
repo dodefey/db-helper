@@ -68,7 +68,7 @@ Phase 2 resolves the core of that problem by moving restore execution into [src/
 
 The current code now has strong production protections, verification, phase-aware dirty-target messaging, and the same basic output-mode model sync and backup use.
 
-The next remaining work is mostly broader command-surface coverage and README cleanup.
+Restore cleanup is complete within the migration scope. Remaining work, if any, should be treated as new product work rather than unfinished cleanup.
 
 ### Restore now has the same execution-layer shape sync and backup use
 
@@ -134,6 +134,8 @@ Add restore-level progress output for:
 - cleanup
 
 Preserve the original restore failure when cleanup also fails.
+
+Restore-level interruption and failure messages should mention temporary restore-artifact cleanup when the restore path actually uses remote temp artifacts.
 
 ## Cleanup Sequence
 
@@ -243,9 +245,13 @@ Notes:
 - schema-aware migration logic
 - broader backup/restore product redesign beyond what restore cleanup needs
 
-## Next Implementation Notes
+## Completion Notes
 
-- The next code change should begin in a dedicated restore execution layer, not by further growing [src/commands/restore.ts](/Users/davidodefey/projects/dbtools/src/commands/restore.ts).
-- The first concrete target should be `restore full`; `restore collection` can follow once the shared restore execution boundary is established.
-- Production restore protections should remain in the command layer until the execution boundary is stable, then they can be passed in as validated execution options.
-- Dirty-target language should match the practical contract already used by sync.
+- Restore cleanup is complete within the scope defined by this migration plan.
+- The remaining restore gaps called out by this document have been closed:
+  - dedicated execution layer
+  - phase-aware dirty-target and interruption messaging
+  - output modes and success summaries
+  - command-surface and execution coverage
+  - README operator docs
+- Any new restore work should start from the current execution-layer shape rather than reopening the original migration scope.
