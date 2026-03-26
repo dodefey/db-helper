@@ -10,6 +10,7 @@
 - Purely mechanical changes do not require new tests, but changes to behavior, validation, safety rules, or execution flow should usually include test coverage.
 - If a touched change affects behavior, the touched area should be reconciled to current testing expectations too, including adding or updating tests when reasonable.
 - If a behavior change ships without new or updated tests, explain why in the work summary or commit context.
+- Before creating a commit, pause for review unless the user explicitly says to commit without review.
 - Before creating a commit, run the full repo checks:
   - `npm run format:check`
   - `npm run lint`
