@@ -19,7 +19,7 @@ CLI forms:
 
 ```bash
 db-helper restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
-db-helper restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--quiet] [--verbose]
+db-helper restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
 ```
 
 Required flags:
@@ -30,7 +30,7 @@ Required flags:
 Optional flags:
 
 - `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`, `--quiet`, `--verbose`
-- `restore collection`: `--yes`, `--quiet`, `--verbose`
+- `restore collection`: `--yes`, `--force-production-restore`, `--quiet`, `--verbose`
 
 No selective multi-collection restore mode is supported.
 
@@ -57,6 +57,7 @@ Current behavior:
 - validate the named backup artifacts before restore
 - confirm the collection exists in the backup manifest
 - require confirmation before restoring into the target
+- apply extra protections before restoring into production
 - restore only the requested collection with drop enabled
 
 ## Safety Contract
@@ -115,6 +116,10 @@ If restore fails before restore starts:
 3. confirm the requested collection exists in the manifest
 4. confirm the target restore
 5. restore the named collection with drop enabled
+
+If target is production:
+
+- require production-specific confirmation
 
 The implementation may use:
 

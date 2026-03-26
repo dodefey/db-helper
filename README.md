@@ -247,7 +247,7 @@ CLI forms:
 
 ```bash
 db-helper restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
-db-helper restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--quiet] [--verbose]
+db-helper restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
 ```
 
 Required flags:
@@ -258,11 +258,12 @@ Required flags:
 Optional flags:
 
 - `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`, `--quiet`, `--verbose`
-- `restore collection`: `--yes`, `--quiet`, `--verbose`
+- `restore collection`: `--yes`, `--force-production-restore`, `--quiet`, `--verbose`
 
 Production restore expectations:
 
 - `restore full --to production` requires `--force-production-restore`
+- `restore collection --to production` requires `--force-production-restore`
 - interactive production restore requires an additional typed confirmation
 - production restore creates a pre-restore production backup by default
 - `--skip-pre-backup` bypasses that automatic production backup

@@ -76,6 +76,7 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
         collection,
         to: target,
         yes: false,
+        forceProductionRestore: target === "production",
         outputMode: "default"
       });
       return;

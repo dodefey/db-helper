@@ -105,11 +105,25 @@ export async function restoreCollection(
     collection: string;
     to: EnvironmentId;
     yes: boolean;
+    forceProductionRestore: boolean;
     outputMode: OutputMode;
   },
   dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
+  const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
+  const target = appConfig.environments[input.to];
+
   await confirmRestore(input.to, input.yes, dependencies);
+
+  if (target.isProduction) {
+    await confirmProductionRestore(
+      backup,
+      input.yes,
+      input.forceProductionRestore,
+      dependencies
+    );
+  }
+
   await dependencies.runRestoreCollection(appConfig, {
     backup: input.backup,
     collection: input.collection,

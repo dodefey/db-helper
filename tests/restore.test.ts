@@ -330,6 +330,7 @@ test("restoreCollection delegates after confirmation", async () => {
       collection: "orders",
       to: "development",
       yes: false,
+      forceProductionRestore: false,
       outputMode: "default"
     },
     dependencies
@@ -346,6 +347,57 @@ test("restoreCollection delegates after confirmation", async () => {
       outputMode: "default"
     }
   ]);
+});
+
+test("restoreCollection rejects production restores without the force flag", async () => {
+  const { dependencies, calls } = createRestoreCommandDependencies();
+
+  await assert.rejects(
+    () =>
+      restoreCollection(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          collection: "orders",
+          to: "production",
+          yes: false,
+          forceProductionRestore: false,
+          outputMode: "default"
+        },
+        dependencies
+      ),
+    /Production restore requires --force-production-restore/
+  );
+
+  assert.deepEqual(calls.runRestoreCollectionArgs, []);
+});
+
+test("restoreCollection rejects mismatched production confirmation text", async () => {
+  const { dependencies, calls } = createRestoreCommandDependencies({
+    async promptText(message: string): Promise<string> {
+      calls.promptTexts.push(message);
+      return "WRONG";
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      restoreCollection(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          collection: "orders",
+          to: "production",
+          yes: false,
+          forceProductionRestore: true,
+          outputMode: "default"
+        },
+        dependencies
+      ),
+    /Production restore confirmation did not match/
+  );
+
+  assert.deepEqual(calls.runRestoreCollectionArgs, []);
 });
 
 test("restoreFull rejects production restores without the force flag", async () => {

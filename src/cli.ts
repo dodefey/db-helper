@@ -80,7 +80,7 @@ Commands:
   backup inspect --backup <backup-name>
   sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
   restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
-  restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--quiet] [--verbose]
+  restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
   recover
   doctor
 `);
@@ -167,6 +167,10 @@ async function main(): Promise<void> {
           collection: getFlag(args.flags, "collection", true)!,
           to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
           yes: getBooleanFlag(args.flags, "yes"),
+          forceProductionRestore: getBooleanFlag(
+            args.flags,
+            "force-production-restore"
+          ),
           outputMode
         });
         return;
