@@ -1,0 +1,19 @@
+{
+  "name": "db-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "db-helper": "./bin/db-helper"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start": "tsx src/cli.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}
