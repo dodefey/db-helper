@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -11,6 +11,7 @@ import {
 } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const USER_CONFIG_PATH = path.join(homedir(), ".config", "db-helper", "config.json");
 
 type RawConfig = {
   defaults?: {
@@ -113,8 +114,43 @@ function parseEnvironment(
   return config;
 }
 
+export function getRecommendedUserConfigPath(): string {
+  return USER_CONFIG_PATH;
+}
+
+async function pathExists(candidatePath: string): Promise<boolean> {
+  try {
+    await access(candidatePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function getDefaultConfigCandidates(): string[] {
+  return [
+    path.resolve(process.cwd(), "config.json"),
+    USER_CONFIG_PATH,
+    path.resolve(__dirname, "../../config.json")
+  ];
+}
+
+export async function resolveConfigPath(configPath?: string): Promise<string> {
+  if (configPath) {
+    return path.resolve(configPath);
+  }
+
+  for (const candidate of getDefaultConfigCandidates()) {
+    if (await pathExists(candidate)) {
+      return candidate;
+    }
+  }
+
+  return getDefaultConfigCandidates()[0];
+}
+
 export async function loadConfig(configPath?: string): Promise<AppConfig> {
-  const resolvedPath = configPath ?? path.resolve(__dirname, "../../config.json");
+  const resolvedPath = await resolveConfigPath(configPath);
   const fileContent = await readFile(resolvedPath, "utf8").catch(
     (error: NodeJS.ErrnoException) => {
       throw new Error(

@@ -4,7 +4,12 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { homedir } from "node:os";
-import { loadConfig } from "../src/config/loadConfig.js";
+import {
+  getDefaultConfigCandidates,
+  getRecommendedUserConfigPath,
+  loadConfig,
+  resolveConfigPath
+} from "../src/config/loadConfig.js";
 
 async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(path.join(tmpdir(), "db-helper-config-test-"));
@@ -118,4 +123,22 @@ test("loadConfig rejects missing required environments", async () => {
       /Missing required environment config: test/
     );
   });
+});
+
+test("resolveConfigPath prefers an explicit path", async () => {
+  await withTempDir(async (dir) => {
+    const explicitPath = path.join(dir, "custom.json");
+    await writeFile(explicitPath, "{}");
+
+    const resolved = await resolveConfigPath(explicitPath);
+
+    assert.equal(resolved, explicitPath);
+  });
+});
+
+test("default config candidates include the user config location", () => {
+  const candidates = getDefaultConfigCandidates();
+
+  assert.equal(candidates[0], path.resolve(process.cwd(), "config.json"));
+  assert.equal(candidates[1], getRecommendedUserConfigPath());
 });

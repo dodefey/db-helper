@@ -4,7 +4,15 @@
 
 ## Setup
 
-Copy `config.example.json` to `config.json` and fill in the connection details for all three environments. The CLI loads configuration from `config.json` in the project root by default, or from an explicit path via `--config`.
+Copy `config.example.json` to `config.json` and fill in the connection details for all three environments.
+
+By default, the CLI looks for configuration in this order:
+
+- `./config.json`
+- `~/.config/db-helper/config.json`
+- a repo-local fallback config during development
+
+You can always override that with `--config <path>`.
 
 ## Install
 
@@ -24,8 +32,23 @@ cp config.example.json config.json
 ```
 
 ```bash
+# validate your config
+npm start -- doctor
+```
+
+```bash
 # use a different config file explicitly
 npm start -- doctor --config /path/to/config.json
+```
+
+```bash
+# install the CLI globally once you are ready to use it outside this repo
+npm install -g .
+```
+
+```bash
+# place a long-lived user config in the default standalone location
+mkdir -p ~/.config/db-helper && cp config.example.json ~/.config/db-helper/config.json
 ```
 
 ## Command Reference

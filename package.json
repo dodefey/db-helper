@@ -1,16 +1,26 @@
 {
   "name": "db-helper",
   "version": "0.1.0",
-  "private": true,
+  "description": "Operational MongoDB backup, sync, restore, and recovery CLI",
   "type": "module",
   "bin": {
     "db-helper": "./bin/db-helper"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "config.example.json"
+  ],
+  "engines": {
+    "node": ">=20"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
+    "prepack": "npm run build",
     "test": "tsx --test tests/**/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "tsx src/cli.ts"

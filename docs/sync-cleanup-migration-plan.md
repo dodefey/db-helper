@@ -9,7 +9,7 @@ Sequence: sync contract first, sync execution second, shared mongo hardening thi
 
 ## Objective
 
-Harden `sync` into a clear, destructive, full-target replacement workflow that matches [sync-spec.md](/Users/davidodefey/projects/dbtools/docs/sync-spec.md), without expanding scope into backup or restore redesign.
+Harden `sync` into a clear, destructive, full-target replacement workflow that matches [sync-spec.md](docs/sync-spec.md), without expanding scope into backup or restore redesign.
 
 This document is the canonical working record for the sync cleanup. It should be updated as work lands so later tasks can rely on a current inventory of what is complete, what remains to be done, and what is intentionally deferred.
 
@@ -17,11 +17,11 @@ This document is the canonical working record for the sync cleanup. It should be
 
 ### Current sync state
 
-- [src/cli.ts](/Users/davidodefey/projects/dbtools/src/cli.ts) exposes `sync` as a top-level command
-- [src/commands/sync.ts](/Users/davidodefey/projects/dbtools/src/commands/sync.ts) performs allowlist validation, confirmation, and delegation into the sync execution layer
-- [src/lib/sync.ts](/Users/davidodefey/projects/dbtools/src/lib/sync.ts) owns local temp archive allocation, archive dump, restore, and local cleanup sequencing
-- [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts) owns URI building, remote execution, copy helpers, dump, restore, connectivity checks, and remote temp cleanup behavior
-- [sync-spec.md](/Users/davidodefey/projects/dbtools/docs/sync-spec.md) now defines the intended sync behavior for the cleanup
+- [src/cli.ts](src/cli.ts) exposes `sync` as a top-level command
+- [src/commands/sync.ts](src/commands/sync.ts) performs allowlist validation, confirmation, and delegation into the sync execution layer
+- [src/lib/sync.ts](src/lib/sync.ts) owns local temp archive allocation, archive dump, restore, and local cleanup sequencing
+- [src/lib/mongo.ts](src/lib/mongo.ts) owns URI building, remote execution, copy helpers, dump, restore, connectivity checks, and remote temp cleanup behavior
+- [sync-spec.md](docs/sync-spec.md) now defines the intended sync behavior for the cleanup
 
 ### Current safety state
 
@@ -40,21 +40,21 @@ This document is the canonical working record for the sync cleanup. It should be
 
 ### Sync policy is clearer than sync execution
 
-The current sync policy is easy to understand. The allowlist and confirmation rules in [src/commands/sync.ts](/Users/davidodefey/projects/dbtools/src/commands/sync.ts) are small and explicit.
+The current sync policy is easy to understand. The allowlist and confirmation rules in [src/commands/sync.ts](src/commands/sync.ts) are small and explicit.
 
 The destructive semantics are less explicit than they should be because sync currently inherits drop behavior from config rather than owning full-target replacement behavior directly.
 
 ### The command layer is small, but execution responsibilities are mixed
 
-[src/commands/sync.ts](/Users/davidodefey/projects/dbtools/src/commands/sync.ts) is already thin and should stay thin.
+[src/commands/sync.ts](src/commands/sync.ts) is already thin and should stay thin.
 
-[src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts) currently mixes URI creation, remote execution, transfer helpers, dump behavior, restore behavior, connectivity checks, and temp path responsibilities. That makes sync cleanup harder because the sync workflow depends on a module with several overlapping concerns.
+[src/lib/mongo.ts](src/lib/mongo.ts) currently mixes URI creation, remote execution, transfer helpers, dump behavior, restore behavior, connectivity checks, and temp path responsibilities. That makes sync cleanup harder because the sync workflow depends on a module with several overlapping concerns.
 
 ### Cleanup behavior exists but is not yet a stable contract
 
-Local temp cleanup currently happens in a `finally` path in [src/lib/sync.ts](/Users/davidodefey/projects/dbtools/src/lib/sync.ts).
+Local temp cleanup currently happens in a `finally` path in [src/lib/sync.ts](src/lib/sync.ts).
 
-Remote temp cleanup currently happens inside lower-level helpers in [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts), now through an explicit shared cleanup helper.
+Remote temp cleanup currently happens inside lower-level helpers in [src/lib/mongo.ts](src/lib/mongo.ts), now through an explicit shared cleanup helper.
 
 The current code now makes the local sync error-precedence rule explicit: cleanup is always attempted, and cleanup failure does not replace the original sync failure.
 
@@ -66,7 +66,7 @@ That test coverage now covers the current sync cleanup scope, including dump-fai
 
 ### The sync spec is now sufficiently stable to drive a focused refactor
 
-[sync-spec.md](/Users/davidodefey/projects/dbtools/docs/sync-spec.md) is now detailed enough to act as the behavior authority for sync cleanup.
+[sync-spec.md](docs/sync-spec.md) is now detailed enough to act as the behavior authority for sync cleanup.
 
 The refactor should treat that spec as the source of truth and avoid introducing extra sync features that are intentionally out of scope for phase 1.
 
@@ -74,7 +74,7 @@ The refactor should treat that spec as the source of truth and avoid introducing
 
 ### Command layer
 
-Keep [src/commands/sync.ts](/Users/davidodefey/projects/dbtools/src/commands/sync.ts) responsible only for:
+Keep [src/commands/sync.ts](src/commands/sync.ts) responsible only for:
 
 - validating the source and target path
 - prompting for operator confirmation when `--yes` is not present
@@ -84,7 +84,7 @@ Sync should explicitly restore with `drop: true` so the command owns its destruc
 
 ### Sync execution layer
 
-Introduce a dedicated sync runner, preferably in [src/lib/sync.ts](/Users/davidodefey/projects/dbtools/src/lib/sync.ts).
+Introduce a dedicated sync runner, preferably in [src/lib/sync.ts](src/lib/sync.ts).
 
 That runner should own:
 
@@ -97,7 +97,7 @@ The execution layer should remain non-interactive so it is straightforward to te
 
 ### Shared mongo layer
 
-Keep [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts) as the low-level Mongo and SSH tool layer.
+Keep [src/lib/mongo.ts](src/lib/mongo.ts) as the low-level Mongo and SSH tool layer.
 
 Refine it only enough to support a cleaner sync orchestration path by separating responsibilities such as:
 

@@ -21,7 +21,7 @@
     "test": {
       "label": "Test Server",
       "kind": "remote",
-      "host": "test.gnomebrewshop.com",
+      "host": "test.example.com",
       "mongoHost": "localhost",
       "mongoPort": 7854,
       "databaseName": "development",
@@ -33,7 +33,7 @@
     "production": {
       "label": "Production Server",
       "kind": "remote",
-      "host": "gnomebrewshop.com",
+      "host": "prod.example.com",
       "mongoHost": "localhost",
       "mongoPort": 7854,
       "databaseName": "production",

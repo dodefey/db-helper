@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-import { loadConfig } from "./config/loadConfig.js";
+import {
+  getRecommendedUserConfigPath,
+  loadConfig
+} from "./config/loadConfig.js";
 import { ENVIRONMENT_IDS, EnvironmentId } from "./config/types.js";
 import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -75,6 +78,10 @@ function printHelp(): void {
 
 Global flags:
   --config <path>
+
+Default config search:
+  ./config.json
+  ${getRecommendedUserConfigPath()}
 
 Commands:
   interactive

@@ -4,3 +4,4 @@ config.json
 config.*.json
 !config.example.json
 .DS_Store
+.vscode/

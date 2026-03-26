@@ -18,7 +18,7 @@ The primary UX requirement is recovery: if data is disrupted or corrupted, an op
 
 `bin/copydb`
 
-- one-shot production dump from `gnomebrewshop.com`
+- one-shot production dump from `prod.example.com`
 - restores into local `development`
 
 `bin/dbsync`

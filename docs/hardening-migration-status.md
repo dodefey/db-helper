@@ -21,6 +21,8 @@ The following command surfaces have been hardened and brought into a consistent 
 - `sync`
 - `restore`
 
+The configuration model has also been migrated to `config.json`, replacing the earlier `.env`-based setup.
+
 For those surfaces, the repo now has:
 
 - a thin command layer
@@ -58,27 +60,32 @@ Important restore notes from live testing:
 
 Those fixes are now in the codebase and were validated by successful live restore runs.
 
+Config loading was also manually validated through both:
+
+- explicit `--config ./config.json`
+- default `config.json` discovery
+
 ## Current Architecture
 
 ### Hardened execution layers
 
-- [src/commands/doctor.ts](/Users/davidodefey/projects/dbtools/src/commands/doctor.ts)
-- [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts)
-- [src/lib/sync.ts](/Users/davidodefey/projects/dbtools/src/lib/sync.ts)
-- [src/lib/restore.ts](/Users/davidodefey/projects/dbtools/src/lib/restore.ts)
+- [src/commands/doctor.ts](src/commands/doctor.ts)
+- [src/lib/backup.ts](src/lib/backup.ts)
+- [src/lib/sync.ts](src/lib/sync.ts)
+- [src/lib/restore.ts](src/lib/restore.ts)
 
 ### Shared transport / verification layers
 
-- [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts)
-- [src/lib/verify.ts](/Users/davidodefey/projects/dbtools/src/lib/verify.ts)
-- [src/lib/backups.ts](/Users/davidodefey/projects/dbtools/src/lib/backups.ts)
+- [src/lib/mongo.ts](src/lib/mongo.ts)
+- [src/lib/verify.ts](src/lib/verify.ts)
+- [src/lib/backups.ts](src/lib/backups.ts)
 
 ### User-facing docs
 
-- [README.md](/Users/davidodefey/projects/dbtools/README.md)
-- [docs/backup-spec.md](/Users/davidodefey/projects/dbtools/docs/backup-spec.md)
-- [docs/sync-spec.md](/Users/davidodefey/projects/dbtools/docs/sync-spec.md)
-- [docs/restore-spec.md](/Users/davidodefey/projects/dbtools/docs/restore-spec.md)
+- [README.md](README.md)
+- [docs/backup-spec.md](docs/backup-spec.md)
+- [docs/sync-spec.md](docs/sync-spec.md)
+- [docs/restore-spec.md](docs/restore-spec.md)
 
 ## Remaining Follow-up Work
 
@@ -88,8 +95,8 @@ These are not core migration blockers anymore. They are the main worthwhile next
 
 The main remaining un-hardened surfaces are wrapper/orchestration commands:
 
-- [src/commands/interactive.ts](/Users/davidodefey/projects/dbtools/src/commands/interactive.ts)
-- [src/commands/recover.ts](/Users/davidodefey/projects/dbtools/src/commands/recover.ts)
+- [src/commands/interactive.ts](src/commands/interactive.ts)
+- [src/commands/recover.ts](src/commands/recover.ts)
 
 Recommended follow-up:
 
@@ -115,12 +122,22 @@ Recommended follow-up:
 - decide whether doctor should adopt the same output-mode model
 - otherwise leave it alone and treat it as intentionally simpler
 
+### 4. Standalone CLI usability
+
+The package is now closer to a standalone CLI, but there is still room to improve install and first-run UX.
+
+Recommended follow-up:
+
+- decide whether to prefer the user config path over `./config.json` long-term
+- add a first-run config bootstrap command if the tool is going to be published broadly
+- document global install and upgrade flow more explicitly once packaging is finalized
+
 ## Notes On Older Planning Docs
 
 The following docs are now historical context, not the active source of truth for current CLI behavior:
 
-- [docs/db-helper-cli-plan.md](/Users/davidodefey/projects/dbtools/docs/db-helper-cli-plan.md)
-- [docs/db-helper-tool-spec.md](/Users/davidodefey/projects/dbtools/docs/db-helper-tool-spec.md)
+- [docs/db-helper-cli-plan.md](docs/db-helper-cli-plan.md)
+- [docs/db-helper-tool-spec.md](docs/db-helper-tool-spec.md)
 
 They still reflect earlier design ideas such as:
 

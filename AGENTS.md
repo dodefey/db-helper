@@ -24,6 +24,6 @@
 
 ## Output Expectations
 
-- Follow [output-standards.md](/Users/davidodefey/projects/dbtools/output-standards.md) when changing CLI command output.
+- Follow [output-standards.md](output-standards.md) when changing CLI command output.
 - Treat `default`, `quiet`, and `verbose` output modes as the repo standard for command-facing output behavior.
 - When touching command output, reconcile the touched command to those standards within reason instead of adding one-off output patterns.
