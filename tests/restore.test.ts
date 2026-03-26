@@ -155,8 +155,12 @@ function createRunRestoreDependencies(
       archivePath: string;
       collection?: string;
       drop: boolean;
+      outputMode?: "default" | "quiet" | "verbose";
     }>;
-    verifications: EnvironmentId[];
+    verifications: Array<{
+      target: EnvironmentId;
+      outputMode?: "default" | "quiet" | "verbose";
+    }>;
     interruptHandler?: () => void;
     output: string[];
   };
@@ -176,8 +180,12 @@ function createRunRestoreDependencies(
       archivePath: string;
       collection?: string;
       drop: boolean;
+      outputMode?: "default" | "quiet" | "verbose";
     }>,
-    verifications: [] as EnvironmentId[],
+    verifications: [] as Array<{
+      target: EnvironmentId;
+      outputMode?: "default" | "quiet" | "verbose";
+    }>,
     interruptHandler: undefined as (() => void) | undefined,
     output: [] as string[]
   };
@@ -203,10 +211,11 @@ function createRunRestoreDependencies(
         target: env.id,
         archivePath,
         collection: options.collection,
-        drop: options.drop
+        drop: options.drop,
+        outputMode: options.outputMode
       });
     },
-    async verifyRestore(env): Promise<{
+    async verifyRestore(env, _manifest, options): Promise<{
       collectionsPresent: string[];
       missingCollections: string[];
       countMismatches: Array<{
@@ -215,7 +224,10 @@ function createRunRestoreDependencies(
         actual: number;
       }>;
     }> {
-      calls.verifications.push(env.id);
+      calls.verifications.push({
+        target: env.id,
+        outputMode: options?.outputMode
+      });
       return {
         collectionsPresent: ["orders", "customers"],
         missingCollections: [],
@@ -326,6 +338,57 @@ test("restoreCollection delegates after confirmation", async () => {
   ]);
 });
 
+test("restoreFull rejects production restores without the force flag", async () => {
+  const { dependencies, calls } = createRestoreCommandDependencies();
+
+  await assert.rejects(
+    () =>
+      restoreFull(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          to: "production",
+          yes: false,
+          skipPreBackup: false,
+          forceProductionRestore: false,
+          outputMode: "default"
+        },
+        dependencies
+      ),
+    /Production restore requires --force-production-restore/
+  );
+
+  assert.deepEqual(calls.runRestoreFullArgs, []);
+});
+
+test("restoreFull rejects mismatched production confirmation text", async () => {
+  const { dependencies, calls } = createRestoreCommandDependencies({
+    async promptText(message: string): Promise<string> {
+      calls.promptTexts.push(message);
+      return "WRONG";
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      restoreFull(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          to: "production",
+          yes: false,
+          skipPreBackup: false,
+          forceProductionRestore: true,
+          outputMode: "default"
+        },
+        dependencies
+      ),
+    /Production restore confirmation did not match/
+  );
+
+  assert.deepEqual(calls.runRestoreFullArgs, []);
+});
+
 test("runRestoreFull performs pre-restore backup for production targets", async () => {
   const { dependencies, calls } = createRunRestoreDependencies();
 
@@ -355,10 +418,16 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
       target: "production",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
       collection: undefined,
-      drop: false
+      drop: false,
+      outputMode: "default"
     }
   ]);
-  assert.deepEqual(calls.verifications, ["production"]);
+  assert.deepEqual(calls.verifications, [
+    {
+      target: "production",
+      outputMode: "default"
+    }
+  ]);
   assert.deepEqual(calls.output, [
     "Starting restore backup-name -> production\n",
     "Creating pre-restore backup...\n",
@@ -468,7 +537,8 @@ test("runRestoreCollection validates collection membership and restores with dro
       target: "test",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
       collection: "orders",
-      drop: true
+      drop: true,
+      outputMode: "default"
     }
   ]);
   assert.deepEqual(calls.output, [
@@ -545,4 +615,19 @@ test("runRestoreFull suppresses summary output in quiet mode", async () => {
   );
 
   assert.deepEqual(calls.output, []);
+  assert.deepEqual(calls.restores, [
+    {
+      target: "development",
+      archivePath: "/tmp/backups/backup-name/dump.archive.gz",
+      collection: undefined,
+      drop: true,
+      outputMode: "quiet"
+    }
+  ]);
+  assert.deepEqual(calls.verifications, [
+    {
+      target: "development",
+      outputMode: "quiet"
+    }
+  ]);
 });

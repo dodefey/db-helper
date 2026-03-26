@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Phase 4 complete; later phases pending
+Status: Phase 5 complete; Phase 6 pending
 Branch baseline: main
 Sequence: restore contract first, restore execution second, restore output and interruption hardening third
 ```
@@ -203,7 +203,13 @@ Notes:
 
 Status:
 
-- pending
+- complete
+
+Notes:
+
+- [tests/restore.test.ts](/Users/davidodefey/projects/dbtools/tests/restore.test.ts) now covers command-surface rejection paths for production restore safeguards
+- restore execution tests now assert output-mode propagation into restore and verify helpers
+- repo verification remains green after the additional restore coverage
 
 ### Phase 6
 
