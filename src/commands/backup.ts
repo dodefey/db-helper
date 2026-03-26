@@ -1,24 +1,10 @@
-import path from "node:path";
 import { AppConfig, BackupRecord, EnvironmentId } from "../config/types.js";
 import {
-  archivePathForBackup,
-  buildBackupName,
   ensureBackupArtifacts,
   listBackups,
-  readBackup,
-  writeBackupManifest
+  readBackup
 } from "../lib/backups.js";
-import { ensureDirectory } from "../lib/fs.js";
-import {
-  createArchiveBackup,
-  getCollectionCounts,
-  listCollections
-} from "../lib/mongo.js";
-import { TOOL_VERSION } from "../version.js";
-
-function filterBackupCollections(collections: string[]): string[] {
-  return collections.filter((name) => !name.startsWith("system."));
-}
+import { runBackupCreate } from "../lib/backup.js";
 
 export async function backupCreate(
   appConfig: AppConfig,
@@ -29,34 +15,7 @@ export async function backupCreate(
     backupName?: string;
   }
 ): Promise<BackupRecord> {
-  const env = appConfig.environments[input.from];
-  const backupName = input.backupName ?? buildBackupName(env);
-  const archiveFile = archivePathForBackup(appConfig.backupRoot, backupName);
-
-  await ensureDirectory(appConfig.backupRoot);
-  await ensureDirectory(path.dirname(archiveFile));
-
-  const collectionList = filterBackupCollections(await listCollections(env));
-  const collectionCounts = await getCollectionCounts(env, collectionList);
-  await createArchiveBackup(env, appConfig, archiveFile);
-
-  const manifest = {
-    backupName,
-    sourceEnvironment: env.id,
-    databaseName: env.databaseName,
-    createdAt: new Date().toISOString(),
-    note: input.note,
-    tags: input.tags ?? [],
-    collectionList,
-    toolVersion: TOOL_VERSION,
-    archiveFile: "dump.archive.gz",
-    collectionCounts
-  };
-
-  await writeBackupManifest(appConfig.backupRoot, manifest);
-  await ensureBackupArtifacts(appConfig.backupRoot, backupName);
-
-  return readBackup(appConfig.backupRoot, backupName);
+  return runBackupCreate(appConfig, input);
 }
 
 export async function backupList(
