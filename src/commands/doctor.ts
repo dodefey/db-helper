@@ -1,35 +1,151 @@
 import { access } from "node:fs/promises";
 import { constants } from "node:fs";
-import { AppConfig } from "../config/types.js";
+import {
+  AppConfig,
+  EnvironmentConfig,
+  EnvironmentId
+} from "../config/types.js";
 import { assertWritable } from "../lib/fs.js";
 import { verifyConnectivity } from "../lib/mongo.js";
 import { runCommand } from "../lib/exec.js";
 
-async function ensureBinary(name: string): Promise<void> {
-  await runCommand("which", [name]);
+const REQUIRED_BINARIES = [
+  "mongodump",
+  "mongorestore",
+  "mongosh",
+  "ssh",
+  "scp"
+] as const;
+
+type DoctorStatus = "pass" | "fail";
+type DoctorScope = "global" | "backupRoot" | "tempRoot" | EnvironmentId;
+
+interface DoctorCheckResult {
+  check: string;
+  scope: DoctorScope;
+  status: DoctorStatus;
+  message: string;
 }
 
-export async function runDoctor(appConfig: AppConfig): Promise<void> {
-  process.stdout.write("Running doctor checks...\n");
+export interface DoctorDependencies {
+  ensureBinary: (name: string) => Promise<void>;
+  assertWritable: (path: string) => Promise<void>;
+  assertReadable: (path: string) => Promise<void>;
+  verifyConnectivity: (env: EnvironmentConfig) => Promise<void>;
+  writeStdout: (message: string) => void;
+}
 
-  for (const binary of ["mongodump", "mongorestore", "mongosh", "ssh", "scp"]) {
-    await ensureBinary(binary);
+const DEFAULT_DOCTOR_DEPENDENCIES: DoctorDependencies = {
+  async ensureBinary(name: string): Promise<void> {
+    await runCommand("which", [name]);
+  },
+  assertWritable,
+  async assertReadable(path: string): Promise<void> {
+    await access(path, constants.R_OK);
+  },
+  verifyConnectivity,
+  writeStdout: (message: string): void => {
+    process.stdout.write(message);
+  }
+};
+
+function formatDoctorLine(result: DoctorCheckResult): string {
+  const label = result.status.toUpperCase();
+  const scope =
+    result.scope === "global"
+      ? ""
+      : result.scope === "backupRoot"
+        ? " backupRoot"
+        : result.scope === "tempRoot"
+          ? " tempRoot"
+          : ` environment ${result.scope}`;
+
+  return `${label}${scope} ${result.check}: ${result.message}\n`;
+}
+
+async function runCheck(
+  results: DoctorCheckResult[],
+  result: Omit<DoctorCheckResult, "status" | "message">,
+  operation: () => Promise<void>
+): Promise<boolean> {
+  try {
+    await operation();
+    results.push({
+      ...result,
+      status: "pass",
+      message: "ok"
+    });
+    return true;
+  } catch (error) {
+    results.push({
+      ...result,
+      status: "fail",
+      message: error instanceof Error ? error.message : String(error)
+    });
+    return false;
+  }
+}
+
+function hasMongoCredentials(env: EnvironmentConfig): boolean {
+  return Boolean(env.mongoUser && env.mongoPassword);
+}
+
+export async function runDoctor(
+  appConfig: AppConfig,
+  dependencies: DoctorDependencies = DEFAULT_DOCTOR_DEPENDENCIES
+): Promise<void> {
+  const results: DoctorCheckResult[] = [];
+
+  dependencies.writeStdout("Running doctor checks...\n");
+
+  for (const binary of REQUIRED_BINARIES) {
+    await runCheck(
+      results,
+      { check: `binary ${binary}`, scope: "global" },
+      () => dependencies.ensureBinary(binary)
+    );
   }
 
-  await assertWritable(appConfig.backupRoot);
-  await assertWritable(appConfig.tempRoot);
+  await runCheck(results, { check: "writable", scope: "backupRoot" }, () =>
+    dependencies.assertWritable(appConfig.backupRoot)
+  );
+  await runCheck(results, { check: "writable", scope: "tempRoot" }, () =>
+    dependencies.assertWritable(appConfig.tempRoot)
+  );
 
   for (const env of Object.values(appConfig.environments)) {
     if (env.kind === "remote" && env.sshKeyPath) {
-      await access(env.sshKeyPath, constants.R_OK);
+      await runCheck(results, { check: "ssh key", scope: env.id }, () =>
+        dependencies.assertReadable(env.sshKeyPath!)
+      );
     }
 
-    if (!env.mongoUser || !env.mongoPassword) {
-      throw new Error(`Mongo credentials missing for ${env.id}`);
+    if (!hasMongoCredentials(env)) {
+      results.push({
+        check: "credentials",
+        scope: env.id,
+        status: "fail",
+        message: `Mongo credentials missing for ${env.id}`
+      });
+      continue;
     }
 
-    await verifyConnectivity(env);
+    await runCheck(results, { check: "connectivity", scope: env.id }, () =>
+      dependencies.verifyConnectivity(env)
+    );
   }
 
-  process.stdout.write("Doctor checks passed.\n");
+  for (const result of results) {
+    dependencies.writeStdout(formatDoctorLine(result));
+  }
+
+  const failures = results.filter((result) => result.status === "fail");
+  if (failures.length > 0) {
+    dependencies.writeStdout(
+      `Doctor checks failed: ${failures.length} issue(s).\n`
+    );
+    throw new Error(`Doctor checks failed: ${failures.length} issue(s).`);
+  }
+
+  dependencies.writeStdout("Doctor checks passed.\n");
 }
