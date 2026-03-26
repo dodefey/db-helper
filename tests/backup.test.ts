@@ -315,6 +315,40 @@ test("runBackupCreate rewrites elapsed status in interactive mode", async () => 
   ]);
 });
 
+test("runBackupCreate does not rewrite elapsed status in verbose mode", async () => {
+  const { dependencies, calls } = createBackupDependencies({
+    isInteractiveStdout(): boolean {
+      return true;
+    },
+    async runWithElapsedStatus<T>(
+      baseMessage: string,
+      task: () => Promise<T>
+    ): Promise<T> {
+      calls.stdout.push(`UNEXPECTED:${baseMessage}`);
+      return task();
+    }
+  });
+
+  await runBackupCreate(
+    buildAppConfig(),
+    { from: "development", outputMode: "verbose" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.stdout, [
+    "Starting backup from development\n",
+    "Collecting source metadata...\n",
+    "Creating archive...\n",
+    "Writing manifest...\n",
+    "Validating backup...\n",
+    "Backup complete: 2026-03-26T12-00-00-development\n",
+    "Path: /tmp/db-helper-backups/2026-03-26T12-00-00-development\n"
+  ]);
+  assert.deepEqual(calls.listedCollectionOutputModes, ["default"]);
+  assert.deepEqual(calls.countedCollectionOutputModes, ["default"]);
+  assert.deepEqual(calls.archiveOutputModes, ["verbose"]);
+});
+
 test("backupCreate delegates to runBackupCreate with output mode", async () => {
   const appConfig = buildAppConfig();
   const expectedRecord = {

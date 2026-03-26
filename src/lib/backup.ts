@@ -14,7 +14,7 @@ import {
   getCollectionCounts,
   listCollections
 } from "./mongo.js";
-import { OutputMode, shouldPrintCommandSummary } from "./output.js";
+import { OutputMode } from "./output.js";
 import { TOOL_VERSION } from "../version.js";
 
 export interface RunBackupCreateDependencies {
@@ -176,7 +176,8 @@ export async function runBackupCreate(
     interrupted = true;
     abortController.abort();
   });
-  const printSummary = shouldPrintCommandSummary(input.outputMode);
+  const printSummary = input.outputMode !== "quiet";
+  const useElapsedStatus = input.outputMode === "default";
   let currentPhase: BackupCreatePhase = "metadata";
   let cleanupFailed = false;
 
@@ -187,13 +188,16 @@ export async function runBackupCreate(
     await dependencies.ensureDirectory(appConfig.backupRoot);
     await dependencies.ensureDirectory(path.dirname(archiveFile));
 
-    const metadataResult = printSummary
+    const metadataOutputMode =
+      input.outputMode === "verbose" ? "default" : input.outputMode;
+
+    const metadataResult = useElapsedStatus
       ? await dependencies.runWithElapsedStatus(
           "Collecting source metadata...",
           async () => {
             const collectionList = filterBackupCollections(
               await dependencies.listCollections(env, {
-                outputMode: input.outputMode,
+                outputMode: metadataOutputMode,
                 signal: abortController.signal
               })
             );
@@ -201,7 +205,7 @@ export async function runBackupCreate(
               env,
               collectionList,
               {
-                outputMode: input.outputMode,
+                outputMode: metadataOutputMode,
                 signal: abortController.signal
               }
             );
@@ -209,9 +213,12 @@ export async function runBackupCreate(
           }
         )
       : await (async () => {
+          if (printSummary) {
+            dependencies.writeStdout("Collecting source metadata...\n");
+          }
           const collectionList = filterBackupCollections(
             await dependencies.listCollections(env, {
-              outputMode: input.outputMode,
+              outputMode: metadataOutputMode,
               signal: abortController.signal
             })
           );
@@ -219,7 +226,7 @@ export async function runBackupCreate(
             env,
             collectionList,
             {
-              outputMode: input.outputMode,
+              outputMode: metadataOutputMode,
               signal: abortController.signal
             }
           );
@@ -228,7 +235,7 @@ export async function runBackupCreate(
     const { collectionList, collectionCounts } = metadataResult;
 
     currentPhase = "archive";
-    if (printSummary) {
+    if (useElapsedStatus) {
       await dependencies.runWithElapsedStatus("Creating archive...", () =>
         dependencies.createArchiveBackup(env, appConfig, archiveFile, {
           outputMode: input.outputMode,
@@ -236,6 +243,9 @@ export async function runBackupCreate(
         })
       );
     } else {
+      if (printSummary) {
+        dependencies.writeStdout("Creating archive...\n");
+      }
       await dependencies.createArchiveBackup(env, appConfig, archiveFile, {
         outputMode: input.outputMode,
         signal: abortController.signal
