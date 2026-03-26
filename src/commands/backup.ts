@@ -16,6 +16,10 @@ import {
 } from "../lib/mongo.js";
 import { TOOL_VERSION } from "../version.js";
 
+function filterBackupCollections(collections: string[]): string[] {
+  return collections.filter((name) => !name.startsWith("system."));
+}
+
 export async function backupCreate(
   appConfig: AppConfig,
   input: {
@@ -32,7 +36,7 @@ export async function backupCreate(
   await ensureDirectory(appConfig.backupRoot);
   await ensureDirectory(path.dirname(archiveFile));
 
-  const collectionList = await listCollections(env);
+  const collectionList = filterBackupCollections(await listCollections(env));
   const collectionCounts = await getCollectionCounts(env, collectionList);
   await createArchiveBackup(env, appConfig, archiveFile);
 

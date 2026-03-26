@@ -91,6 +91,7 @@ function createRunSyncDependencies(
     restores: Array<{ target: EnvironmentId; archive: string; drop: boolean }>;
     verifications: EnvironmentId[];
     unlinks: string[];
+    interruptHandler?: () => void;
   };
 } {
   const calls = {
@@ -108,7 +109,8 @@ function createRunSyncDependencies(
       drop: boolean;
     }>,
     verifications: [] as EnvironmentId[],
-    unlinks: [] as string[]
+    unlinks: [] as string[],
+    interruptHandler: undefined as (() => void) | undefined
   };
 
   const dependencies: RunSyncDependencies = {
@@ -117,6 +119,12 @@ function createRunSyncDependencies(
     },
     isInteractiveStdout(): boolean {
       return false;
+    },
+    installInterruptHandler(onInterrupt: () => void): () => void {
+      calls.interruptHandler = onInterrupt;
+      return () => {
+        calls.interruptHandler = undefined;
+      };
     },
     async runWithElapsedStatus<T>(
       baseMessage: string,
@@ -604,4 +612,24 @@ test("runSync preserves the original failure when cleanup fails too", async () =
     ),
     /Sync failed during restore.*Target development may be dirty\..*Temp artifact cleanup also failed\..*restore failed/s
   );
+});
+
+test("runSync reports interrupt state and cleanup attempt on ctrl-c during restore", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      calls.interruptHandler?.();
+      throw new Error("Command interrupted: mongorestore");
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      dependencies
+    ),
+    /Sync interrupted during restore.*Target development may be dirty\..*Temp artifact cleanup attempted\..*Command interrupted: mongorestore/s
+  );
+
+  assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
 });

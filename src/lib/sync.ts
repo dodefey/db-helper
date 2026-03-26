@@ -1,4 +1,5 @@
-import { unlink } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
+import { access, unlink } from "node:fs/promises";
 import { AppConfig, BackupManifest, EnvironmentId } from "../config/types.js";
 import {
   createArchiveBackup,
@@ -13,6 +14,7 @@ import { verifyRestore } from "./verify.js";
 export interface RunSyncDependencies {
   writeStdout: (message: string) => void;
   isInteractiveStdout: () => boolean;
+  installInterruptHandler: (onInterrupt: () => void) => () => void;
   runWithElapsedStatus: <T>(
     baseMessage: string,
     task: () => Promise<T>
@@ -60,9 +62,23 @@ async function runWithElapsedStatus<T>(
   }
 }
 
+async function removeTempArchiveIfPresent(archivePath: string): Promise<void> {
+  try {
+    await access(archivePath, fsConstants.F_OK);
+  } catch {
+    return;
+  }
+
+  await unlink(archivePath);
+}
+
 const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
   writeStdout: (message: string) => process.stdout.write(message),
   isInteractiveStdout: () => Boolean(process.stdout.isTTY),
+  installInterruptHandler: (onInterrupt) => {
+    process.on("SIGINT", onInterrupt);
+    return () => process.removeListener("SIGINT", onInterrupt);
+  },
   runWithElapsedStatus: (baseMessage, task) =>
     runWithElapsedStatus(
       (message) => process.stdout.write(message),
@@ -76,7 +92,7 @@ const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
   getCollectionCounts,
   restoreArchiveToEnvironment,
   verifyRestore,
-  unlink
+  unlink: removeTempArchiveIfPresent
 };
 
 type SyncPhase =
@@ -90,6 +106,7 @@ class SyncPhaseError extends Error {
   readonly phase: SyncPhase;
   readonly targetMayBeDirty: boolean;
   readonly cleanupFailed: boolean;
+  readonly interrupted: boolean;
   readonly cause?: unknown;
 
   constructor(input: {
@@ -97,6 +114,7 @@ class SyncPhaseError extends Error {
     message: string;
     targetMayBeDirty: boolean;
     cleanupFailed?: boolean;
+    interrupted?: boolean;
     cause?: unknown;
   }) {
     super(input.message);
@@ -104,6 +122,7 @@ class SyncPhaseError extends Error {
     this.phase = input.phase;
     this.targetMayBeDirty = input.targetMayBeDirty;
     this.cleanupFailed = input.cleanupFailed ?? false;
+    this.interrupted = input.interrupted ?? false;
     this.cause = input.cause;
   }
 }
@@ -116,21 +135,25 @@ function formatSyncFailure(
     targetMayBeDirty: boolean;
     details: string;
     cleanupFailed?: boolean;
+    interrupted?: boolean;
   }
 ): string {
   const phaseLabel =
     input.phase === "source_metadata"
       ? "source metadata"
       : input.phase;
+  const actionLabel = input.interrupted ? "interrupted" : "failed";
   const targetStatus = input.targetMayBeDirty
     ? `Target ${input.to} may be dirty.`
     : `Target ${input.to} was not modified.`;
   const cleanupStatus = input.cleanupFailed
     ? " Temp artifact cleanup also failed."
+    : input.interrupted
+      ? " Temp artifact cleanup attempted."
     : "";
 
   return (
-    `Sync failed during ${phaseLabel} for ${input.from} -> ${input.to}.\n` +
+    `Sync ${actionLabel} during ${phaseLabel} for ${input.from} -> ${input.to}.\n` +
     `${targetStatus}${cleanupStatus}\n` +
     `${input.details}`
   );
@@ -142,6 +165,10 @@ function getErrorDetails(error: unknown): string {
   }
 
   return String(error);
+}
+
+function isInterruptedError(error: unknown): boolean {
+  return error instanceof Error && error.message.startsWith("Command interrupted:");
 }
 
 function filterSyncCollections(collections: string[]): string[] {
@@ -174,17 +201,24 @@ export async function runSync(
   const source = appConfig.environments[input.from];
   const target = appConfig.environments[input.to];
   const printSummary = shouldPrintCommandSummary(input.outputMode);
+  let interrupted = false;
+  const abortController = new AbortController();
+  const removeInterruptHandler = dependencies.installInterruptHandler(() => {
+    interrupted = true;
+    abortController.abort();
+  });
   let countProgressActive = false;
   let countProgressLastWidth = 0;
   const collectionList = filterSyncCollections(
     await dependencies.listCollections(source, {
-      outputMode: input.outputMode
+      outputMode: input.outputMode,
+      signal: abortController.signal
     })
   );
   const collectionCounts = await dependencies.getCollectionCounts(
     source,
     collectionList,
-    { outputMode: input.outputMode }
+    { outputMode: input.outputMode, signal: abortController.signal }
   );
   const verificationManifest = buildSyncVerificationManifest(
     input.from,
@@ -210,13 +244,15 @@ export async function runSync(
         `Dumping source ${input.from}...`,
         () =>
           dependencies.createArchiveBackup(source, appConfig, tempArchive, {
-            outputMode: input.outputMode
+            outputMode: input.outputMode,
+            signal: abortController.signal
           })
       );
     } else {
       currentPhase = "dump";
       await dependencies.createArchiveBackup(source, appConfig, tempArchive, {
-        outputMode: input.outputMode
+        outputMode: input.outputMode,
+        signal: abortController.signal
       });
     }
     if (printSummary) {
@@ -229,7 +265,11 @@ export async function runSync(
             target,
             appConfig,
             tempArchive,
-            { drop: true, outputMode: input.outputMode }
+            {
+              drop: true,
+              outputMode: input.outputMode,
+              signal: abortController.signal
+            }
           )
       );
       dependencies.writeStdout(`Verifying target ${input.to}...\n`);
@@ -242,7 +282,7 @@ export async function runSync(
         target,
         appConfig,
         tempArchive,
-        { drop: true, outputMode: input.outputMode }
+        { drop: true, outputMode: input.outputMode, signal: abortController.signal }
       );
     }
     currentPhase = "verify";
@@ -251,6 +291,7 @@ export async function runSync(
       verificationManifest,
       {
         outputMode: input.outputMode,
+        signal: abortController.signal,
         onCountedCollection: printSummary
           ? ({ completed, total, collection }) => {
               const message = `Checked collection counts: ${completed}/${total} (${collection})`;
@@ -278,11 +319,13 @@ export async function runSync(
       throw new SyncPhaseError({
         phase: "verify",
         targetMayBeDirty: true,
+        interrupted: false,
         message: formatSyncFailure({
           from: input.from,
           to: input.to,
           phase: "verify",
           targetMayBeDirty: true,
+          interrupted: false,
           details:
             `Missing collections: ${
               verification.missingCollections.join(", ") || "none"
@@ -306,17 +349,20 @@ export async function runSync(
       primaryError = new SyncPhaseError({
         phase: currentPhase,
         targetMayBeDirty,
+        interrupted: interrupted || isInterruptedError(error),
         cause: error,
         message: formatSyncFailure({
           from: input.from,
           to: input.to,
           phase: currentPhase,
           targetMayBeDirty,
+          interrupted: interrupted || isInterruptedError(error),
           details: getErrorDetails(error)
         })
       });
     }
   }
+  removeInterruptHandler();
   if (countProgressActive) {
     dependencies.writeStdout("\n");
     countProgressLastWidth = 0;
@@ -332,12 +378,14 @@ export async function runSync(
         phase: primaryError.phase,
         targetMayBeDirty: primaryError.targetMayBeDirty,
         cleanupFailed: true,
+        interrupted: primaryError.interrupted,
         cause: primaryError.cause,
         message: formatSyncFailure({
           from: input.from,
           to: input.to,
           phase: primaryError.phase,
           targetMayBeDirty: primaryError.targetMayBeDirty,
+          interrupted: primaryError.interrupted,
           details: getErrorDetails(primaryError.cause ?? primaryError),
           cleanupFailed: true
         })
@@ -348,11 +396,13 @@ export async function runSync(
         targetMayBeDirty,
         cause: error,
         cleanupFailed: true,
+        interrupted,
         message: formatSyncFailure({
           from: input.from,
           to: input.to,
           phase: "cleanup",
           targetMayBeDirty,
+          interrupted,
           details: getErrorDetails(error),
           cleanupFailed: true
         })

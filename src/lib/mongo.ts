@@ -28,15 +28,14 @@ async function cleanupRemoteArchive(
   env: EnvironmentConfig,
   remotePath: string
 ): Promise<void> {
-  await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`).catch(
-    () => undefined
-  );
+  await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`, true).catch(() => undefined);
 }
 
 async function runRemote(
   env: EnvironmentConfig,
   remoteCommand: string,
-  streamOutput = true
+  streamOutput = true,
+  signal?: AbortSignal
 ): Promise<string> {
   if (!env.sshUser || !env.sshKeyPath) {
     throw new Error(`Remote environment ${env.id} is missing SSH config`);
@@ -45,39 +44,41 @@ async function runRemote(
   return runCommand(
     "ssh",
     ["-i", env.sshKeyPath, `${env.sshUser}@${env.host}`, remoteCommand],
-    { streamOutput }
+    { streamOutput, signal }
   );
 }
 
 async function copyFromRemote(
   env: EnvironmentConfig,
   remotePath: string,
-  localPath: string
+  localPath: string,
+  signal?: AbortSignal
 ): Promise<void> {
   await runCommand("scp", [
     "-i",
     env.sshKeyPath!,
     `${env.sshUser}@${env.host}:${remotePath}`,
     localPath
-  ]);
+  ], { signal });
 }
 
 async function copyToRemote(
   env: EnvironmentConfig,
   localPath: string,
-  remotePath: string
+  remotePath: string,
+  signal?: AbortSignal
 ): Promise<void> {
   await runCommand("scp", [
     "-i",
     env.sshKeyPath!,
     localPath,
     `${env.sshUser}@${env.host}:${remotePath}`
-  ]);
+  ], { signal });
 }
 
 export async function listCollections(
   env: EnvironmentConfig,
-  options: { outputMode?: OutputMode } = {}
+  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
 ): Promise<string[]> {
   const streamOutput = shouldStreamSubprocessOutput(
     options.outputMode ?? "verbose"
@@ -88,12 +89,13 @@ export async function listCollections(
       ? await runCommand(
           "mongosh",
           [mongoUri(env), "--quiet", "--eval", script],
-          { streamOutput }
+          { streamOutput, signal: options.signal }
         )
       : await runRemote(
           env,
           `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
-          streamOutput
+          streamOutput,
+          options.signal
         );
 
   return JSON.parse(output || "[]") as string[];
@@ -102,7 +104,7 @@ export async function listCollections(
 export async function getCollectionCounts(
   env: EnvironmentConfig,
   collections: string[],
-  options: { outputMode?: OutputMode } = {}
+  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
 ): Promise<Record<string, number>> {
   if (collections.length === 0) {
     return {};
@@ -119,12 +121,13 @@ export async function getCollectionCounts(
       ? await runCommand(
           "mongosh",
           [mongoUri(env), "--quiet", "--eval", script],
-          { streamOutput }
+          { streamOutput, signal: options.signal }
         )
       : await runRemote(
           env,
           `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
-          streamOutput
+          streamOutput,
+          options.signal
         );
 
   return JSON.parse(output || "{}") as Record<string, number>;
@@ -134,7 +137,7 @@ export async function createArchiveBackup(
   env: EnvironmentConfig,
   appConfig: AppConfig,
   destinationFile: string,
-  options: { outputMode?: OutputMode } = {}
+  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
 ): Promise<void> {
   const streamOutput = shouldStreamSubprocessOutput(
     options.outputMode ?? "verbose"
@@ -144,7 +147,7 @@ export async function createArchiveBackup(
     await runCommand(
       "mongodump",
       ["--uri", mongoUri(env), "--gzip", `--archive=${destinationFile}`],
-      { streamOutput }
+      { streamOutput, signal: options.signal }
     );
     return;
   }
@@ -154,9 +157,10 @@ export async function createArchiveBackup(
     await runRemote(
       env,
       `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`,
-      streamOutput
+      streamOutput,
+      options.signal
     );
-    await copyFromRemote(env, remotePath, destinationFile);
+    await copyFromRemote(env, remotePath, destinationFile, options.signal);
   } finally {
     await cleanupRemoteArchive(env, remotePath);
   }
@@ -166,7 +170,12 @@ export async function restoreArchiveToEnvironment(
   env: EnvironmentConfig,
   appConfig: AppConfig,
   archiveFile: string,
-  options: { collection?: string; drop: boolean; outputMode?: OutputMode }
+  options: {
+    collection?: string;
+    drop: boolean;
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+  }
 ): Promise<void> {
   const streamOutput = shouldStreamSubprocessOutput(
     options.outputMode ?? "verbose"
@@ -184,7 +193,7 @@ export async function restoreArchiveToEnvironment(
     await runCommand(
       "mongorestore",
       [...baseArgs, `--archive=${archiveFile}`],
-      { streamOutput }
+      { streamOutput, signal: options.signal }
     );
     return;
   }
@@ -194,14 +203,16 @@ export async function restoreArchiveToEnvironment(
     await runRemote(
       env,
       `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
-      streamOutput
+      streamOutput,
+      options.signal
     );
-    await copyToRemote(env, archiveFile, remotePath);
+    await copyToRemote(env, archiveFile, remotePath, options.signal);
     const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
     await runRemote(
       env,
       `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
-      streamOutput
+      streamOutput,
+      options.signal
     );
   } finally {
     await cleanupRemoteArchive(env, remotePath);

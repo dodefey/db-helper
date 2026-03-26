@@ -11,6 +11,7 @@ export async function verifyRestore(
   manifest: BackupManifest,
   options: {
     outputMode?: OutputMode;
+    signal?: AbortSignal;
     onCountedCollection?: (progress: {
       completed: number;
       total: number;

@@ -5,6 +5,7 @@ export interface RunCommandOptions {
   env?: NodeJS.ProcessEnv;
   stdin?: string;
   streamOutput?: boolean;
+  signal?: AbortSignal;
 }
 
 function shellEscape(value: string): string {
@@ -23,6 +24,7 @@ export async function runCommand(
   const rendered = formatCommand(command, args);
 
   return new Promise((resolve, reject) => {
+    let settled = false;
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
@@ -31,6 +33,35 @@ export async function runCommand(
 
     let stdout = "";
     let stderr = "";
+
+    const abortListener = (): void => {
+      child.kill("SIGINT");
+      rejectOnce(new Error(`Command interrupted: ${rendered}`));
+    };
+
+    const cleanupAbortListener = (): void => {
+      if (options.signal && abortListener) {
+        options.signal.removeEventListener("abort", abortListener);
+      }
+    };
+
+    const rejectOnce = (error: Error): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanupAbortListener();
+      reject(error);
+    };
+
+    const resolveOnce = (value: string): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      cleanupAbortListener();
+      resolve(value);
+    };
 
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString();
@@ -49,19 +80,29 @@ export async function runCommand(
     });
 
     child.on("error", (error) => {
-      reject(new Error(`Failed to run command: ${rendered}\n${error.message}`));
+      rejectOnce(
+        new Error(`Failed to run command: ${rendered}\n${error.message}`)
+      );
     });
 
     child.on("close", (code) => {
       if (code === 0) {
-        resolve(stdout.trim());
+        resolveOnce(stdout.trim());
         return;
       }
 
-      reject(
+      rejectOnce(
         new Error(`Command failed (${code}): ${rendered}\n${stderr.trim()}`)
       );
     });
+
+    if (options.signal) {
+      if (options.signal.aborted) {
+        abortListener();
+        return;
+      }
+      options.signal.addEventListener("abort", abortListener, { once: true });
+    }
 
     if (options.stdin) {
       child.stdin.write(options.stdin);
