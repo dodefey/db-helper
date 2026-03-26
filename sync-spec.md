@@ -29,7 +29,7 @@ Optional flags:
 
 - `--yes`
 
-No other sync modes are supported in phase 1.
+No other sync modes are supported.
 
 ## Allowed Paths
 
@@ -64,7 +64,7 @@ Meaning:
 
 This command is destructive to the target environment.
 
-Phase 1 behavior:
+Current behavior:
 
 - use `mongorestore --drop`
 - do not support merge mode
@@ -91,11 +91,11 @@ This will replace <to> with <from>. Continue?
 
 If `--yes` is provided, the command may proceed without interactive confirmation.
 
-Phase 1 does not require typed confirmation for non-production targets.
+Typed confirmation is not required for non-production targets.
 
 ## Backups
 
-Phase 1 does not create an automatic pre-sync backup of the target.
+`sync` does not create an automatic pre-sync backup of the target.
 
 Reason:
 
@@ -113,7 +113,7 @@ Future enhancement, not part of this spec:
 
 ## Verification
 
-Phase 1 requires post-sync verification.
+`sync` requires post-sync verification.
 
 Required verification behavior:
 
@@ -122,6 +122,11 @@ Required verification behavior:
 - exclude internal Mongo collections such as `system.*` from sync verification
 
 Verification is part of the sync operation. A sync that restores successfully but fails verification must still be treated as a failed sync.
+
+Current tradeoff:
+
+- count-based verification can be slow on large collections
+- that cost is accepted because the command favors explicit post-restore validation over a faster but less trustworthy default
 
 ## Execution Model
 
@@ -148,7 +153,7 @@ The implementation must keep those details internal to the execution layer.
 
 The command must attempt cleanup even when sync fails.
 
-Phase 1 required cleanup behavior:
+Required cleanup behavior:
 
 - local temp archive should be deleted in a `finally` path
 - remote temp archive should be deleted in a `finally` path when remote execution was used
@@ -172,7 +177,7 @@ Failure cases include:
 
 No rollback is guaranteed.
 
-If restore fails after target drop has started, the target may be left partially restored. This is acceptable for phase 1 because `sync` targets only non-production environments.
+If restore fails after target drop has started, the target may be left partially restored. This is acceptable because `sync` targets only non-production environments.
 
 ### Dirty Target Contract
 
@@ -196,9 +201,24 @@ The implementation must preserve the primary operational failure and must not re
 
 The implementation should surface phase-aware operator messaging so a failed sync clearly states whether the target may be dirty.
 
+Interruptions such as `Ctrl-C` must follow the same phase-aware contract:
+
+- interrupted during dump:
+  - target database state is unchanged
+- interrupted during restore:
+  - target database may be partially replaced and must be treated as dirty
+- interrupted during verification:
+  - target database has been modified and must be treated as dirty
+
+Interruption output should be practical rather than low-level. It should report:
+
+- which sync phase was interrupted
+- whether the target database was modified or may be dirty
+- whether temp artifact cleanup was attempted or may not have completed
+
 ## Logging and Operator Output
 
-Phase 1 output should be concise and operationally useful.
+`sync` output should be concise and operationally useful.
 
 At minimum, output should make clear:
 
@@ -206,12 +226,16 @@ At minimum, output should make clear:
 - target environment
 - whether sync started
 - whether sync completed
+- current long-running phase
+- verification progress while collection counts are being checked
 
-The low-level command runner may stream subprocess output.
+Current output behavior:
 
-Future enhancement:
+- default mode shows sync phases, elapsed timers for dump and restore, and verification count progress
+- quiet mode suppresses normal command-summary output
+- verbose mode may stream low-level subprocess output
 
-- structured step logging with explicit phases such as `dump`, `transfer`, `restore`, and `cleanup`
+Output should avoid dumping raw underlying command text in normal interruption messaging. Operator-facing messages should focus on practical state and next steps.
 
 ## Environment Assumptions
 
@@ -250,13 +274,13 @@ Any refactor of the sync flow should preserve these invariants:
 - sync always performs full target replacement in phase 1
 - sync always attempts temp artifact cleanup
 - sync behavior is expressed in terms of clear source and target environments, not arbitrary URIs
+- interruption handling preserves the same dirty-target contract as ordinary failures
 
 ## Deferred Decisions
 
-These are intentionally out of scope for phase 1 and should not be added implicitly during refactor:
+These are intentionally out of scope and should not be added implicitly during refactor:
 
 - target pre-backup
-- post-sync verification
 - merge mode
 - partial sync
 - typed confirmation for non-production sync
