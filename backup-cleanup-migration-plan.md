@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Phase 4 complete; later phases pending
+Status: Phase 5 complete; Phase 6 pending
 Branch baseline: main
 Sequence: backup contract first, backup execution second, backup output and interruption hardening third
 ```
@@ -221,14 +221,15 @@ Notes:
 
 Status:
 
-- pending
+- complete
 
 Notes:
 
 - current backup tests already exist and should be extended rather than replaced
-- failure cleanup, interruption, and output tests now exist; the next missing tests are any later command-surface expectations
+- failure cleanup, interruption, output, and command-surface tests now exist
 - prefer testing [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts) directly with injected dependencies before adding command-surface tests
 - when later phases add cleanup behavior, include explicit assertions for partial-directory removal attempts and primary-error preservation
+- [src/commands/backup.ts](/Users/davidodefey/projects/dbtools/src/commands/backup.ts) now has a small dependency seam so command behavior can be tested without brittle module patching
 
 ### Phase 6
 
@@ -261,7 +262,7 @@ Status:
 ## Next Implementation Notes
 
 - The next code change should begin in [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts), not in [src/commands/backup.ts](/Users/davidodefey/projects/dbtools/src/commands/backup.ts).
-- Phase 5 should add any remaining tests without changing the public CLI shape.
+- Phase 6 should update README backup docs to match the current implementation and operator workflow.
 - Incomplete backup cleanup is now framed around the backup directory as the unit of validity: if a create run does not complete validation, the directory is treated as invalid and cleanup-attempted.
 - Interruption handling now follows the same practical pattern used for sync: phase-aware messaging, conservative claims about cleanup, and no low-level command dump in the primary user-facing message.
 - [src/lib/backups.ts](/Users/davidodefey/projects/dbtools/src/lib/backups.ts) should remain the artifact helper layer; avoid moving orchestration back into it while implementing later phases.

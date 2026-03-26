@@ -6,6 +6,12 @@ import {
   EnvironmentConfig,
   EnvironmentId
 } from "../src/config/types.js";
+import {
+  backupCreate as commandBackupCreate,
+  backupInspect,
+  backupList,
+  BackupCommandDependencies
+} from "../src/commands/backup.js";
 import { runBackupCreate, RunBackupCreateDependencies } from "../src/lib/backup.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
@@ -259,4 +265,195 @@ test("runBackupCreate suppresses summary output in quiet mode", async () => {
   assert.deepEqual(calls.listedCollectionOutputModes, ["quiet"]);
   assert.deepEqual(calls.countedCollectionOutputModes, ["quiet"]);
   assert.deepEqual(calls.archiveOutputModes, ["quiet"]);
+});
+
+test("backupCreate delegates to runBackupCreate with output mode", async () => {
+  const appConfig = buildAppConfig();
+  const expectedRecord = {
+    name: "backup-name",
+    path: "/tmp/db-helper-backups/backup-name",
+    manifest: {
+      backupName: "backup-name",
+      sourceEnvironment: "development",
+      databaseName: "development",
+      createdAt: "2026-03-26T12:00:00.000Z",
+      note: undefined,
+      tags: [],
+      collectionList: [],
+      toolVersion: "test",
+      archiveFile: "dump.archive.gz",
+      collectionCounts: {}
+    }
+  };
+  const calls: unknown[][] = [];
+  const dependencies: BackupCommandDependencies = {
+    async runBackupCreate(...args) {
+      calls.push(args);
+      return expectedRecord;
+    },
+    async listBackups() {
+      throw new Error("not used");
+    },
+    async ensureBackupArtifacts() {
+      throw new Error("not used");
+    },
+    async readBackup() {
+      throw new Error("not used");
+    }
+  };
+
+  const result = await commandBackupCreate(
+    appConfig,
+    {
+      from: "development",
+      note: "known-good",
+      tags: ["known-good"],
+      backupName: "backup-name",
+      outputMode: "verbose"
+    },
+    dependencies
+  );
+
+  assert.deepEqual(calls, [[
+    appConfig,
+    {
+      from: "development",
+      note: "known-good",
+      tags: ["known-good"],
+      backupName: "backup-name",
+      outputMode: "verbose"
+    }
+  ]]);
+  assert.deepEqual(result, expectedRecord);
+});
+
+test("backupList filters backups by source environment and tag", async () => {
+  const dependencies: BackupCommandDependencies = {
+    async runBackupCreate() {
+      throw new Error("not used");
+    },
+    async listBackups() {
+      return [
+        {
+          name: "prod-known-good",
+          path: "/tmp/db-helper-backups/prod-known-good",
+          manifest: {
+            backupName: "prod-known-good",
+            sourceEnvironment: "production",
+            databaseName: "production",
+            createdAt: "2026-03-26T12:00:00.000Z",
+            note: undefined,
+            tags: ["known-good"],
+            collectionList: [],
+            toolVersion: "test",
+            archiveFile: "dump.archive.gz",
+            collectionCounts: {}
+          }
+        },
+        {
+          name: "prod-pre-restore",
+          path: "/tmp/db-helper-backups/prod-pre-restore",
+          manifest: {
+            backupName: "prod-pre-restore",
+            sourceEnvironment: "production",
+            databaseName: "production",
+            createdAt: "2026-03-26T11:00:00.000Z",
+            note: undefined,
+            tags: ["pre-restore"],
+            collectionList: [],
+            toolVersion: "test",
+            archiveFile: "dump.archive.gz",
+            collectionCounts: {}
+          }
+        },
+        {
+          name: "dev-known-good",
+          path: "/tmp/db-helper-backups/dev-known-good",
+          manifest: {
+            backupName: "dev-known-good",
+            sourceEnvironment: "development",
+            databaseName: "development",
+            createdAt: "2026-03-26T10:00:00.000Z",
+            note: undefined,
+            tags: ["known-good"],
+            collectionList: [],
+            toolVersion: "test",
+            archiveFile: "dump.archive.gz",
+            collectionCounts: {}
+          }
+        }
+      ];
+    },
+    async ensureBackupArtifacts() {
+      throw new Error("not used");
+    },
+    async readBackup() {
+      throw new Error("not used");
+    }
+  };
+
+  const filtered = await backupList(
+    buildAppConfig(),
+    {
+      from: "production",
+      tag: "known-good"
+    },
+    dependencies
+  );
+
+  assert.deepEqual(
+    filtered.map((backup) => backup.name),
+    ["prod-known-good"]
+  );
+});
+
+test("backupInspect validates artifacts before reading the backup", async () => {
+  const appConfig = buildAppConfig();
+  const calls: { ensured: unknown[][]; read: unknown[][] } = {
+    ensured: [],
+    read: []
+  };
+  const expectedRecord = {
+    name: "backup-name",
+    path: "/tmp/db-helper-backups/backup-name",
+    manifest: {
+      backupName: "backup-name",
+      sourceEnvironment: "production",
+      databaseName: "production",
+      createdAt: "2026-03-26T12:00:00.000Z",
+      note: undefined,
+      tags: [],
+      collectionList: [],
+      toolVersion: "test",
+      archiveFile: "dump.archive.gz",
+      collectionCounts: {}
+    }
+  };
+  const dependencies: BackupCommandDependencies = {
+    async runBackupCreate() {
+      throw new Error("not used");
+    },
+    async listBackups() {
+      throw new Error("not used");
+    },
+    async ensureBackupArtifacts(...args) {
+      calls.ensured.push(args);
+    },
+    async readBackup(...args) {
+      calls.read.push(args);
+      return expectedRecord;
+    }
+  };
+
+  const result = await backupInspect(appConfig, "backup-name", dependencies);
+
+  assert.deepEqual(calls.ensured, [[
+    appConfig.backupRoot,
+    "backup-name"
+  ]]);
+  assert.deepEqual(calls.read, [[
+    appConfig.backupRoot,
+    "backup-name"
+  ]]);
+  assert.deepEqual(result, expectedRecord);
 });

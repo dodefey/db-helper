@@ -7,6 +7,20 @@ import {
 import { runBackupCreate } from "../lib/backup.js";
 import { OutputMode } from "../lib/output.js";
 
+export interface BackupCommandDependencies {
+  runBackupCreate: typeof runBackupCreate;
+  listBackups: typeof listBackups;
+  ensureBackupArtifacts: typeof ensureBackupArtifacts;
+  readBackup: typeof readBackup;
+}
+
+const DEFAULT_BACKUP_COMMAND_DEPENDENCIES: BackupCommandDependencies = {
+  runBackupCreate,
+  listBackups,
+  ensureBackupArtifacts,
+  readBackup
+};
+
 export async function backupCreate(
   appConfig: AppConfig,
   input: {
@@ -15,16 +29,18 @@ export async function backupCreate(
     tags?: string[];
     backupName?: string;
     outputMode: OutputMode;
-  }
+  },
+  dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES
 ): Promise<BackupRecord> {
-  return runBackupCreate(appConfig, input);
+  return dependencies.runBackupCreate(appConfig, input);
 }
 
 export async function backupList(
   appConfig: AppConfig,
-  filters: { from?: EnvironmentId; tag?: string }
+  filters: { from?: EnvironmentId; tag?: string },
+  dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES
 ): Promise<BackupRecord[]> {
-  let backups = await listBackups(appConfig.backupRoot);
+  let backups = await dependencies.listBackups(appConfig.backupRoot);
   if (filters.from) {
     backups = backups.filter(
       (backup) => backup.manifest.sourceEnvironment === filters.from
@@ -40,8 +56,9 @@ export async function backupList(
 
 export async function backupInspect(
   appConfig: AppConfig,
-  backupName: string
+  backupName: string,
+  dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES
 ): Promise<BackupRecord> {
-  await ensureBackupArtifacts(appConfig.backupRoot, backupName);
-  return readBackup(appConfig.backupRoot, backupName);
+  await dependencies.ensureBackupArtifacts(appConfig.backupRoot, backupName);
+  return dependencies.readBackup(appConfig.backupRoot, backupName);
 }
