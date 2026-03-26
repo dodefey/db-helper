@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Phase 2 complete; later phases pending
+Status: Phase 3 complete; later phases pending
 Branch baseline: main
 Sequence: backup contract first, backup execution second, backup output and interruption hardening third
 ```
@@ -28,9 +28,10 @@ This document is the canonical working record for backup cleanup. It should be u
 
 - backup metadata now excludes `system.*` collections
 - archive and manifest validation exists through [src/lib/backups.ts](/Users/davidodefey/projects/dbtools/src/lib/backups.ts)
-- backup create does not yet have an explicit interruption contract
-- cleanup of incomplete backup artifacts is not yet a first-class contract
-- Phase 2 intentionally did not add new cleanup semantics; incomplete-backup cleanup remains a later-phase behavior
+- backup create now has a phase-aware interruption and failure contract in [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts)
+- incomplete backup artifacts are now cleanup-attempted when create fails or is interrupted
+- cleanup failure is now reported without replacing the primary backup failure
+- backup create still does not have a dedicated operator-output model; later phases should focus there next
 
 ### Current repo state
 
@@ -62,11 +63,11 @@ That concentration made output, interruption, and cleanup behavior harder to evo
 
 Phase 2 resolves this by moving the create flow into [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts). Later phases should continue to keep the command layer thin instead of moving orchestration back into it.
 
-### Incomplete-backup handling is not yet a stable contract
+### Incomplete-backup handling is now explicit, but output is still behind
 
-Current code validates a finished archive and manifest, but it does not yet define the cleanup behavior for partial backup directories created during failure or interruption.
+Current code now treats incomplete backup directories as invalid and cleanup-attempts them when create fails or is interrupted.
 
-This is the main operational gap in backup create.
+The remaining gap is operator experience, not failure semantics: backup still needs phase-oriented output and a clearer success summary.
 
 ### Backup output is still closer to raw command output than operator output
 
@@ -80,11 +81,15 @@ It does not yet have a clean default-mode phase model, final success summary, or
 
 The implementation should treat that spec as the source of truth and avoid expanding into retention or storage-product work during this cleanup.
 
-### Phase 2 deliberately stopped before changing failure behavior
+### Phase 3 successfully layered cleanup and interruption behavior onto Phase 2
 
-The current extraction does not yet cleanup incomplete backup directories on failure.
+The backup execution layer now owns:
 
-That was intentional. Phase 2 only established the execution boundary and direct tests for the success path. Later phases should add cleanup and interruption behavior on top of that boundary rather than mixing extraction and semantic changes together.
+- cleanup attempts for incomplete backup directories
+- primary-error preservation when cleanup also fails
+- interruption handling that avoids low-level command text in the primary user-facing message
+
+That confirms the Phase 2 extraction boundary was the right place to add Phase 3 behavior.
 
 ## Proposed Target Shape
 
@@ -182,15 +187,14 @@ Notes:
 
 Status:
 
-- pending
+- complete
 
 Notes:
 
 - start from [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts), not the command layer
-- add cleanup-attempt behavior only after deciding how incomplete directories should be reported
-- preserve the primary backup failure when cleanup also fails
-- the first concrete implementation target should be `backup create`, not `backup list` or `backup inspect`
-- represent backup-create phases explicitly in code so later interruption messaging can say whether a usable backup was created
+- backup create now cleanup-attempts incomplete directories on failure and interruption
+- backup create now preserves the primary failure when cleanup also fails
+- backup-create phases are now explicit in code, which should be reused for later output work
 
 ### Phase 4
 
@@ -207,6 +211,7 @@ Notes:
 - keep backup output practical and phase-oriented
 - default-mode output should focus on real phase boundaries only: metadata, archive, manifest, validation, cleanup
 - do not add synthetic progress indicators for archive creation unless they are backed by real subprocess evidence
+- the next code slice should focus on backup create output without reopening cleanup semantics unless real testing shows a gap
 
 ### Phase 5
 
@@ -220,7 +225,7 @@ Status:
 Notes:
 
 - current backup tests already exist and should be extended rather than replaced
-- the next missing tests are failure cleanup, interruption, and output behavior
+- failure cleanup and interruption tests now exist; the next missing tests are output behavior and any later command-surface expectations
 - prefer testing [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts) directly with injected dependencies before adding command-surface tests
 - when later phases add cleanup behavior, include explicit assertions for partial-directory removal attempts and primary-error preservation
 
@@ -255,7 +260,7 @@ Status:
 ## Next Implementation Notes
 
 - The next code change should begin in [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts), not in [src/commands/backup.ts](/Users/davidodefey/projects/dbtools/src/commands/backup.ts).
-- Phase 3 should add cleanup behavior without changing the public CLI shape.
-- Incomplete backup cleanup should be framed around the backup directory as the unit of validity: if a create run does not complete validation, the directory should be treated as invalid and cleanup-attempted.
-- Interruption handling should follow the same practical pattern used for sync: phase-aware messaging, conservative claims about cleanup, and no low-level command dump in the primary user-facing message.
+- Phase 4 should add output behavior without changing the public CLI shape.
+- Incomplete backup cleanup is now framed around the backup directory as the unit of validity: if a create run does not complete validation, the directory is treated as invalid and cleanup-attempted.
+- Interruption handling now follows the same practical pattern used for sync: phase-aware messaging, conservative claims about cleanup, and no low-level command dump in the primary user-facing message.
 - [src/lib/backups.ts](/Users/davidodefey/projects/dbtools/src/lib/backups.ts) should remain the artifact helper layer; avoid moving orchestration back into it while implementing later phases.

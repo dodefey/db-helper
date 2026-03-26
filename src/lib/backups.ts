@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readFile, stat } from "node:fs/promises";
+import { readFile, rm, stat } from "node:fs/promises";
 import {
   BackupManifest,
   BackupRecord,
@@ -36,6 +36,16 @@ export function manifestPathForBackup(
   backupName: string
 ): string {
   return path.join(backupPath(backupRoot, backupName), "manifest.json");
+}
+
+export async function removeBackupArtifacts(
+  backupRoot: string,
+  backupName: string
+): Promise<void> {
+  await rm(backupPath(backupRoot, backupName), {
+    recursive: true,
+    force: true
+  });
 }
 
 export async function writeBackupManifest(

@@ -44,24 +44,37 @@ function createBackupDependencies(
 ): {
   dependencies: RunBackupCreateDependencies;
   calls: {
+    removeInterruptHandlerCount: number;
     ensuredDirs: string[];
     listedCollections: EnvironmentId[];
     countedCollections: Array<{ env: EnvironmentId; collections: string[] }>;
     archives: string[];
     manifests: BackupManifest[];
     ensuredArtifacts: string[];
+    removedBackups: string[];
   };
+  triggerInterrupt: () => void;
 } {
+  let interruptHandler: (() => void) | undefined;
   const calls = {
+    removeInterruptHandlerCount: 0,
     ensuredDirs: [] as string[],
     listedCollections: [] as EnvironmentId[],
     countedCollections: [] as Array<{ env: EnvironmentId; collections: string[] }>,
     archives: [] as string[],
     manifests: [] as BackupManifest[],
-    ensuredArtifacts: [] as string[]
+    ensuredArtifacts: [] as string[],
+    removedBackups: [] as string[]
   };
 
   const dependencies: RunBackupCreateDependencies = {
+    installInterruptHandler(onInterrupt): () => void {
+      interruptHandler = onInterrupt;
+      return () => {
+        calls.removeInterruptHandlerCount += 1;
+        interruptHandler = undefined;
+      };
+    },
     async ensureDirectory(dirPath: string): Promise<void> {
       calls.ensuredDirs.push(dirPath);
     },
@@ -88,6 +101,9 @@ function createBackupDependencies(
     async ensureBackupArtifacts(_backupRoot, backupName): Promise<void> {
       calls.ensuredArtifacts.push(backupName);
     },
+    async removeBackupArtifacts(_backupRoot, backupName): Promise<void> {
+      calls.removedBackups.push(backupName);
+    },
     async readBackup(_backupRoot, backupName) {
       return {
         name: backupName,
@@ -98,7 +114,11 @@ function createBackupDependencies(
     ...overrides
   };
 
-  return { dependencies, calls };
+  return {
+    dependencies,
+    calls,
+    triggerInterrupt: () => interruptHandler?.()
+  };
 }
 
 test("runBackupCreate builds a valid backup record", async () => {
@@ -124,4 +144,62 @@ test("runBackupCreate builds a valid backup record", async () => {
   assert.deepEqual(calls.manifests[0].collectionList, ["orders", "customers"]);
   assert.deepEqual(calls.manifests[0].tags, ["known-good"]);
   assert.deepEqual(calls.ensuredArtifacts, ["2026-03-26T12-00-00-development"]);
+  assert.deepEqual(calls.removedBackups, []);
+  assert.equal(calls.removeInterruptHandlerCount, 1);
+});
+
+test("runBackupCreate attempts cleanup when archive creation fails", async () => {
+  const { dependencies, calls } = createBackupDependencies({
+    async createArchiveBackup(): Promise<void> {
+      throw new Error("archive write failed");
+    }
+  });
+
+  await assert.rejects(
+    () => runBackupCreate(buildAppConfig(), { from: "development" }, dependencies),
+    /Backup failed during archive creation for development\.\nThe backup may be incomplete or invalid and must not be trusted\.\nCleanup of incomplete backup artifacts was attempted\.\narchive write failed/
+  );
+
+  assert.deepEqual(calls.removedBackups, ["2026-03-26T12-00-00-development"]);
+  assert.equal(calls.removeInterruptHandlerCount, 1);
+});
+
+test("runBackupCreate preserves the primary failure when cleanup fails", async () => {
+  const { dependencies, calls } = createBackupDependencies({
+    async ensureBackupArtifacts(): Promise<void> {
+      throw new Error("backup validation failed");
+    },
+    async removeBackupArtifacts(_backupRoot, backupName): Promise<void> {
+      calls.removedBackups.push(backupName);
+      throw new Error("cleanup failed");
+    }
+  });
+
+  await assert.rejects(
+    () => runBackupCreate(buildAppConfig(), { from: "development" }, dependencies),
+    /Backup failed during validation for development\.\nThe backup may be incomplete or invalid and must not be trusted\.\nCleanup of incomplete backup artifacts was attempted but may not have completed\.\nbackup validation failed/
+  );
+
+  assert.deepEqual(calls.removedBackups, ["2026-03-26T12-00-00-development"]);
+  assert.equal(calls.removeInterruptHandlerCount, 1);
+});
+
+test("runBackupCreate reports interruption during archive creation", async () => {
+  const { dependencies, calls, triggerInterrupt } = createBackupDependencies({
+    async createArchiveBackup(_env, _appConfig, _archiveFile, options): Promise<void> {
+      triggerInterrupt();
+      if (options?.signal?.aborted) {
+        throw new Error("Command interrupted: mongodump");
+      }
+      throw new Error("expected interrupt");
+    }
+  });
+
+  await assert.rejects(
+    () => runBackupCreate(buildAppConfig(), { from: "development" }, dependencies),
+    /Backup interrupted during archive creation for development\.\nThe backup may be incomplete or invalid and must not be trusted\.\nCleanup of incomplete backup artifacts was attempted\.\nThe backup was interrupted by the operator\./
+  );
+
+  assert.deepEqual(calls.removedBackups, ["2026-03-26T12-00-00-development"]);
+  assert.equal(calls.removeInterruptHandlerCount, 1);
 });
