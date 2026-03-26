@@ -5,6 +5,7 @@ import {
 } from "./config/loadConfig.js";
 import { ENVIRONMENT_IDS, EnvironmentId } from "./config/types.js";
 import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
+import { runConfigValidate } from "./commands/config.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInteractive } from "./commands/interactive.js";
 import { recoverDatabase } from "./commands/recover.js";
@@ -85,6 +86,7 @@ Default config search:
 
 Commands:
   interactive
+  config validate
   backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
   backup list [--from <environment>] [--tag <tag>]
   backup inspect --backup <backup-name>
@@ -105,11 +107,31 @@ async function main(): Promise<void> {
     return;
   }
 
-  const appConfig = await loadConfig(getFlag(args.flags, "config"));
   const outputMode = parseOutputMode({
     quiet: getBooleanFlag(args.flags, "quiet"),
     verbose: getBooleanFlag(args.flags, "verbose")
   });
+
+  switch (command) {
+    case "config":
+      if (subcommand === "validate") {
+        await runConfigValidate(getFlag(args.flags, "config"));
+        return;
+      }
+      break;
+    case "interactive":
+      break;
+    case "backup":
+    case "sync":
+    case "restore":
+    case "recover":
+    case "doctor":
+      break;
+    default:
+      break;
+  }
+
+  const appConfig = await loadConfig(getFlag(args.flags, "config"));
 
   switch (command) {
     case "interactive":
