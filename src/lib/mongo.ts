@@ -226,7 +226,8 @@ export async function verifyConnectivity(
     await runRemote(env, "true");
   }
 
-  const script = "db.runCommand({ ping: 1 })";
+  const script =
+    "const result = db.runCommand({ ping: 1 }); if (result.ok !== 1) { throw new Error('Mongo ping failed'); }";
   if (env.kind === "local") {
     await runCommand("mongosh", [mongoUri(env), "--quiet", "--eval", script]);
   } else {
