@@ -92,6 +92,16 @@ function createBackupDependencies(
     writeStdout(message: string): void {
       calls.stdout.push(message);
     },
+    isInteractiveStdout(): boolean {
+      return false;
+    },
+    async runWithElapsedStatus<T>(
+      baseMessage: string,
+      task: () => Promise<T>
+    ): Promise<T> {
+      calls.stdout.push(`${baseMessage}\n`);
+      return task();
+    },
     async ensureDirectory(dirPath: string): Promise<void> {
       calls.ensuredDirs.push(dirPath);
     },
@@ -265,6 +275,44 @@ test("runBackupCreate suppresses summary output in quiet mode", async () => {
   assert.deepEqual(calls.listedCollectionOutputModes, ["quiet"]);
   assert.deepEqual(calls.countedCollectionOutputModes, ["quiet"]);
   assert.deepEqual(calls.archiveOutputModes, ["quiet"]);
+});
+
+test("runBackupCreate rewrites elapsed status in interactive mode", async () => {
+  const { dependencies, calls } = createBackupDependencies({
+    isInteractiveStdout(): boolean {
+      return true;
+    },
+    async runWithElapsedStatus<T>(
+      baseMessage: string,
+      task: () => Promise<T>
+    ): Promise<T> {
+      calls.stdout.push(`\r${baseMessage} 00:00`);
+      calls.stdout.push(`\r${baseMessage} 00:01`);
+      const result = await task();
+      calls.stdout.push("\n");
+      return result;
+    }
+  });
+
+  await runBackupCreate(
+    buildAppConfig(),
+    { from: "development", outputMode: "default" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.stdout, [
+    "Starting backup from development\n",
+    "\rCollecting source metadata... 00:00",
+    "\rCollecting source metadata... 00:01",
+    "\n",
+    "\rCreating archive... 00:00",
+    "\rCreating archive... 00:01",
+    "\n",
+    "Writing manifest...\n",
+    "Validating backup...\n",
+    "Backup complete: 2026-03-26T12-00-00-development\n",
+    "Path: /tmp/db-helper-backups/2026-03-26T12-00-00-development\n"
+  ]);
 });
 
 test("backupCreate delegates to runBackupCreate with output mode", async () => {

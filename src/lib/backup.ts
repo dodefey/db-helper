@@ -20,6 +20,11 @@ import { TOOL_VERSION } from "../version.js";
 export interface RunBackupCreateDependencies {
   installInterruptHandler: (onInterrupt: () => void) => () => void;
   writeStdout: (message: string) => void;
+  isInteractiveStdout: () => boolean;
+  runWithElapsedStatus: <T>(
+    baseMessage: string,
+    task: () => Promise<T>
+  ) => Promise<T>;
   ensureDirectory: typeof ensureDirectory;
   buildBackupName: typeof buildBackupName;
   archivePathForBackup: typeof archivePathForBackup;
@@ -38,6 +43,14 @@ const DEFAULT_RUN_BACKUP_CREATE_DEPENDENCIES: RunBackupCreateDependencies = {
     return () => process.removeListener("SIGINT", onInterrupt);
   },
   writeStdout: (message: string) => process.stdout.write(message),
+  isInteractiveStdout: () => Boolean(process.stdout.isTTY),
+  runWithElapsedStatus: (baseMessage, task) =>
+    runWithElapsedStatus(
+      (message) => process.stdout.write(message),
+      () => Boolean(process.stdout.isTTY),
+      baseMessage,
+      task
+    ),
   ensureDirectory,
   buildBackupName,
   archivePathForBackup,
@@ -51,6 +64,41 @@ const DEFAULT_RUN_BACKUP_CREATE_DEPENDENCIES: RunBackupCreateDependencies = {
 };
 
 type BackupCreatePhase = "metadata" | "archive" | "manifest" | "validation";
+
+function formatElapsed(milliseconds: number): string {
+  const totalSeconds = Math.floor(milliseconds / 1000);
+  const minutes = Math.floor(totalSeconds / 60)
+    .toString()
+    .padStart(2, "0");
+  const seconds = (totalSeconds % 60).toString().padStart(2, "0");
+  return `${minutes}:${seconds}`;
+}
+
+async function runWithElapsedStatus<T>(
+  writeStdout: (message: string) => void,
+  isInteractiveStdout: () => boolean,
+  baseMessage: string,
+  task: () => Promise<T>
+): Promise<T> {
+  if (!isInteractiveStdout()) {
+    writeStdout(`${baseMessage}\n`);
+    return task();
+  }
+
+  const startedAt = Date.now();
+  const render = (): void => {
+    writeStdout(`\r${baseMessage} ${formatElapsed(Date.now() - startedAt)}`);
+  };
+
+  render();
+  const timer = setInterval(render, 1000);
+  try {
+    return await task();
+  } finally {
+    clearInterval(timer);
+    writeStdout("\n");
+  }
+}
 
 function isInterruptedError(error: unknown): boolean {
   return error instanceof Error && error.message.startsWith("Command interrupted:");
@@ -135,34 +183,64 @@ export async function runBackupCreate(
   try {
     if (printSummary) {
       dependencies.writeStdout(`Starting backup from ${input.from}\n`);
-      dependencies.writeStdout(`Collecting source metadata...\n`);
     }
     await dependencies.ensureDirectory(appConfig.backupRoot);
     await dependencies.ensureDirectory(path.dirname(archiveFile));
 
-    const collectionList = filterBackupCollections(
-      await dependencies.listCollections(env, {
-        outputMode: input.outputMode,
-        signal: abortController.signal
-      })
-    );
-    const collectionCounts = await dependencies.getCollectionCounts(
-      env,
-      collectionList,
-      {
-        outputMode: input.outputMode,
-        signal: abortController.signal
-      }
-    );
+    const metadataResult = printSummary
+      ? await dependencies.runWithElapsedStatus(
+          "Collecting source metadata...",
+          async () => {
+            const collectionList = filterBackupCollections(
+              await dependencies.listCollections(env, {
+                outputMode: input.outputMode,
+                signal: abortController.signal
+              })
+            );
+            const collectionCounts = await dependencies.getCollectionCounts(
+              env,
+              collectionList,
+              {
+                outputMode: input.outputMode,
+                signal: abortController.signal
+              }
+            );
+            return { collectionList, collectionCounts };
+          }
+        )
+      : await (async () => {
+          const collectionList = filterBackupCollections(
+            await dependencies.listCollections(env, {
+              outputMode: input.outputMode,
+              signal: abortController.signal
+            })
+          );
+          const collectionCounts = await dependencies.getCollectionCounts(
+            env,
+            collectionList,
+            {
+              outputMode: input.outputMode,
+              signal: abortController.signal
+            }
+          );
+          return { collectionList, collectionCounts };
+        })();
+    const { collectionList, collectionCounts } = metadataResult;
 
     currentPhase = "archive";
     if (printSummary) {
-      dependencies.writeStdout(`Creating archive...\n`);
+      await dependencies.runWithElapsedStatus("Creating archive...", () =>
+        dependencies.createArchiveBackup(env, appConfig, archiveFile, {
+          outputMode: input.outputMode,
+          signal: abortController.signal
+        })
+      );
+    } else {
+      await dependencies.createArchiveBackup(env, appConfig, archiveFile, {
+        outputMode: input.outputMode,
+        signal: abortController.signal
+      });
     }
-    await dependencies.createArchiveBackup(env, appConfig, archiveFile, {
-      outputMode: input.outputMode,
-      signal: abortController.signal
-    });
 
     const manifest: BackupManifest = {
       backupName,
