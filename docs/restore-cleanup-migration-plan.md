@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Phase 2 complete; later phases pending
+Status: Phase 3 complete; later phases pending
 Branch baseline: main
 Sequence: restore contract first, restore execution second, restore output and interruption hardening third
 ```
@@ -32,7 +32,8 @@ This document is the canonical working record for restore cleanup. It should be 
 - production restore requires `--force-production-restore` and an extra typed confirmation
 - production restore creates a pre-restore production backup by default
 - restore verification exists for `restore full`
-- restore does not yet have a dedicated interruption contract or output model
+- restore now has a phase-aware interruption and dirty-target contract in the execution layer
+- restore does not yet have a dedicated output model
 
 ### Current repo state
 
@@ -63,9 +64,9 @@ That concentration made failure behavior and testing harder to evolve safely.
 
 Phase 2 resolves the core of that problem by moving restore execution into [src/lib/restore.ts](/Users/davidodefey/projects/dbtools/src/lib/restore.ts).
 
-### Restore has safety rules, but not yet a full operational contract
+### Restore now has a stronger operational contract, but output is still behind
 
-The current code has strong production protections and verification, but it does not yet make interruption behavior, cleanup guarantees, or dirty-target messaging explicit enough.
+The current code now has strong production protections, verification, and phase-aware dirty-target messaging, but it still does not have the same operator-output model sync and backup use.
 
 This is the main operational gap in restore today.
 
@@ -168,12 +169,15 @@ Notes:
 
 Status:
 
-- pending
+- complete
 
 Notes:
 
 - preserve the primary restore failure when cleanup also fails
 - distinguish target-unchanged vs target-may-be-dirty by phase
+- restore now distinguishes target-unchanged vs target-may-be-dirty by phase
+- interruption and restore-failure messaging now follows the same practical contract used by sync
+- later phases should build operator output on top of the new phase model
 
 ### Phase 4
 

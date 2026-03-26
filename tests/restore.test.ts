@@ -153,6 +153,7 @@ function createRunRestoreDependencies(
       drop: boolean;
     }>;
     verifications: EnvironmentId[];
+    interruptHandler?: () => void;
   };
 } {
   const calls = {
@@ -171,7 +172,8 @@ function createRunRestoreDependencies(
       collection?: string;
       drop: boolean;
     }>,
-    verifications: [] as EnvironmentId[]
+    verifications: [] as EnvironmentId[],
+    interruptHandler: undefined as (() => void) | undefined
   };
 
   const dependencies: RunRestoreDependencies = {
@@ -212,6 +214,12 @@ function createRunRestoreDependencies(
         collectionsPresent: ["orders", "customers"],
         missingCollections: [],
         countMismatches: []
+      };
+    },
+    installInterruptHandler(onInterrupt): () => void {
+      calls.interruptHandler = onInterrupt;
+      return () => {
+        calls.interruptHandler = undefined;
       };
     },
     ...overrides
@@ -371,6 +379,50 @@ test("runRestoreFull throws when verification fails", async () => {
   );
 });
 
+test("runRestoreFull reports dirty-target risk when interrupted during restore", async () => {
+  const { dependencies } = createRunRestoreDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new Error("Command interrupted: mongorestore");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      runRestoreFull(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          to: "development",
+          skipPreBackup: false
+        },
+        dependencies
+      ),
+    /Restore interrupted during restore for backup-name -> development\.\nTarget database may be dirty\./
+  );
+});
+
+test("runRestoreFull reports target unchanged when pre-restore backup fails", async () => {
+  const { dependencies } = createRunRestoreDependencies({
+    async backupCreate(): Promise<BackupRecord> {
+      throw new Error("pre-restore backup failed");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      runRestoreFull(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          to: "production",
+          skipPreBackup: false
+        },
+        dependencies
+      ),
+    /Restore failed during pre-restore backup for backup-name -> production\.\nTarget database was not modified\.\npre-restore backup failed/
+  );
+});
+
 test("runRestoreCollection validates collection membership and restores with drop", async () => {
   const { dependencies, calls } = createRunRestoreDependencies();
 
@@ -419,5 +471,27 @@ test("runRestoreCollection rejects collections missing from the backup", async (
         dependencies
       ),
     /Collection orders not present in backup backup-name/
+  );
+});
+
+test("runRestoreCollection reports dirty-target risk on restore failure", async () => {
+  const { dependencies } = createRunRestoreDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new Error("restore failed");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      runRestoreCollection(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          collection: "orders",
+          to: "development"
+        },
+        dependencies
+      ),
+    /Restore failed during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nrestore failed/
   );
 });

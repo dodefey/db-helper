@@ -15,6 +15,7 @@ export interface RunRestoreDependencies {
   backupCreate: typeof backupCreate;
   restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
   verifyRestore: typeof verifyRestore;
+  installInterruptHandler: (onInterrupt: () => void) => () => void;
 }
 
 const DEFAULT_RUN_RESTORE_DEPENDENCIES: RunRestoreDependencies = {
@@ -23,8 +24,70 @@ const DEFAULT_RUN_RESTORE_DEPENDENCIES: RunRestoreDependencies = {
   archivePathForBackup,
   backupCreate,
   restoreArchiveToEnvironment,
-  verifyRestore
+  verifyRestore,
+  installInterruptHandler: (onInterrupt) => {
+    const handler = (): void => onInterrupt();
+    process.on("SIGINT", handler);
+    return () => process.off("SIGINT", handler);
+  }
 };
+
+type RestorePhase =
+  | "backup_validation"
+  | "pre_restore_backup"
+  | "restore"
+  | "verify";
+
+function isInterruptedError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.startsWith("Command interrupted:")
+  );
+}
+
+function getErrorDetails(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return "Unknown restore failure.";
+}
+
+function formatRestoreFailure(options: {
+  backup: string;
+  to: EnvironmentId;
+  phase: RestorePhase;
+  targetMayBeDirty: boolean;
+  interrupted: boolean;
+  details?: string;
+}): string {
+  const phaseLabel =
+    options.phase === "backup_validation"
+      ? "backup validation"
+      : options.phase === "pre_restore_backup"
+        ? "pre-restore backup"
+        : options.phase === "restore"
+          ? "restore"
+          : "verify";
+
+  const statusLine = options.interrupted
+    ? `Restore interrupted during ${phaseLabel} for ${options.backup} -> ${options.to}.`
+    : `Restore failed during ${phaseLabel} for ${options.backup} -> ${options.to}.`;
+
+  const targetLine = options.targetMayBeDirty
+    ? "Target database may be dirty. Restore it from a known good backup or rerun restore before trusting it."
+    : "Target database was not modified.";
+
+  const lines = [statusLine, targetLine];
+
+  if (options.interrupted) {
+    lines.push("The restore was interrupted by the operator.");
+  } else if (options.details) {
+    lines.push(options.details);
+  }
+
+  return lines.join("\n");
+}
 
 function formatRestoreVerificationFailure(
   backup: BackupRecord,
@@ -61,36 +124,66 @@ export async function runRestoreFull(
   },
   dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES
 ): Promise<void> {
-  await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
-  const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
-  const target = appConfig.environments[input.to];
+  const abortController = new AbortController();
+  let currentPhase: RestorePhase = "backup_validation";
+  let targetMayBeDirty = false;
+  const removeInterruptHandler = dependencies.installInterruptHandler(() => {
+    abortController.abort();
+  });
 
-  if (target.isProduction && !input.skipPreBackup) {
-    await dependencies.backupCreate(appConfig, {
-      from: "production",
-      note: `automatic pre-restore backup before restoring ${input.backup}`,
-      tags: ["pre-restore"],
-      outputMode: "default"
-    });
-  }
+  try {
+    await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
+    const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
+    const target = appConfig.environments[input.to];
 
-  await dependencies.restoreArchiveToEnvironment(
-    target,
-    appConfig,
-    dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
-    {
-      drop: appConfig.defaultDropOnRestore
+    if (target.isProduction && !input.skipPreBackup) {
+      currentPhase = "pre_restore_backup";
+      await dependencies.backupCreate(appConfig, {
+        from: "production",
+        note: `automatic pre-restore backup before restoring ${input.backup}`,
+        tags: ["pre-restore"],
+        outputMode: "default"
+      });
     }
-  );
 
-  const verification = await dependencies.verifyRestore(target, backup.manifest);
-  if (
-    verification.missingCollections.length > 0 ||
-    verification.countMismatches.length > 0
-  ) {
-    throw new Error(
-      formatRestoreVerificationFailure(backup, input.to, verification)
+    currentPhase = "restore";
+    targetMayBeDirty = true;
+    await dependencies.restoreArchiveToEnvironment(
+      target,
+      appConfig,
+      dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
+      {
+        drop: appConfig.defaultDropOnRestore,
+        signal: abortController.signal
+      }
     );
+
+    currentPhase = "verify";
+    const verification = await dependencies.verifyRestore(target, backup.manifest, {
+      signal: abortController.signal
+    });
+    if (
+      verification.missingCollections.length > 0 ||
+      verification.countMismatches.length > 0
+    ) {
+      throw new Error(
+        formatRestoreVerificationFailure(backup, input.to, verification)
+      );
+    }
+  } catch (error) {
+    throw new Error(
+      formatRestoreFailure({
+        backup: input.backup,
+        to: input.to,
+        phase: currentPhase,
+        targetMayBeDirty,
+        interrupted: isInterruptedError(error),
+        details: getErrorDetails(error)
+      }),
+      { cause: error }
+    );
+  } finally {
+    removeInterruptHandler();
   }
 }
 
@@ -103,18 +196,43 @@ export async function runRestoreCollection(
   },
   dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES
 ): Promise<void> {
-  await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
-  const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
-  if (!backup.manifest.collectionList.includes(input.collection)) {
-    throw new Error(
-      `Collection ${input.collection} not present in backup ${input.backup}`
-    );
-  }
+  const abortController = new AbortController();
+  let currentPhase: RestorePhase = "backup_validation";
+  let targetMayBeDirty = false;
+  const removeInterruptHandler = dependencies.installInterruptHandler(() => {
+    abortController.abort();
+  });
 
-  await dependencies.restoreArchiveToEnvironment(
-    appConfig.environments[input.to],
-    appConfig,
-    dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
-    { collection: input.collection, drop: true }
-  );
+  try {
+    await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
+    const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
+    if (!backup.manifest.collectionList.includes(input.collection)) {
+      throw new Error(
+        `Collection ${input.collection} not present in backup ${input.backup}`
+      );
+    }
+
+    currentPhase = "restore";
+    targetMayBeDirty = true;
+    await dependencies.restoreArchiveToEnvironment(
+      appConfig.environments[input.to],
+      appConfig,
+      dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
+      { collection: input.collection, drop: true, signal: abortController.signal }
+    );
+  } catch (error) {
+    throw new Error(
+      formatRestoreFailure({
+        backup: input.backup,
+        to: input.to,
+        phase: currentPhase,
+        targetMayBeDirty,
+        interrupted: isInterruptedError(error),
+        details: getErrorDetails(error)
+      }),
+      { cause: error }
+    );
+  } finally {
+    removeInterruptHandler();
+  }
 }
