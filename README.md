@@ -4,7 +4,7 @@
 
 ## Setup
 
-Copy `.env.example` to `.env` and fill in the connection details for all three environments. The CLI loads configuration only from `.env` plus runtime flags such as `--env-file`.
+Copy `config.example.json` to `config.json` and fill in the connection details for all three environments. The CLI loads configuration from `config.json` in the project root by default, or from an explicit path via `--config`.
 
 ## Install
 
@@ -16,6 +16,16 @@ npm install
 ```bash
 # run the CLI in place
 npm start -- --help
+```
+
+```bash
+# create your local config
+cp config.example.json config.json
+```
+
+```bash
+# use a different config file explicitly
+npm start -- doctor --config /path/to/config.json
 ```
 
 ## Command Reference

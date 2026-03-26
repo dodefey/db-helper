@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { loadEnvConfig } from "./config/loadEnv.js";
+import { loadConfig } from "./config/loadConfig.js";
 import { ENVIRONMENT_IDS, EnvironmentId } from "./config/types.js";
 import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
 import { runDoctor } from "./commands/doctor.js";
@@ -73,6 +73,9 @@ function parseEnvironment(
 function printHelp(): void {
   process.stdout.write(`db-helper
 
+Global flags:
+  --config <path>
+
 Commands:
   interactive
   backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
@@ -95,7 +98,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const appConfig = await loadEnvConfig(getFlag(args.flags, "env-file"));
+  const appConfig = await loadConfig(getFlag(args.flags, "config"));
   const outputMode = parseOutputMode({
     quiet: getBooleanFlag(args.flags, "quiet"),
     verbose: getBooleanFlag(args.flags, "verbose")

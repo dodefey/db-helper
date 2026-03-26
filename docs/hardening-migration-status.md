@@ -32,7 +32,7 @@ For those surfaces, the repo now has:
 
 ## Live Validation Status
 
-The following workflows have been manually smoke-tested against the real `.env.test` setup:
+The following workflows have been manually smoke-tested against the real local operator configuration used during migration:
 
 - `doctor`
 - `backup create`
@@ -125,7 +125,7 @@ The following docs are now historical context, not the active source of truth fo
 They still reflect earlier design ideas such as:
 
 - `db` as the executable name
-- config-file-first design instead of the current `.env`-based tool
+- earlier config-shape proposals that may not match the current `config.json` contract exactly
 
 Do not use those docs alone to plan incremental work without cross-checking the current code and the command-specific specs.
 

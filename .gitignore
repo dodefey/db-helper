@@ -1,6 +1,6 @@
 node_modules
 dist
-.env
-.env.*
-!.env.example
+config.json
+config.*.json
+!config.example.json
 .DS_Store

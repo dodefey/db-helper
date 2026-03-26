@@ -1,0 +1,46 @@
+{
+  "defaults": {
+    "authSource": "admin",
+    "defaultDropOnRestore": true
+  },
+  "paths": {
+    "backupRoot": "/Users/your-user/db-backups",
+    "tempRoot": "/tmp/db-helper"
+  },
+  "environments": {
+    "development": {
+      "label": "Local Development",
+      "kind": "local",
+      "host": "localhost",
+      "mongoHost": "localhost",
+      "mongoPort": 7854,
+      "databaseName": "development",
+      "mongoUser": "sysadmin",
+      "mongoPassword": "changeme"
+    },
+    "test": {
+      "label": "Test Server",
+      "kind": "remote",
+      "host": "test.gnomebrewshop.com",
+      "mongoHost": "localhost",
+      "mongoPort": 7854,
+      "databaseName": "development",
+      "sshUser": "ubuntu",
+      "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
+      "mongoUser": "sysadmin",
+      "mongoPassword": "changeme"
+    },
+    "production": {
+      "label": "Production Server",
+      "kind": "remote",
+      "host": "gnomebrewshop.com",
+      "mongoHost": "localhost",
+      "mongoPort": 7854,
+      "databaseName": "production",
+      "sshUser": "ubuntu",
+      "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
+      "mongoUser": "sysadmin",
+      "mongoPassword": "changeme"
+    }
+  }
+}
