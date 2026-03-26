@@ -9,7 +9,7 @@ Sequence: sync contract first, sync execution second, shared mongo hardening thi
 
 ## Objective
 
-Harden `sync` into a clear, destructive, full-target replacement workflow that matches [sync-spec.md](/Users/davidodefey/projects/dbtools/sync-spec.md), without expanding scope into backup or restore redesign.
+Harden `sync` into a clear, destructive, full-target replacement workflow that matches [sync-spec.md](/Users/davidodefey/projects/dbtools/docs/sync-spec.md), without expanding scope into backup or restore redesign.
 
 This document is the canonical working record for the sync cleanup. It should be updated as work lands so later tasks can rely on a current inventory of what is complete, what remains to be done, and what is intentionally deferred.
 
@@ -21,7 +21,7 @@ This document is the canonical working record for the sync cleanup. It should be
 - [src/commands/sync.ts](/Users/davidodefey/projects/dbtools/src/commands/sync.ts) performs allowlist validation, confirmation, and delegation into the sync execution layer
 - [src/lib/sync.ts](/Users/davidodefey/projects/dbtools/src/lib/sync.ts) owns local temp archive allocation, archive dump, restore, and local cleanup sequencing
 - [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts) owns URI building, remote execution, copy helpers, dump, restore, connectivity checks, and remote temp cleanup behavior
-- [sync-spec.md](/Users/davidodefey/projects/dbtools/sync-spec.md) now defines the intended sync behavior for the cleanup
+- [sync-spec.md](/Users/davidodefey/projects/dbtools/docs/sync-spec.md) now defines the intended sync behavior for the cleanup
 
 ### Current safety state
 
@@ -66,7 +66,7 @@ That test coverage now covers the current sync cleanup scope, including dump-fai
 
 ### The sync spec is now sufficiently stable to drive a focused refactor
 
-[sync-spec.md](/Users/davidodefey/projects/dbtools/sync-spec.md) is now detailed enough to act as the behavior authority for sync cleanup.
+[sync-spec.md](/Users/davidodefey/projects/dbtools/docs/sync-spec.md) is now detailed enough to act as the behavior authority for sync cleanup.
 
 The refactor should treat that spec as the source of truth and avoid introducing extra sync features that are intentionally out of scope for phase 1.
 

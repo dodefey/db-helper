@@ -2,14 +2,14 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Phase 5 complete; Phase 6 pending
+Status: Cleanup complete
 Branch baseline: main
 Sequence: backup contract first, backup execution second, backup output and interruption hardening third
 ```
 
 ## Objective
 
-Harden `backup` into a clear, reliable archive-and-manifest workflow that matches [backup-spec.md](/Users/davidodefey/projects/dbtools/backup-spec.md), without expanding scope into retention, offsite storage, or encryption features.
+Harden `backup` into a clear, reliable archive-and-manifest workflow that matches [backup-spec.md](/Users/davidodefey/projects/dbtools/docs/backup-spec.md), without expanding scope into retention, offsite storage, or encryption features.
 
 This document is the canonical working record for backup cleanup. It should be updated as work lands so later tasks can rely on a current inventory of what is complete, what remains to be done, and what is intentionally deferred.
 
@@ -22,7 +22,7 @@ This document is the canonical working record for backup cleanup. It should be u
 - [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts) now owns backup name resolution, destination path setup, metadata collection, archive creation, manifest writing, and artifact validation for `backup create`
 - [src/lib/backups.ts](/Users/davidodefey/projects/dbtools/src/lib/backups.ts) owns backup path helpers, manifest read/write helpers, listing, and artifact validation
 - [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts) owns Mongo and SSH transport, metadata collection helpers, and archive creation
-- [backup-spec.md](/Users/davidodefey/projects/dbtools/backup-spec.md) now defines the intended backup behavior for this cleanup
+- [backup-spec.md](/Users/davidodefey/projects/dbtools/docs/backup-spec.md) now defines the intended backup behavior for this cleanup
 
 ### Current safety state
 
@@ -38,7 +38,7 @@ This document is the canonical working record for backup cleanup. It should be u
 - the repo currently typechecks and builds
 - sync has already been hardened with output, verification, cleanup, and interruption behavior
 - backup create is the highest-value backup refactor target because list and inspect are comparatively simple catalog operations
-- backup now has direct tests for successful backup creation through [tests/backup.test.ts](/Users/davidodefey/projects/dbtools/tests/backup.test.ts)
+- backup now has direct tests for backup creation, cleanup, interruption, output behavior, and command-surface behavior through [tests/backup.test.ts](/Users/davidodefey/projects/dbtools/tests/backup.test.ts)
 
 ## Findings
 
@@ -63,21 +63,21 @@ That concentration made output, interruption, and cleanup behavior harder to evo
 
 Phase 2 resolves this by moving the create flow into [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts). Later phases should continue to keep the command layer thin instead of moving orchestration back into it.
 
-### Incomplete-backup handling is now explicit, but output is still behind
+### Incomplete-backup handling is now explicit and stable
 
 Current code now treats incomplete backup directories as invalid and cleanup-attempts them when create fails or is interrupted.
 
-The remaining gap is operator experience, not failure semantics: backup still needs phase-oriented output and a clearer success summary.
+That behavior now matches the intended cleanup contract for this refactor scope.
 
-### Backup output now has a usable baseline, but README and broader coverage still remain
+### Backup output and docs now match the cleanup scope
 
 Backup create now emits phase-oriented output in default mode and suppresses summaries in quiet mode while still allowing raw subprocess output in verbose mode.
 
-The remaining work is documentation and any later command-surface coverage, not basic backup-create output plumbing.
+[README.md](/Users/davidodefey/projects/dbtools/README.md) now has a user-facing backup section with common workflows and full API coverage.
 
 ### Backup now has a spec and a dedicated execution layer
 
-[backup-spec.md](/Users/davidodefey/projects/dbtools/backup-spec.md) is now detailed enough to act as the behavior authority for backup cleanup, and [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts) is now the correct place for later backup-create behavior changes.
+[backup-spec.md](/Users/davidodefey/projects/dbtools/docs/backup-spec.md) is now detailed enough to act as the behavior authority for backup cleanup, and [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts) is now the correct place for later backup-create behavior changes.
 
 The implementation should treat that spec as the source of truth and avoid expanding into retention or storage-product work during this cleanup.
 
@@ -237,7 +237,12 @@ Notes:
 
 Status:
 
-- pending
+- complete
+
+Notes:
+
+- [README.md](/Users/davidodefey/projects/dbtools/README.md) now has a user-facing backup section with common workflows and full API coverage
+- backup docs now match the current backup-create behavior, interruption contract, and output modes
 
 ## Acceptance Criteria
 
@@ -262,7 +267,7 @@ Status:
 ## Next Implementation Notes
 
 - The next code change should begin in [src/lib/backup.ts](/Users/davidodefey/projects/dbtools/src/lib/backup.ts), not in [src/commands/backup.ts](/Users/davidodefey/projects/dbtools/src/commands/backup.ts).
-- Phase 6 should update README backup docs to match the current implementation and operator workflow.
+- Backup cleanup is complete within the current planned scope. Future backup work should be treated as new feature work or a separate refinement pass, not as unfinished cleanup.
 - Incomplete backup cleanup is now framed around the backup directory as the unit of validity: if a create run does not complete validation, the directory is treated as invalid and cleanup-attempted.
 - Interruption handling now follows the same practical pattern used for sync: phase-aware messaging, conservative claims about cleanup, and no low-level command dump in the primary user-facing message.
 - [src/lib/backups.ts](/Users/davidodefey/projects/dbtools/src/lib/backups.ts) should remain the artifact helper layer; avoid moving orchestration back into it while implementing later phases.

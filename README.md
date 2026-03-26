@@ -65,6 +65,70 @@ db-helper recover
 db-helper doctor
 ```
 
+## Backup
+
+`backup` is the command for capturing a full snapshot of one configured environment into a local archive plus manifest. In practice, it is most useful before risky work, before replacing a target with `sync` or `restore`, or when you want to preserve a known-good production snapshot for later recovery.
+
+It creates a timestamped backup directory under the configured backup root, writes `dump.archive.gz`, writes `manifest.json`, and validates the result before reporting success. If backup creation fails or is interrupted, `db-helper` treats the result as invalid and attempts cleanup of incomplete artifacts.
+
+### Usage
+
+Run `doctor` first if tooling, SSH, or database connectivity is in doubt.
+
+Common workflows:
+
+```bash
+# create a production backup before maintenance
+db-helper backup create --from production
+```
+
+```bash
+# create a manual recovery point before syncing into development
+db-helper backup create --from development --note "pre-sync recovery point" --tag pre-sync
+```
+
+```bash
+# create a known-good snapshot with a note and tag
+db-helper backup create --from production --note "known good after deploy" --tag known-good
+```
+
+```bash
+# list backups for one environment
+db-helper backup list --from production
+```
+
+```bash
+# inspect one backup manifest before restore or review
+db-helper backup inspect --backup 2026-03-16T10-30-00-production
+```
+
+If `backup create` is interrupted during archive creation, manifest write, or validation, do not trust the partial result. The command will attempt cleanup, but an interrupted run should be treated as not having produced a usable backup unless it completed successfully.
+
+### Backup API
+
+CLI forms:
+
+```bash
+db-helper backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
+db-helper backup list [--from <environment>] [--tag <tag>]
+db-helper backup inspect --backup <backup-name>
+```
+
+Required flags:
+
+- `backup create`: `--from`
+- `backup inspect`: `--backup`
+
+Optional flags:
+
+- `backup create`: `--note`, `--tag`, `--quiet`, `--verbose`
+- `backup list`: `--from`, `--tag`
+
+Output modes for `backup create`:
+
+- `--quiet` reduces normal operator output
+- `--verbose` allows raw subprocess output
+
 ## Sync
 
 `sync` is the command for refreshing one non-production database from another environment. In practice, that usually means replacing `development` or `test` with a fresh copy of `production`, or moving data between `development` and `test`.

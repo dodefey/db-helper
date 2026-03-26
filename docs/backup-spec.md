@@ -18,7 +18,7 @@ The command exists for operational workflows such as:
 CLI forms:
 
 ```bash
-db-helper backup create --from <environment> [--note <text>] [--tag <tag>]
+db-helper backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
 db-helper backup list [--from <environment>] [--tag <tag>]
 db-helper backup inspect --backup <backup-name>
 ```
@@ -30,7 +30,7 @@ Required flags:
 
 Optional flags:
 
-- `backup create`: `--note`, `--tag`
+- `backup create`: `--note`, `--tag`, `--quiet`, `--verbose`
 - `backup list`: `--from`, `--tag`
 
 No selective collection backup mode is supported.
