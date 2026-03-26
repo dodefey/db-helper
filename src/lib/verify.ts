@@ -3,13 +3,22 @@ import {
   EnvironmentConfig,
   VerifyRestoreResult
 } from "../config/types.js";
+import { OutputMode } from "./output.js";
 import { getCollectionCounts, listCollections } from "./mongo.js";
 
 export async function verifyRestore(
   env: EnvironmentConfig,
-  manifest: BackupManifest
+  manifest: BackupManifest,
+  options: {
+    outputMode?: OutputMode;
+    onCountedCollection?: (progress: {
+      completed: number;
+      total: number;
+      collection: string;
+    }) => void;
+  } = {}
 ): Promise<VerifyRestoreResult> {
-  const presentCollections = await listCollections(env);
+  const presentCollections = await listCollections(env, options);
   const presentSet = new Set(presentCollections);
   const missingCollections = manifest.collectionList.filter(
     (collection) => !presentSet.has(collection)
@@ -20,14 +29,17 @@ export async function verifyRestore(
     manifest.collectionCounts &&
     Object.keys(manifest.collectionCounts).length > 0
   ) {
-    const restoredCounts = await getCollectionCounts(
-      env,
-      Object.keys(manifest.collectionCounts)
-    );
+    const collections = Object.keys(manifest.collectionCounts);
+    const total = collections.length;
+    let completed = 0;
+
     for (const [collection, expected] of Object.entries(
       manifest.collectionCounts
     )) {
+      const restoredCounts = await getCollectionCounts(env, [collection], options);
       const actual = restoredCounts[collection];
+      completed += 1;
+      options.onCountedCollection?.({ completed, total, collection });
       if (actual !== expected) {
         countMismatches.push({ collection, expected, actual });
       }

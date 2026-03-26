@@ -115,6 +115,16 @@ function createRunSyncDependencies(
     writeStdout(message: string): void {
       calls.output.push(message);
     },
+    isInteractiveStdout(): boolean {
+      return false;
+    },
+    async runWithElapsedStatus<T>(
+      baseMessage: string,
+      task: () => Promise<T>
+    ): Promise<T> {
+      calls.output.push(`${baseMessage}\n`);
+      return task();
+    },
     createLocalTempFile(): string {
       const path = "/tmp/db-helper/test-sync.archive.gz";
       calls.tempFiles.push(path);
@@ -146,7 +156,7 @@ function createRunSyncDependencies(
         drop: options.drop
       });
     },
-    async verifyRestore(env): Promise<{
+    async verifyRestore(env, manifest, options): Promise<{
       collectionsPresent: string[];
       missingCollections: string[];
       countMismatches: Array<{
@@ -156,6 +166,16 @@ function createRunSyncDependencies(
       }>;
     }> {
       calls.verifications.push(env.id);
+      const collections = manifest.collectionCounts
+        ? Object.keys(manifest.collectionCounts)
+        : [];
+      collections.forEach((collection, index) => {
+        options?.onCountedCollection?.({
+          completed: index + 1,
+          total: collections.length,
+          collection
+        });
+      });
       return {
         collectionsPresent: ["orders", "customers"],
         missingCollections: [],
@@ -326,6 +346,9 @@ test("runSync suppresses summary output in quiet mode", async () => {
 
   assert.deepEqual(calls.output, []);
   assert.deepEqual(calls.verifications, ["development"]);
+  assert.deepEqual(calls.countedCollections, [
+    { env: "production", collections: ["orders", "customers"] }
+  ]);
 });
 
 test("runSync preserves summary output in default mode", async () => {
@@ -342,6 +365,52 @@ test("runSync preserves summary output in default mode", async () => {
     "Dumping source production...\n",
     "Restoring target development...\n",
     "Verifying target development...\n",
+    "Checking collection presence...\n",
+    "Checking collection counts...\n",
+    "Checked collection counts: 1/2 (orders)\n",
+    "Checked collection counts: 2/2 (customers)\n",
+    "Sync production -> development complete.\n",
+    "Cleaning up sync temp artifacts...\n"
+  ]);
+  assert.deepEqual(calls.countedCollections, [
+    { env: "production", collections: ["orders", "customers"] }
+  ]);
+});
+
+test("runSync rewrites count progress on one line for interactive stdout", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    isInteractiveStdout(): boolean {
+      return true;
+    },
+    async runWithElapsedStatus<T>(
+      baseMessage: string,
+      task: () => Promise<T>
+    ): Promise<T> {
+      calls.output.push(`\r${baseMessage} 00:00`);
+      const result = await task();
+      calls.output.push("\n");
+      return result;
+    }
+  });
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development", outputMode: "default" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.output, [
+    "Starting sync production -> development\n",
+    "\rDumping source production... 00:00",
+    "\n",
+    "\rRestoring target development... 00:00",
+    "\n",
+    "Verifying target development...\n",
+    "Checking collection presence...\n",
+    "Checking collection counts...\n",
+    "\rChecked collection counts: 1/2 (orders)",
+    "\rChecked collection counts: 2/2 (customers)",
+    "\n",
     "Sync production -> development complete.\n",
     "Cleaning up sync temp artifacts...\n"
   ]);
@@ -389,6 +458,10 @@ test("runSync performs dump then restore then cleanup", async () => {
     "Dumping source production...\n",
     "Restoring target development...\n",
     "Verifying target development...\n",
+    "Checking collection presence...\n",
+    "Checking collection counts...\n",
+    "Checked collection counts: 1/2 (orders)\n",
+    "Checked collection counts: 2/2 (customers)\n",
     "Sync production -> development complete.\n",
     "Cleaning up sync temp artifacts...\n"
   ]);
@@ -397,6 +470,25 @@ test("runSync performs dump then restore then cleanup", async () => {
     { env: "production", collections: ["orders", "customers"] }
   ]);
   assert.deepEqual(calls.verifications, ["development"]);
+});
+
+test("runSync filters internal system collections from verification input", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async listCollections(env): Promise<string[]> {
+      calls.listedCollections.push(env.id);
+      return ["orders", "system.views", "customers"];
+    }
+  });
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development", outputMode: "default" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.countedCollections, [
+    { env: "production", collections: ["orders", "customers"] }
+  ]);
 });
 
 test("runSync forces drop semantics even when config default is false", async () => {

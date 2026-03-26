@@ -76,20 +76,24 @@ async function copyToRemote(
 }
 
 export async function listCollections(
-  env: EnvironmentConfig
+  env: EnvironmentConfig,
+  options: { outputMode?: OutputMode } = {}
 ): Promise<string[]> {
-  const script = `const dbx = connect(${JSON.stringify(mongoUri(env))}).getDB(${JSON.stringify(env.databaseName)}); print(JSON.stringify(dbx.getCollectionNames().sort()));`;
+  const streamOutput = shouldStreamSubprocessOutput(
+    options.outputMode ?? "verbose"
+  );
+  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); print(JSON.stringify(dbx.getCollectionNames().sort()));`;
   const output =
     env.kind === "local"
-      ? await runCommand("mongosh", [
-          mongoUri(env),
-          "--quiet",
-          "--eval",
-          script
-        ])
+      ? await runCommand(
+          "mongosh",
+          [mongoUri(env), "--quiet", "--eval", script],
+          { streamOutput }
+        )
       : await runRemote(
           env,
-          `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`
+          `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
+          streamOutput
         );
 
   return JSON.parse(output || "[]") as string[];
@@ -97,31 +101,30 @@ export async function listCollections(
 
 export async function getCollectionCounts(
   env: EnvironmentConfig,
-  collections: string[]
+  collections: string[],
+  options: { outputMode?: OutputMode } = {}
 ): Promise<Record<string, number>> {
   if (collections.length === 0) {
     return {};
   }
 
-  const script = `
-const dbx = connect(${JSON.stringify(mongoUri(env))}).getDB(${JSON.stringify(env.databaseName)});
-const names = ${JSON.stringify(collections)};
-const counts = {};
-for (const name of names) counts[name] = dbx.getCollection(name).countDocuments({});
-print(JSON.stringify(counts));
-`;
+  const streamOutput = shouldStreamSubprocessOutput(
+    options.outputMode ?? "verbose"
+  );
+
+  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const names = ${JSON.stringify(collections)}; const counts = {}; for (const name of names) counts[name] = dbx.getCollection(name).countDocuments({}); print(JSON.stringify(counts));`;
 
   const output =
     env.kind === "local"
-      ? await runCommand("mongosh", [
-          mongoUri(env),
-          "--quiet",
-          "--eval",
-          script
-        ])
+      ? await runCommand(
+          "mongosh",
+          [mongoUri(env), "--quiet", "--eval", script],
+          { streamOutput }
+        )
       : await runRemote(
           env,
-          `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`
+          `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
+          streamOutput
         );
 
   return JSON.parse(output || "{}") as Record<string, number>;
