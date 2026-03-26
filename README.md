@@ -207,6 +207,71 @@ Operator expectations:
 - if the target may be dirty, restore it from a known good backup or rerun sync before trusting it
 - if target recovery matters, create a backup explicitly before running sync
 
+## Restore
+
+`restore` is the command for applying a named backup to a target environment. In practice, it is most useful when you want to recover `development`, `test`, or `production` from a known-good backup, or when you need to restore one collection without replacing the full database.
+
+It is a backup-to-target recovery workflow, not a merge tool. `restore full` validates the named backup, applies it to the target, verifies the result, and enforces stronger safeguards for `production`. `restore collection` restores only one named collection from the backup with drop enabled.
+
+### Usage
+
+Run `doctor` first if tooling, SSH, or database connectivity is in doubt. Before restoring into `production`, review the backup manifest with `backup inspect` so you know exactly which snapshot you are applying.
+
+Common workflows:
+
+```bash
+# restore a known-good production backup into development
+db-helper restore full --backup 2026-03-16T10-30-00-production --to development
+```
+
+```bash
+# restore a test environment from a known backup without a confirmation prompt
+db-helper restore full --backup 2026-03-16T10-30-00-production --to test --yes
+```
+
+```bash
+# restore one collection from a backup into development
+db-helper restore collection --backup 2026-03-16T10-30-00-production --collection orders --to development
+```
+
+```bash
+# restore production from a named backup with the required production safeguards
+db-helper restore full --backup 2026-03-16T10-30-00-production --to production --force-production-restore
+```
+
+If `restore` is interrupted during `restore` or `verify`, treat the target as dirty. The safe recovery path is to rerun the restore from a known-good backup or restore the target again before trusting it.
+
+### Restore API
+
+CLI forms:
+
+```bash
+db-helper restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
+db-helper restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--quiet] [--verbose]
+```
+
+Required flags:
+
+- `restore full`: `--backup`, `--to`
+- `restore collection`: `--backup`, `--collection`, `--to`
+
+Optional flags:
+
+- `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`, `--quiet`, `--verbose`
+- `restore collection`: `--yes`, `--quiet`, `--verbose`
+
+Production restore expectations:
+
+- `restore full --to production` requires `--force-production-restore`
+- interactive production restore requires an additional typed confirmation
+- production restore creates a pre-restore production backup by default
+- `--skip-pre-backup` bypasses that automatic production backup
+
+Output modes:
+
+- `--quiet` reduces normal operator output
+- `--verbose` allows raw subprocess output
+
 ## Safety Model
 
 - Sync is only allowed for `production -> development`, `production -> test`, `development -> test`, and `test -> development`.

@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Phase 5 complete; Phase 6 pending
+Status: Restore cleanup complete within planned scope
 Branch baseline: main
 Sequence: restore contract first, restore execution second, restore output and interruption hardening third
 ```
@@ -217,7 +217,12 @@ Notes:
 
 Status:
 
-- pending
+- complete
+
+Notes:
+
+- [README.md](/Users/davidodefey/projects/dbtools/README.md) now has a dedicated Restore section with purpose, common workflows, interruption guidance, and the full current CLI surface
+- restore cleanup is complete within the scope defined by this migration plan
 
 ## Acceptance Criteria
 
