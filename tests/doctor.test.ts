@@ -5,7 +5,11 @@ import {
   EnvironmentConfig,
   EnvironmentId
 } from "../src/config/types.js";
-import { DoctorDependencies, runDoctor } from "../src/commands/doctor.js";
+import {
+  DoctorCommandError,
+  DoctorDependencies,
+  runDoctor
+} from "../src/commands/doctor.js";
 
 function buildEnvironment(
   id: EnvironmentId,
@@ -262,4 +266,18 @@ test("runDoctor reports multiple failures and summarizes the total", async () =>
     )
   );
   assert.deepEqual(calls.connectivity, ["development", "production"]);
+});
+
+test("runDoctor throws an already-reported doctor error on failure", async () => {
+  const { dependencies } = createDoctorDependencies({
+    async ensureBinary(): Promise<void> {
+      throw new Error("missing binary");
+    }
+  });
+
+  await assert.rejects(
+    runDoctor(buildAppConfig(), dependencies),
+    (error: unknown) =>
+      error instanceof DoctorCommandError && error.alreadyReported === true
+  );
 });

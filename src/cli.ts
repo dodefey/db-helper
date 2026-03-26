@@ -178,8 +178,15 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  process.stderr.write(
-    `${error instanceof Error ? error.message : String(error)}\n`
-  );
+  const shouldPrint =
+    !(error instanceof Error) ||
+    !("alreadyReported" in error) ||
+    error.alreadyReported !== true;
+
+  if (shouldPrint) {
+    process.stderr.write(
+      `${error instanceof Error ? error.message : String(error)}\n`
+    );
+  }
   process.exitCode = 1;
 });

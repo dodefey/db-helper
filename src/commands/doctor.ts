@@ -27,6 +27,10 @@ interface DoctorCheckResult {
   message: string;
 }
 
+export class DoctorCommandError extends Error {
+  readonly alreadyReported = true;
+}
+
 export interface DoctorDependencies {
   ensureBinary: (name: string) => Promise<void>;
   assertWritable: (path: string) => Promise<void>;
@@ -144,7 +148,9 @@ export async function runDoctor(
     dependencies.writeStdout(
       `Doctor checks failed: ${failures.length} issue(s).\n`
     );
-    throw new Error(`Doctor checks failed: ${failures.length} issue(s).`);
+    throw new DoctorCommandError(
+      `Doctor checks failed: ${failures.length} issue(s).`
+    );
   }
 
   dependencies.writeStdout("Doctor checks passed.\n");
