@@ -67,5 +67,9 @@ export interface TaskRunInput {
 export interface VerifyRestoreResult {
   collectionsPresent: string[];
   missingCollections: string[];
-  countMismatches: Array<{ collection: string; expected: number; actual: number }>;
+  countMismatches: Array<{
+    collection: string;
+    expected: number;
+    actual: number;
+  }>;
 }

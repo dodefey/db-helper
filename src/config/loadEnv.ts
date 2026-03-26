@@ -1,7 +1,13 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { AppConfig, ENVIRONMENT_IDS, EnvironmentConfig, EnvironmentId, EnvironmentKind } from "./types.js";
+import {
+  AppConfig,
+  ENVIRONMENT_IDS,
+  EnvironmentConfig,
+  EnvironmentId,
+  EnvironmentKind
+} from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -13,7 +19,11 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
-function parseNumber(name: string, value: string | undefined, fallback?: number): number {
+function parseNumber(
+  name: string,
+  value: string | undefined,
+  fallback?: number
+): number {
   if (!value) {
     if (fallback !== undefined) {
       return fallback;
@@ -47,7 +57,7 @@ function parseDotEnvFile(content: string): Record<string, string> {
     const key = line.slice(0, equalsIndex).trim();
     let value = line.slice(equalsIndex + 1).trim();
     if (
-      (value.startsWith("\"") && value.endsWith("\"")) ||
+      (value.startsWith('"') && value.endsWith('"')) ||
       (value.startsWith("'") && value.endsWith("'"))
     ) {
       value = value.slice(1, -1);
@@ -68,7 +78,11 @@ function requireValue(source: Record<string, string>, name: string): string {
   return value;
 }
 
-function loadEnvironment(source: Record<string, string>, id: EnvironmentId, authSource: string): EnvironmentConfig {
+function loadEnvironment(
+  source: Record<string, string>,
+  id: EnvironmentId,
+  authSource: string
+): EnvironmentConfig {
   const prefix = `DB_${id.toUpperCase()}`;
   const kind = requireValue(source, `${prefix}_KIND`) as EnvironmentKind;
   if (kind !== "local" && kind !== "remote") {
@@ -76,7 +90,8 @@ function loadEnvironment(source: Record<string, string>, id: EnvironmentId, auth
   }
 
   const mongoUser = source[`${prefix}_MONGO_USER`] ?? source[`${prefix}_USER`];
-  const mongoPassword = source[`${prefix}_MONGO_PASSWORD`] ?? source[`${prefix}_PASSWORD`];
+  const mongoPassword =
+    source[`${prefix}_MONGO_PASSWORD`] ?? source[`${prefix}_PASSWORD`];
   const mongoPort = source[`${prefix}_MONGO_PORT`] ?? source[`${prefix}_PORT`];
 
   const config: EnvironmentConfig = {
@@ -85,11 +100,16 @@ function loadEnvironment(source: Record<string, string>, id: EnvironmentId, auth
     label: requireValue(source, `${prefix}_LABEL`),
     kind,
     host: requireValue(source, `${prefix}_HOST`),
-    mongoHost: source[`${prefix}_MONGO_HOST`] ?? requireValue(source, `${prefix}_HOST`),
+    mongoHost:
+      source[`${prefix}_MONGO_HOST`] ?? requireValue(source, `${prefix}_HOST`),
     mongoPort: parseNumber(`${prefix}_MONGO_PORT`, mongoPort, 27017),
     databaseName: requireValue(source, `${prefix}_NAME`),
-    mongoUser: mongoUser ? mongoUser : requireValue(source, `${prefix}_MONGO_USER`),
-    mongoPassword: mongoPassword ? mongoPassword : requireValue(source, `${prefix}_MONGO_PASSWORD`),
+    mongoUser: mongoUser
+      ? mongoUser
+      : requireValue(source, `${prefix}_MONGO_USER`),
+    mongoPassword: mongoPassword
+      ? mongoPassword
+      : requireValue(source, `${prefix}_MONGO_PASSWORD`),
     authSource,
     isProduction: id === "production"
   };
@@ -108,12 +128,23 @@ export async function loadEnvConfig(envFilePath?: string): Promise<AppConfig> {
     process.env.DB_HELPER_ENV_FILE ??
     path.resolve(__dirname, "../../.env");
 
-  const fileContent = await readFile(resolvedPath, "utf8").catch((error: NodeJS.ErrnoException) => {
-    throw new Error(`Failed to read .env file at ${resolvedPath}: ${error.message}`);
-  });
+  const fileContent = await readFile(resolvedPath, "utf8").catch(
+    (error: NodeJS.ErrnoException) => {
+      throw new Error(
+        `Failed to read .env file at ${resolvedPath}: ${error.message}`
+      );
+    }
+  );
 
   const parsed = parseDotEnvFile(fileContent);
-  const merged = { ...parsed, ...Object.fromEntries(Object.entries(process.env).filter(([, value]) => value !== undefined) as Array<[string, string]>) };
+  const merged = {
+    ...parsed,
+    ...Object.fromEntries(
+      Object.entries(process.env).filter(
+        ([, value]) => value !== undefined
+      ) as Array<[string, string]>
+    )
+  };
 
   const authSource = merged.DB_AUTH_SOURCE ?? "admin";
   const environments = Object.fromEntries(

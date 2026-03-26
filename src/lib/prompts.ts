@@ -10,7 +10,10 @@ export async function promptText(message: string): Promise<string> {
   }
 }
 
-export async function promptConfirm(message: string, defaultYes = false): Promise<boolean> {
+export async function promptConfirm(
+  message: string,
+  defaultYes = false
+): Promise<boolean> {
   const suffix = defaultYes ? "[Y/n]" : "[y/N]";
   const value = (await promptText(`${message} ${suffix}`)).toLowerCase();
   if (!value) {
@@ -20,7 +23,10 @@ export async function promptConfirm(message: string, defaultYes = false): Promis
   return value === "y" || value === "yes";
 }
 
-export async function promptChoice<T>(message: string, choices: Array<{ label: string; value: T }>): Promise<T> {
+export async function promptChoice<T>(
+  message: string,
+  choices: Array<{ label: string; value: T }>
+): Promise<T> {
   process.stdout.write(`${message}\n`);
   choices.forEach((choice, index) => {
     process.stdout.write(`  ${index + 1}. ${choice.label}\n`);
@@ -29,7 +35,11 @@ export async function promptChoice<T>(message: string, choices: Array<{ label: s
   while (true) {
     const answer = await promptText("Select a number");
     const selected = Number(answer);
-    if (Number.isInteger(selected) && selected >= 1 && selected <= choices.length) {
+    if (
+      Number.isInteger(selected) &&
+      selected >= 1 &&
+      selected <= choices.length
+    ) {
       return choices[selected - 1].value;
     }
 

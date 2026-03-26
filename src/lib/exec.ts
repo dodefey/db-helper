@@ -14,7 +14,11 @@ export function formatCommand(command: string, args: string[]): string {
   return [command, ...args.map(shellEscape)].join(" ");
 }
 
-export async function runCommand(command: string, args: string[], options: RunCommandOptions = {}): Promise<string> {
+export async function runCommand(
+  command: string,
+  args: string[],
+  options: RunCommandOptions = {}
+): Promise<string> {
   const rendered = formatCommand(command, args);
 
   return new Promise((resolve, reject) => {
@@ -49,7 +53,9 @@ export async function runCommand(command: string, args: string[], options: RunCo
         return;
       }
 
-      reject(new Error(`Command failed (${code}): ${rendered}\n${stderr.trim()}`));
+      reject(
+        new Error(`Command failed (${code}): ${rendered}\n${stderr.trim()}`)
+      );
     });
 
     if (options.stdin) {

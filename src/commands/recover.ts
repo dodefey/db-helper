@@ -12,7 +12,10 @@ export async function recoverDatabase(appConfig: AppConfig): Promise<void> {
   const sorted = [...backups].sort((left, right) => {
     const leftKnownClean = left.manifest.tags.includes("known-clean") ? 1 : 0;
     const rightKnownClean = right.manifest.tags.includes("known-clean") ? 1 : 0;
-    return rightKnownClean - leftKnownClean || right.manifest.createdAt.localeCompare(left.manifest.createdAt);
+    return (
+      rightKnownClean - leftKnownClean ||
+      right.manifest.createdAt.localeCompare(left.manifest.createdAt)
+    );
   });
 
   const backup = await promptChoice(
@@ -24,9 +27,15 @@ export async function recoverDatabase(appConfig: AppConfig): Promise<void> {
   );
 
   const target = await promptChoice<EnvironmentId>("Select a restore target", [
-    { label: `${appConfig.environments.development.label} (development)`, value: "development" },
+    {
+      label: `${appConfig.environments.development.label} (development)`,
+      value: "development"
+    },
     { label: `${appConfig.environments.test.label} (test)`, value: "test" },
-    { label: `${appConfig.environments.production.label} (production)`, value: "production" }
+    {
+      label: `${appConfig.environments.production.label} (production)`,
+      value: "production"
+    }
   ]);
 
   const approved = await promptConfirm(`Restore ${backup} into ${target}?`);

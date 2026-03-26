@@ -1,6 +1,10 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { AppConfig, BackupManifest, EnvironmentConfig } from "../config/types.js";
+import {
+  AppConfig,
+  BackupManifest,
+  EnvironmentConfig
+} from "../config/types.js";
 import { runCommand } from "./exec.js";
 
 function mongoUri(env: EnvironmentConfig): string {
@@ -9,37 +13,82 @@ function mongoUri(env: EnvironmentConfig): string {
   return `mongodb://${encodeURIComponent(env.mongoUser)}:${encodeURIComponent(env.mongoPassword)}@${host}:${env.mongoPort}/${env.databaseName}?${params.toString()}`;
 }
 
-function remoteArchivePath(appConfig: AppConfig, env: EnvironmentConfig): string {
-  return path.posix.join(appConfig.tempRoot, `db-helper-${Date.now()}-${env.id}.archive.gz`);
+function remoteArchivePath(
+  appConfig: AppConfig,
+  env: EnvironmentConfig
+): string {
+  return path.posix.join(
+    appConfig.tempRoot,
+    `db-helper-${Date.now()}-${env.id}.archive.gz`
+  );
 }
 
-async function runRemote(env: EnvironmentConfig, remoteCommand: string): Promise<string> {
+async function runRemote(
+  env: EnvironmentConfig,
+  remoteCommand: string
+): Promise<string> {
   if (!env.sshUser || !env.sshKeyPath) {
     throw new Error(`Remote environment ${env.id} is missing SSH config`);
   }
 
-  return runCommand("ssh", ["-i", env.sshKeyPath, `${env.sshUser}@${env.host}`, remoteCommand]);
+  return runCommand("ssh", [
+    "-i",
+    env.sshKeyPath,
+    `${env.sshUser}@${env.host}`,
+    remoteCommand
+  ]);
 }
 
-async function copyFromRemote(env: EnvironmentConfig, remotePath: string, localPath: string): Promise<void> {
-  await runCommand("scp", ["-i", env.sshKeyPath!, `${env.sshUser}@${env.host}:${remotePath}`, localPath]);
+async function copyFromRemote(
+  env: EnvironmentConfig,
+  remotePath: string,
+  localPath: string
+): Promise<void> {
+  await runCommand("scp", [
+    "-i",
+    env.sshKeyPath!,
+    `${env.sshUser}@${env.host}:${remotePath}`,
+    localPath
+  ]);
 }
 
-async function copyToRemote(env: EnvironmentConfig, localPath: string, remotePath: string): Promise<void> {
-  await runCommand("scp", ["-i", env.sshKeyPath!, localPath, `${env.sshUser}@${env.host}:${remotePath}`]);
+async function copyToRemote(
+  env: EnvironmentConfig,
+  localPath: string,
+  remotePath: string
+): Promise<void> {
+  await runCommand("scp", [
+    "-i",
+    env.sshKeyPath!,
+    localPath,
+    `${env.sshUser}@${env.host}:${remotePath}`
+  ]);
 }
 
-export async function listCollections(env: EnvironmentConfig): Promise<string[]> {
+export async function listCollections(
+  env: EnvironmentConfig
+): Promise<string[]> {
   const script = `const dbx = connect(${JSON.stringify(mongoUri(env))}).getDB(${JSON.stringify(env.databaseName)}); print(JSON.stringify(dbx.getCollectionNames().sort()));`;
   const output =
     env.kind === "local"
-      ? await runCommand("mongosh", [mongoUri(env), "--quiet", "--eval", script])
-      : await runRemote(env, `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`);
+      ? await runCommand("mongosh", [
+          mongoUri(env),
+          "--quiet",
+          "--eval",
+          script
+        ])
+      : await runRemote(
+          env,
+          `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`
+        );
 
   return JSON.parse(output || "[]") as string[];
 }
 
-export async function getCollectionCounts(env: EnvironmentConfig, collections: string[]): Promise<Record<string, number>> {
+export async function getCollectionCounts(
+  env: EnvironmentConfig,
+  collections: string[]
+): Promise<Record<string, number>> {
   if (collections.length === 0) {
     return {};
   }
@@ -54,24 +103,46 @@ print(JSON.stringify(counts));
 
   const output =
     env.kind === "local"
-      ? await runCommand("mongosh", [mongoUri(env), "--quiet", "--eval", script])
-      : await runRemote(env, `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`);
+      ? await runCommand("mongosh", [
+          mongoUri(env),
+          "--quiet",
+          "--eval",
+          script
+        ])
+      : await runRemote(
+          env,
+          `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`
+        );
 
   return JSON.parse(output || "{}") as Record<string, number>;
 }
 
-export async function createArchiveBackup(env: EnvironmentConfig, appConfig: AppConfig, destinationFile: string): Promise<void> {
+export async function createArchiveBackup(
+  env: EnvironmentConfig,
+  appConfig: AppConfig,
+  destinationFile: string
+): Promise<void> {
   if (env.kind === "local") {
-    await runCommand("mongodump", ["--uri", mongoUri(env), "--gzip", `--archive=${destinationFile}`]);
+    await runCommand("mongodump", [
+      "--uri",
+      mongoUri(env),
+      "--gzip",
+      `--archive=${destinationFile}`
+    ]);
     return;
   }
 
   const remotePath = remoteArchivePath(appConfig, env);
   try {
-    await runRemote(env, `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`);
+    await runRemote(
+      env,
+      `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`
+    );
     await copyFromRemote(env, remotePath, destinationFile);
   } finally {
-    await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`).catch(() => undefined);
+    await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`).catch(
+      () => undefined
+    );
   }
 }
 
@@ -100,13 +171,20 @@ export async function restoreArchiveToEnvironment(
     await runRemote(env, `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`);
     await copyToRemote(env, archiveFile, remotePath);
     const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
-    await runRemote(env, `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`);
+    await runRemote(
+      env,
+      `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`
+    );
   } finally {
-    await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`).catch(() => undefined);
+    await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`).catch(
+      () => undefined
+    );
   }
 }
 
-export async function verifyConnectivity(env: EnvironmentConfig): Promise<void> {
+export async function verifyConnectivity(
+  env: EnvironmentConfig
+): Promise<void> {
   if (env.kind === "remote") {
     await runRemote(env, "true");
   }
@@ -115,14 +193,25 @@ export async function verifyConnectivity(env: EnvironmentConfig): Promise<void> 
   if (env.kind === "local") {
     await runCommand("mongosh", [mongoUri(env), "--quiet", "--eval", script]);
   } else {
-    await runRemote(env, `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`);
+    await runRemote(
+      env,
+      `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`
+    );
   }
 }
 
-export async function inspectArchiveCollections(manifest: BackupManifest): Promise<string[]> {
+export async function inspectArchiveCollections(
+  manifest: BackupManifest
+): Promise<string[]> {
   return manifest.collectionList;
 }
 
-export function createLocalTempFile(appConfig: AppConfig, suffix: string): string {
-  return path.join(appConfig.tempRoot || tmpdir(), `db-helper-${Date.now()}-${Math.random().toString(36).slice(2)}${suffix}`);
+export function createLocalTempFile(
+  appConfig: AppConfig,
+  suffix: string
+): string {
+  return path.join(
+    appConfig.tempRoot || tmpdir(),
+    `db-helper-${Date.now()}-${Math.random().toString(36).slice(2)}${suffix}`
+  );
 }

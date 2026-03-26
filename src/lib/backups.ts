@@ -1,31 +1,61 @@
 import path from "node:path";
 import { readFile, stat } from "node:fs/promises";
-import { BackupManifest, BackupRecord, EnvironmentConfig } from "../config/types.js";
-import { ensureDirectory, exists, listDirectories, readJsonFile, writeJsonFile } from "./fs.js";
+import {
+  BackupManifest,
+  BackupRecord,
+  EnvironmentConfig
+} from "../config/types.js";
+import {
+  ensureDirectory,
+  exists,
+  listDirectories,
+  readJsonFile,
+  writeJsonFile
+} from "./fs.js";
 
 export function buildBackupName(env: EnvironmentConfig): string {
-  return `${new Date().toISOString().replace(/:/g, "-").replace(/\.\d{3}Z$/, "")}-${env.id}`;
+  return `${new Date()
+    .toISOString()
+    .replace(/:/g, "-")
+    .replace(/\.\d{3}Z$/, "")}-${env.id}`;
 }
 
 export function backupPath(backupRoot: string, backupName: string): string {
   return path.join(backupRoot, backupName);
 }
 
-export function archivePathForBackup(backupRoot: string, backupName: string): string {
+export function archivePathForBackup(
+  backupRoot: string,
+  backupName: string
+): string {
   return path.join(backupPath(backupRoot, backupName), "dump.archive.gz");
 }
 
-export function manifestPathForBackup(backupRoot: string, backupName: string): string {
+export function manifestPathForBackup(
+  backupRoot: string,
+  backupName: string
+): string {
   return path.join(backupPath(backupRoot, backupName), "manifest.json");
 }
 
-export async function writeBackupManifest(backupRoot: string, manifest: BackupManifest): Promise<void> {
+export async function writeBackupManifest(
+  backupRoot: string,
+  manifest: BackupManifest
+): Promise<void> {
   await ensureDirectory(backupPath(backupRoot, manifest.backupName));
-  await writeJsonFile(manifestPathForBackup(backupRoot, manifest.backupName), manifest);
+  await writeJsonFile(
+    manifestPathForBackup(backupRoot, manifest.backupName),
+    manifest
+  );
 }
 
-export async function readBackup(backupRoot: string, backupName: string): Promise<BackupRecord> {
-  const manifest = await readJsonFile<BackupManifest>(manifestPathForBackup(backupRoot, backupName));
+export async function readBackup(
+  backupRoot: string,
+  backupName: string
+): Promise<BackupRecord> {
+  const manifest = await readJsonFile<BackupManifest>(
+    manifestPathForBackup(backupRoot, backupName)
+  );
   return {
     name: backupName,
     path: backupPath(backupRoot, backupName),
@@ -48,10 +78,15 @@ export async function listBackups(backupRoot: string): Promise<BackupRecord[]> {
     records.push({ name, path: directory, manifest });
   }
 
-  return records.sort((left, right) => right.manifest.createdAt.localeCompare(left.manifest.createdAt));
+  return records.sort((left, right) =>
+    right.manifest.createdAt.localeCompare(left.manifest.createdAt)
+  );
 }
 
-export async function ensureBackupArtifacts(backupRoot: string, backupName: string): Promise<void> {
+export async function ensureBackupArtifacts(
+  backupRoot: string,
+  backupName: string
+): Promise<void> {
   const manifestFile = manifestPathForBackup(backupRoot, backupName);
   const archiveFile = archivePathForBackup(backupRoot, backupName);
 

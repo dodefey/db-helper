@@ -26,26 +26,50 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
       await backupCreate(appConfig, { from: "production" });
       return;
     case "sync-prod-dev":
-      await syncDatabase(appConfig, { from: "production", to: "development", yes: false });
+      await syncDatabase(appConfig, {
+        from: "production",
+        to: "development",
+        yes: false
+      });
       return;
     case "sync-prod-test":
-      await syncDatabase(appConfig, { from: "production", to: "test", yes: false });
+      await syncDatabase(appConfig, {
+        from: "production",
+        to: "test",
+        yes: false
+      });
       return;
     case "sync-dev-test":
-      await syncDatabase(appConfig, { from: "development", to: "test", yes: false });
+      await syncDatabase(appConfig, {
+        from: "development",
+        to: "test",
+        yes: false
+      });
       return;
     case "sync-test-dev":
-      await syncDatabase(appConfig, { from: "test", to: "development", yes: false });
+      await syncDatabase(appConfig, {
+        from: "test",
+        to: "development",
+        yes: false
+      });
       return;
     case "restore-collection": {
       const backup = await promptText("Backup name");
       const collection = await promptText("Collection name");
       const target = await promptChoice<EnvironmentId>("Target environment", [
-        { label: appConfig.environments.development.label, value: "development" },
+        {
+          label: appConfig.environments.development.label,
+          value: "development"
+        },
         { label: appConfig.environments.test.label, value: "test" },
         { label: appConfig.environments.production.label, value: "production" }
       ]);
-      await restoreCollection(appConfig, { backup, collection, to: target, yes: false });
+      await restoreCollection(appConfig, {
+        backup,
+        collection,
+        to: target,
+        yes: false
+      });
       return;
     }
     case "doctor":

@@ -99,51 +99,51 @@ Example:
 
 ```json
 {
-	"version": 1,
-	"defaults": {
-		"authSource": "admin",
-		"defaultDropOnRestore": true
-	},
-	"paths": {
-		"backupRoot": "/Users/your-user/db-backups",
-		"tempRoot": "/tmp/db"
-	},
-	"profiles": [
-		{
-			"name": "development",
-			"label": "Local Development",
-			"kind": "local",
-			"mongoHost": "127.0.0.1",
-			"mongoPort": 27017,
-			"databaseName": "development",
-			"mongoUser": "sysadmin",
-			"mongoPasswordSecret": "db/development/mongo-password"
-		},
-		{
-			"name": "test",
-			"label": "Test Server",
-			"kind": "remote",
-			"sshConnectionString": "ubuntu@test.gnomebrewshop.com",
-			"sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
-			"mongoHost": "127.0.0.1",
-			"mongoPort": 27017,
-			"databaseName": "development",
-			"mongoUser": "sysadmin",
-			"mongoPasswordSecret": "db/test/mongo-password"
-		},
-		{
-			"name": "production",
-			"label": "Production Server",
-			"kind": "remote",
-			"sshConnectionString": "ubuntu@gnomebrewshop.com",
-			"sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
-			"mongoHost": "127.0.0.1",
-			"mongoPort": 27017,
-			"databaseName": "production",
-			"mongoUser": "sysadmin",
-			"mongoPasswordSecret": "db/production/mongo-password"
-		}
-	]
+  "version": 1,
+  "defaults": {
+    "authSource": "admin",
+    "defaultDropOnRestore": true
+  },
+  "paths": {
+    "backupRoot": "/Users/your-user/db-backups",
+    "tempRoot": "/tmp/db"
+  },
+  "profiles": [
+    {
+      "name": "development",
+      "label": "Local Development",
+      "kind": "local",
+      "mongoHost": "127.0.0.1",
+      "mongoPort": 27017,
+      "databaseName": "development",
+      "mongoUser": "sysadmin",
+      "mongoPasswordSecret": "db/development/mongo-password"
+    },
+    {
+      "name": "test",
+      "label": "Test Server",
+      "kind": "remote",
+      "sshConnectionString": "ubuntu@test.gnomebrewshop.com",
+      "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
+      "mongoHost": "127.0.0.1",
+      "mongoPort": 27017,
+      "databaseName": "development",
+      "mongoUser": "sysadmin",
+      "mongoPasswordSecret": "db/test/mongo-password"
+    },
+    {
+      "name": "production",
+      "label": "Production Server",
+      "kind": "remote",
+      "sshConnectionString": "ubuntu@gnomebrewshop.com",
+      "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
+      "mongoHost": "127.0.0.1",
+      "mongoPort": 27017,
+      "databaseName": "production",
+      "mongoUser": "sysadmin",
+      "mongoPasswordSecret": "db/production/mongo-password"
+    }
+  ]
 }
 ```
 

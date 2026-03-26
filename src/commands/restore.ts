@@ -1,6 +1,10 @@
 import { AppConfig, BackupRecord, EnvironmentId } from "../config/types.js";
-import { archivePathForBackup, backupPath, ensureBackupArtifacts, readBackup } from "../lib/backups.js";
-import { createArchiveBackup, restoreArchiveToEnvironment } from "../lib/mongo.js";
+import {
+  archivePathForBackup,
+  ensureBackupArtifacts,
+  readBackup
+} from "../lib/backups.js";
+import { restoreArchiveToEnvironment } from "../lib/mongo.js";
 import { promptConfirm, promptText } from "../lib/prompts.js";
 import { verifyRestore } from "../lib/verify.js";
 import { backupCreate } from "./backup.js";
@@ -10,13 +14,19 @@ async function confirmRestore(to: EnvironmentId, yes: boolean): Promise<void> {
     return;
   }
 
-  const approved = await promptConfirm(`This will restore data into ${to}. Continue?`);
+  const approved = await promptConfirm(
+    `This will restore data into ${to}. Continue?`
+  );
   if (!approved) {
     throw new Error("Restore cancelled.");
   }
 }
 
-async function confirmProductionRestore(backup: BackupRecord, yes: boolean, force: boolean): Promise<void> {
+async function confirmProductionRestore(
+  backup: BackupRecord,
+  yes: boolean,
+  force: boolean
+): Promise<void> {
   if (!force) {
     throw new Error("Production restore requires --force-production-restore");
   }
@@ -50,7 +60,11 @@ export async function restoreFull(
   await confirmRestore(input.to, input.yes);
 
   if (target.isProduction) {
-    await confirmProductionRestore(backup, input.yes, input.forceProductionRestore);
+    await confirmProductionRestore(
+      backup,
+      input.yes,
+      input.forceProductionRestore
+    );
     if (!input.skipPreBackup) {
       await backupCreate(appConfig, {
         from: "production",
@@ -60,18 +74,31 @@ export async function restoreFull(
     }
   }
 
-  await restoreArchiveToEnvironment(target, appConfig, archivePathForBackup(appConfig.backupRoot, input.backup), {
-    drop: appConfig.defaultDropOnRestore
-  });
+  await restoreArchiveToEnvironment(
+    target,
+    appConfig,
+    archivePathForBackup(appConfig.backupRoot, input.backup),
+    {
+      drop: appConfig.defaultDropOnRestore
+    }
+  );
 
   const verification = await verifyRestore(target, backup.manifest);
-  if (verification.missingCollections.length > 0 || verification.countMismatches.length > 0) {
+  if (
+    verification.missingCollections.length > 0 ||
+    verification.countMismatches.length > 0
+  ) {
     throw new Error(
       `Restore verification failed for ${backup.name} -> ${input.to}\n` +
         `Missing collections: ${verification.missingCollections.join(", ") || "none"}\n` +
-        `Count mismatches: ${verification.countMismatches
-          .map((item) => `${item.collection} expected=${item.expected} actual=${item.actual}`)
-          .join(", ") || "none"}`
+        `Count mismatches: ${
+          verification.countMismatches
+            .map(
+              (item) =>
+                `${item.collection} expected=${item.expected} actual=${item.actual}`
+            )
+            .join(", ") || "none"
+        }`
     );
   }
 }
@@ -83,7 +110,9 @@ export async function restoreCollection(
   await ensureBackupArtifacts(appConfig.backupRoot, input.backup);
   const backup = await readBackup(appConfig.backupRoot, input.backup);
   if (!backup.manifest.collectionList.includes(input.collection)) {
-    throw new Error(`Collection ${input.collection} not present in backup ${input.backup}`);
+    throw new Error(
+      `Collection ${input.collection} not present in backup ${input.backup}`
+    );
   }
 
   await confirmRestore(input.to, input.yes);

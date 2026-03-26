@@ -25,11 +25,18 @@ export async function readJsonFile<T>(filePath: string): Promise<T> {
   return JSON.parse(content) as T;
 }
 
-export async function writeJsonFile(filePath: string, value: unknown): Promise<void> {
+export async function writeJsonFile(
+  filePath: string,
+  value: unknown
+): Promise<void> {
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
 export async function listDirectories(rootPath: string): Promise<string[]> {
-  const entries = await readdir(rootPath, { withFileTypes: true }).catch(() => []);
-  return entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(rootPath, entry.name));
+  const entries = await readdir(rootPath, { withFileTypes: true }).catch(
+    () => []
+  );
+  return entries
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => path.join(rootPath, entry.name));
 }

@@ -38,7 +38,11 @@ function parseArgs(argv: string[]): ParsedArgs {
   return { positional, flags };
 }
 
-function getFlag(flags: ParsedArgs["flags"], name: string, required = false): string | undefined {
+function getFlag(
+  flags: ParsedArgs["flags"],
+  name: string,
+  required = false
+): string | undefined {
   const value = flags[name];
   if (typeof value === "string") {
     return value;
@@ -53,9 +57,14 @@ function getBooleanFlag(flags: ParsedArgs["flags"], name: string): boolean {
   return flags[name] === true;
 }
 
-function parseEnvironment(value: string | undefined, flagName: string): EnvironmentId {
+function parseEnvironment(
+  value: string | undefined,
+  flagName: string
+): EnvironmentId {
   if (!value || !ENVIRONMENT_IDS.includes(value as EnvironmentId)) {
-    throw new Error(`Invalid ${flagName}. Expected one of: ${ENVIRONMENT_IDS.join(", ")}`);
+    throw new Error(
+      `Invalid ${flagName}. Expected one of: ${ENVIRONMENT_IDS.join(", ")}`
+    );
   }
   return value as EnvironmentId;
 }
@@ -103,7 +112,9 @@ async function main(): Promise<void> {
       }
       if (subcommand === "list") {
         const records = await backupList(appConfig, {
-          from: getFlag(args.flags, "from") ? parseEnvironment(getFlag(args.flags, "from"), "--from") : undefined,
+          from: getFlag(args.flags, "from")
+            ? parseEnvironment(getFlag(args.flags, "from"), "--from")
+            : undefined,
           tag: getFlag(args.flags, "tag")
         });
         for (const record of records) {
@@ -114,7 +125,10 @@ async function main(): Promise<void> {
         return;
       }
       if (subcommand === "inspect") {
-        const record = await backupInspect(appConfig, getFlag(args.flags, "backup", true)!);
+        const record = await backupInspect(
+          appConfig,
+          getFlag(args.flags, "backup", true)!
+        );
         process.stdout.write(`${JSON.stringify(record.manifest, null, 2)}\n`);
         return;
       }
@@ -133,7 +147,10 @@ async function main(): Promise<void> {
           to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
           yes: getBooleanFlag(args.flags, "yes"),
           skipPreBackup: getBooleanFlag(args.flags, "skip-pre-backup"),
-          forceProductionRestore: getBooleanFlag(args.flags, "force-production-restore")
+          forceProductionRestore: getBooleanFlag(
+            args.flags,
+            "force-production-restore"
+          )
         });
         return;
       }
@@ -155,10 +172,14 @@ async function main(): Promise<void> {
       return;
   }
 
-  throw new Error(`Unknown command: ${[command, subcommand, third].filter(Boolean).join(" ")}`);
+  throw new Error(
+    `Unknown command: ${[command, subcommand, third].filter(Boolean).join(" ")}`
+  );
 }
 
 main().catch((error) => {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+  process.stderr.write(
+    `${error instanceof Error ? error.message : String(error)}\n`
+  );
   process.exitCode = 1;
 });
