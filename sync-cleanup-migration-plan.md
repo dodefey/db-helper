@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-25 (America/Chicago)
-Status: Phase 1 complete within current scope; later phases not started
+Status: Phases 1-2 complete within current scope; later phases not started
 Branch baseline: main
 Sequence: sync contract first, sync execution second, shared mongo hardening third
 ```
@@ -18,7 +18,8 @@ This document is the canonical working record for the sync cleanup. It should be
 ### Current sync state
 
 - [src/cli.ts](/Users/davidodefey/projects/dbtools/src/cli.ts) exposes `sync` as a top-level command
-- [src/commands/sync.ts](/Users/davidodefey/projects/dbtools/src/commands/sync.ts) performs allowlist validation, confirmation, archive dump, restore, and local temp cleanup
+- [src/commands/sync.ts](/Users/davidodefey/projects/dbtools/src/commands/sync.ts) performs allowlist validation, confirmation, and delegation into the sync execution layer
+- [src/lib/sync.ts](/Users/davidodefey/projects/dbtools/src/lib/sync.ts) owns local temp archive allocation, archive dump, restore, and local cleanup sequencing
 - [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts) owns URI building, remote execution, copy helpers, dump, restore, connectivity checks, and remote temp cleanup behavior
 - [sync-spec.md](/Users/davidodefey/projects/dbtools/sync-spec.md) now defines the intended sync behavior for the cleanup
 
@@ -27,7 +28,7 @@ This document is the canonical working record for the sync cleanup. It should be
 - allowed path enforcement exists in code
 - operator confirmation exists unless `--yes` is provided
 - sync currently uses `appConfig.defaultDropOnRestore` rather than explicit sync-owned drop semantics
-- cleanup exists, but responsibility is split across command and low-level helper layers
+- cleanup still spans sync and Mongo helper layers, but command-layer archive lifecycle logic has been removed
 
 ### Current repo state
 
@@ -59,9 +60,9 @@ The current code does attempt cleanup, but original sync failures versus cleanup
 
 ### Sync currently has no direct tests
 
-Allowed-path behavior, confirmation behavior, explicit drop semantics, execution ordering, and cleanup guarantees are currently unverified by direct tests.
+Allowed-path behavior, confirmation behavior, explicit drop semantics, basic execution ordering, and local cleanup on restore failure are now covered by direct sync tests.
 
-That means the sync cleanup should begin by locking behavior with focused tests before reshaping execution internals.
+That test coverage is enough to support the Phase 2 extraction, but later phases still need stronger cleanup and error-contract coverage.
 
 ### The sync spec is now sufficiently stable to drive a focused refactor
 
@@ -133,6 +134,10 @@ Status:
 
 - add a dedicated sync execution API
 - move archive lifecycle logic out of the command layer and into the sync execution layer
+
+Status:
+
+- complete within current scope
 
 ### Phase 3
 

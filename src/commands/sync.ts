@@ -1,11 +1,6 @@
-import { unlink } from "node:fs/promises";
 import { AppConfig, EnvironmentId } from "../config/types.js";
-import {
-  createLocalTempFile,
-  createArchiveBackup,
-  restoreArchiveToEnvironment
-} from "../lib/mongo.js";
 import { promptConfirm } from "../lib/prompts.js";
+import { runSync } from "../lib/sync.js";
 
 const ALLOWED_SYNC_PATHS = new Set([
   "production->development",
@@ -16,18 +11,12 @@ const ALLOWED_SYNC_PATHS = new Set([
 
 export interface SyncDependencies {
   promptConfirm: (message: string) => Promise<boolean>;
-  createLocalTempFile: (appConfig: AppConfig, suffix: string) => string;
-  createArchiveBackup: typeof createArchiveBackup;
-  restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
-  unlink: (path: string) => Promise<void>;
+  runSync: typeof runSync;
 }
 
 const DEFAULT_SYNC_DEPENDENCIES: SyncDependencies = {
   promptConfirm,
-  createLocalTempFile,
-  createArchiveBackup,
-  restoreArchiveToEnvironment,
-  unlink
+  runSync
 };
 
 export function assertAllowedSyncPath(
@@ -56,22 +45,5 @@ export async function syncDatabase(
     }
   }
 
-  const source = appConfig.environments[input.from];
-  const target = appConfig.environments[input.to];
-  const tempArchive = dependencies.createLocalTempFile(
-    appConfig,
-    ".archive.gz"
-  );
-
-  try {
-    await dependencies.createArchiveBackup(source, appConfig, tempArchive);
-    await dependencies.restoreArchiveToEnvironment(
-      target,
-      appConfig,
-      tempArchive,
-      { drop: true }
-    );
-  } finally {
-    await dependencies.unlink(tempArchive).catch(() => undefined);
-  }
+  await dependencies.runSync(appConfig, { from: input.from, to: input.to });
 }

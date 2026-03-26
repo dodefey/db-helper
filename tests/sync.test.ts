@@ -10,6 +10,7 @@ import {
   syncDatabase,
   SyncDependencies
 } from "../src/commands/sync.js";
+import { runSync, RunSyncDependencies } from "../src/lib/sync.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
   return {
@@ -46,6 +47,33 @@ function createDependencies(overrides: Partial<SyncDependencies> = {}): {
   dependencies: SyncDependencies;
   calls: {
     promptMessages: string[];
+    runSyncCalls: Array<{ from: EnvironmentId; to: EnvironmentId }>;
+  };
+} {
+  const calls = {
+    promptMessages: [] as string[],
+    runSyncCalls: [] as Array<{ from: EnvironmentId; to: EnvironmentId }>
+  };
+
+  const dependencies: SyncDependencies = {
+    async promptConfirm(message: string): Promise<boolean> {
+      calls.promptMessages.push(message);
+      return true;
+    },
+    async runSync(_appConfig, input): Promise<void> {
+      calls.runSyncCalls.push(input);
+    },
+    ...overrides
+  };
+
+  return { dependencies, calls };
+}
+
+function createRunSyncDependencies(
+  overrides: Partial<RunSyncDependencies> = {}
+): {
+  dependencies: RunSyncDependencies;
+  calls: {
     tempFiles: string[];
     dumps: Array<{ source: EnvironmentId; destination: string }>;
     restores: Array<{ target: EnvironmentId; archive: string; drop: boolean }>;
@@ -53,7 +81,6 @@ function createDependencies(overrides: Partial<SyncDependencies> = {}): {
   };
 } {
   const calls = {
-    promptMessages: [] as string[],
     tempFiles: [] as string[],
     dumps: [] as Array<{ source: EnvironmentId; destination: string }>,
     restores: [] as Array<{
@@ -64,11 +91,7 @@ function createDependencies(overrides: Partial<SyncDependencies> = {}): {
     unlinks: [] as string[]
   };
 
-  const dependencies: SyncDependencies = {
-    async promptConfirm(message: string): Promise<boolean> {
-      calls.promptMessages.push(message);
-      return true;
-    },
+  const dependencies: RunSyncDependencies = {
     createLocalTempFile(): string {
       const path = "/tmp/db-helper/test-sync.archive.gz";
       calls.tempFiles.push(path);
@@ -140,8 +163,9 @@ test("syncDatabase prompts before syncing when --yes is not provided", async () 
   assert.deepEqual(calls.promptMessages, [
     "This will replace development with production. Continue?"
   ]);
-  assert.equal(calls.dumps.length, 1);
-  assert.equal(calls.restores.length, 1);
+  assert.deepEqual(calls.runSyncCalls, [
+    { from: "production", to: "development" }
+  ]);
 });
 
 test("syncDatabase skips confirmation when --yes is provided", async () => {
@@ -154,8 +178,9 @@ test("syncDatabase skips confirmation when --yes is provided", async () => {
   );
 
   assert.deepEqual(calls.promptMessages, []);
-  assert.equal(calls.dumps.length, 1);
-  assert.equal(calls.restores.length, 1);
+  assert.deepEqual(calls.runSyncCalls, [
+    { from: "production", to: "development" }
+  ]);
 });
 
 test("syncDatabase aborts when confirmation is declined", async () => {
@@ -175,12 +200,10 @@ test("syncDatabase aborts when confirmation is declined", async () => {
     /Sync cancelled\./
   );
 
-  assert.equal(calls.dumps.length, 0);
-  assert.equal(calls.restores.length, 0);
-  assert.equal(calls.unlinks.length, 0);
+  assert.equal(calls.runSyncCalls.length, 0);
 });
 
-test("syncDatabase forces drop semantics even when config default is false", async () => {
+test("syncDatabase delegates execution to runSync", async () => {
   const { dependencies, calls } = createDependencies();
 
   await syncDatabase(
@@ -189,12 +212,8 @@ test("syncDatabase forces drop semantics even when config default is false", asy
     dependencies
   );
 
-  assert.deepEqual(calls.restores, [
-    {
-      target: "development",
-      archive: "/tmp/db-helper/test-sync.archive.gz",
-      drop: true
-    }
+  assert.deepEqual(calls.runSyncCalls, [
+    { from: "production", to: "development" }
   ]);
 });
 
@@ -211,7 +230,81 @@ test("syncDatabase rejects invalid paths before confirmation or dump work begins
   );
 
   assert.deepEqual(calls.promptMessages, []);
-  assert.equal(calls.dumps.length, 0);
-  assert.equal(calls.restores.length, 0);
-  assert.equal(calls.unlinks.length, 0);
+  assert.equal(calls.runSyncCalls.length, 0);
+});
+
+test("runSync performs dump then restore then cleanup", async () => {
+  const events: string[] = [];
+  const { dependencies, calls } = createRunSyncDependencies({
+    async createArchiveBackup(env, _appConfig, destinationFile): Promise<void> {
+      events.push(`dump:${env.id}:${destinationFile}`);
+      calls.dumps.push({ source: env.id, destination: destinationFile });
+    },
+    async restoreArchiveToEnvironment(
+      env,
+      _appConfig,
+      archiveFile,
+      options
+    ): Promise<void> {
+      events.push(`restore:${env.id}:${archiveFile}:${options.drop}`);
+      calls.restores.push({
+        target: env.id,
+        archive: archiveFile,
+        drop: options.drop
+      });
+    },
+    async unlink(path: string): Promise<void> {
+      events.push(`cleanup:${path}`);
+      calls.unlinks.push(path);
+    }
+  });
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development" },
+    dependencies
+  );
+
+  assert.deepEqual(events, [
+    "dump:production:/tmp/db-helper/test-sync.archive.gz",
+    "restore:development:/tmp/db-helper/test-sync.archive.gz:true",
+    "cleanup:/tmp/db-helper/test-sync.archive.gz"
+  ]);
+});
+
+test("runSync forces drop semantics even when config default is false", async () => {
+  const { dependencies, calls } = createRunSyncDependencies();
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.restores, [
+    {
+      target: "development",
+      archive: "/tmp/db-helper/test-sync.archive.gz",
+      drop: true
+    }
+  ]);
+});
+
+test("runSync attempts cleanup when restore fails", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new Error("restore failed");
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development" },
+      dependencies
+    ),
+    /restore failed/
+  );
+
+  assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
 });
