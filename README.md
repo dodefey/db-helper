@@ -211,7 +211,7 @@ Operator expectations:
 
 `restore` is the command for applying a named backup to a target environment. In practice, it is most useful when you want to recover `development`, `test`, or `production` from a known-good backup, or when you need to restore one collection without replacing the full database.
 
-It is a backup-to-target recovery workflow, not a merge tool. `restore full` validates the named backup, applies it to the target, verifies the result, and enforces stronger safeguards for `production`. `restore collection` restores only one named collection from the backup with drop enabled.
+It is a backup-to-target recovery workflow, not a merge tool. `restore full` validates the named backup, replaces the target with drop enabled, verifies the result, and enforces stronger safeguards for `production`. `restore collection` restores only one named collection from the backup with drop enabled.
 
 ### Usage
 

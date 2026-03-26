@@ -45,7 +45,7 @@ Current behavior:
 - validate the named backup artifacts before any restore begins
 - require confirmation before restoring into any target
 - apply extra protections before restoring into production
-- restore the full backup archive into the target
+- restore the full backup archive into the target with drop enabled
 - verify collection presence and collection counts after restore
 
 ### Collection restore

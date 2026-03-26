@@ -163,6 +163,7 @@ function createRunRestoreDependencies(
     restores: Array<{
       target: EnvironmentId;
       archivePath: string;
+      sourceDatabaseName?: string;
       collection?: string;
       drop: boolean;
       outputMode?: "default" | "quiet" | "verbose";
@@ -188,6 +189,7 @@ function createRunRestoreDependencies(
     restores: [] as Array<{
       target: EnvironmentId;
       archivePath: string;
+      sourceDatabaseName?: string;
       collection?: string;
       drop: boolean;
       outputMode?: "default" | "quiet" | "verbose";
@@ -220,6 +222,7 @@ function createRunRestoreDependencies(
       calls.restores.push({
         target: env.id,
         archivePath,
+        sourceDatabaseName: options.sourceDatabaseName,
         collection: options.collection,
         drop: options.drop,
         outputMode: options.outputMode
@@ -479,8 +482,9 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
     {
       target: "production",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
+      sourceDatabaseName: "production",
       collection: undefined,
-      drop: false,
+      drop: true,
       outputMode: "default"
     }
   ]);
@@ -623,6 +627,7 @@ test("runRestoreCollection validates collection membership and restores with dro
     {
       target: "test",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
+      sourceDatabaseName: "production",
       collection: "orders",
       drop: true,
       outputMode: "default"
@@ -706,6 +711,7 @@ test("runRestoreFull suppresses summary output in quiet mode", async () => {
     {
       target: "development",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
+      sourceDatabaseName: "production",
       collection: undefined,
       drop: true,
       outputMode: "quiet"
@@ -715,6 +721,32 @@ test("runRestoreFull suppresses summary output in quiet mode", async () => {
     {
       target: "development",
       outputMode: "quiet"
+    }
+  ]);
+});
+
+test("runRestoreFull forces drop semantics even when config default is false", async () => {
+  const { dependencies, calls } = createRunRestoreDependencies();
+
+  await runRestoreFull(
+    buildAppConfig(false),
+    {
+      backup: "backup-name",
+      to: "development",
+      skipPreBackup: true,
+      outputMode: "default"
+    },
+    dependencies
+  );
+
+  assert.deepEqual(calls.restores, [
+    {
+      target: "development",
+      archivePath: "/tmp/backups/backup-name/dump.archive.gz",
+      sourceDatabaseName: "production",
+      collection: undefined,
+      drop: true,
+      outputMode: "default"
     }
   ]);
 });

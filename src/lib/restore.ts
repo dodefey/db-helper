@@ -198,7 +198,8 @@ export async function runRestoreFull(
       appConfig,
       dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
       {
-        drop: appConfig.defaultDropOnRestore,
+        sourceDatabaseName: backup.manifest.databaseName,
+        drop: true,
         outputMode: input.outputMode,
         signal: abortController.signal
       }
@@ -290,6 +291,7 @@ export async function runRestoreCollection(
       appConfig,
       dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
       {
+        sourceDatabaseName: backup.manifest.databaseName,
         collection: input.collection,
         drop: true,
         outputMode: input.outputMode,

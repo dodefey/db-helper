@@ -171,6 +171,7 @@ export async function restoreArchiveToEnvironment(
   appConfig: AppConfig,
   archiveFile: string,
   options: {
+    sourceDatabaseName?: string;
     collection?: string;
     drop: boolean;
     outputMode?: OutputMode;
@@ -184,9 +185,24 @@ export async function restoreArchiveToEnvironment(
   if (options.drop) {
     baseArgs.push("--drop");
   }
+  if (options.sourceDatabaseName) {
+    if (options.collection) {
+      const sourceNamespace = `${options.sourceDatabaseName}.${options.collection}`;
+      const targetNamespace = `${env.databaseName}.${options.collection}`;
+      baseArgs.push("--nsInclude", sourceNamespace);
+      baseArgs.push("--nsFrom", sourceNamespace);
+      baseArgs.push("--nsTo", targetNamespace);
+    } else if (options.sourceDatabaseName !== env.databaseName) {
+      baseArgs.push("--nsInclude", `${options.sourceDatabaseName}.*`);
+      baseArgs.push("--nsFrom", `${options.sourceDatabaseName}.*`);
+      baseArgs.push("--nsTo", `${env.databaseName}.*`);
+    }
+  }
   if (options.collection) {
     const namespace = `${env.databaseName}.${options.collection}`;
-    baseArgs.push("--nsInclude", namespace);
+    if (!options.sourceDatabaseName) {
+      baseArgs.push("--nsInclude", namespace);
+    }
   }
 
   if (env.kind === "local") {
