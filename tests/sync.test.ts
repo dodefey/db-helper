@@ -320,6 +320,26 @@ test("runSync attempts cleanup when restore fails", async () => {
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
 });
 
+test("runSync attempts cleanup when dump fails", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async createArchiveBackup(): Promise<void> {
+      throw new Error("dump failed");
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development" },
+      dependencies
+    ),
+    /dump failed/
+  );
+
+  assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
+  assert.equal(calls.restores.length, 0);
+});
+
 test("runSync preserves the original failure when cleanup fails too", async () => {
   const { dependencies } = createRunSyncDependencies({
     async restoreArchiveToEnvironment(): Promise<void> {

@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-25 (America/Chicago)
-Status: Phases 1-3 complete within current scope; Phase 4 still pending
+Status: Phases 1-4 complete within current scope
 Branch baseline: main
 Sequence: sync contract first, sync execution second, shared mongo hardening third
 ```
@@ -34,7 +34,7 @@ This document is the canonical working record for the sync cleanup. It should be
 
 - the broken `task` surface has been removed from the active CLI and current docs
 - the repo currently typechecks and builds
-- sync now has direct Phase 1 tests for allowlist behavior, confirmation behavior, and explicit drop semantics
+- sync now has direct tests for allowlist behavior, confirmation behavior, execution ordering, progress output, explicit drop semantics, and cleanup/error precedence
 
 ## Findings
 
@@ -62,7 +62,7 @@ The current code now makes the local sync error-precedence rule explicit: cleanu
 
 Allowed-path behavior, confirmation behavior, explicit drop semantics, basic execution ordering, sync progress output, cleanup-on-failure behavior, and local error precedence are now covered by direct sync tests.
 
-That test coverage is enough to support the Phase 2 extraction, but later phases still need stronger cleanup and error-contract coverage.
+That test coverage now covers the current sync cleanup scope, including dump-failure cleanup and restore-failure cleanup behavior.
 
 ### The sync spec is now sufficiently stable to drive a focused refactor
 
@@ -152,6 +152,10 @@ Status:
 
 - add execution-path tests for success, failure, and cleanup behavior
 - verify `npm run typecheck` and `npm run build`
+
+Status:
+
+- complete within current scope
 
 ## Acceptance Criteria
 
