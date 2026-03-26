@@ -4,6 +4,7 @@ export interface RunCommandOptions {
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   stdin?: string;
+  streamOutput?: boolean;
 }
 
 function shellEscape(value: string): string {
@@ -34,13 +35,17 @@ export async function runCommand(
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString();
       stdout += text;
-      process.stdout.write(text);
+      if (options.streamOutput !== false) {
+        process.stdout.write(text);
+      }
     });
 
     child.stderr.on("data", (chunk) => {
       const text = chunk.toString();
       stderr += text;
-      process.stderr.write(text);
+      if (options.streamOutput !== false) {
+        process.stderr.write(text);
+      }
     });
 
     child.on("error", (error) => {

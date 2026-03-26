@@ -10,6 +10,7 @@ import {
   syncDatabase,
   SyncDependencies
 } from "../src/commands/sync.js";
+import { parseOutputMode } from "../src/lib/output.js";
 import { runSync, RunSyncDependencies } from "../src/lib/sync.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
@@ -47,12 +48,20 @@ function createDependencies(overrides: Partial<SyncDependencies> = {}): {
   dependencies: SyncDependencies;
   calls: {
     promptMessages: string[];
-    runSyncCalls: Array<{ from: EnvironmentId; to: EnvironmentId }>;
+    runSyncCalls: Array<{
+      from: EnvironmentId;
+      to: EnvironmentId;
+      outputMode: "default" | "quiet" | "verbose";
+    }>;
   };
 } {
   const calls = {
     promptMessages: [] as string[],
-    runSyncCalls: [] as Array<{ from: EnvironmentId; to: EnvironmentId }>
+    runSyncCalls: [] as Array<{
+      from: EnvironmentId;
+      to: EnvironmentId;
+      outputMode: "default" | "quiet" | "verbose";
+    }>
   };
 
   const dependencies: SyncDependencies = {
@@ -161,7 +170,12 @@ test("syncDatabase prompts before syncing when --yes is not provided", async () 
 
   await syncDatabase(
     buildAppConfig(false),
-    { from: "production", to: "development", yes: false },
+    {
+      from: "production",
+      to: "development",
+      yes: false,
+      outputMode: "default"
+    },
     dependencies
   );
 
@@ -169,7 +183,7 @@ test("syncDatabase prompts before syncing when --yes is not provided", async () 
     "This will replace development with production. Continue?"
   ]);
   assert.deepEqual(calls.runSyncCalls, [
-    { from: "production", to: "development" }
+    { from: "production", to: "development", outputMode: "default" }
   ]);
 });
 
@@ -178,13 +192,18 @@ test("syncDatabase skips confirmation when --yes is provided", async () => {
 
   await syncDatabase(
     buildAppConfig(false),
-    { from: "production", to: "development", yes: true },
+    {
+      from: "production",
+      to: "development",
+      yes: true,
+      outputMode: "default"
+    },
     dependencies
   );
 
   assert.deepEqual(calls.promptMessages, []);
   assert.deepEqual(calls.runSyncCalls, [
-    { from: "production", to: "development" }
+    { from: "production", to: "development", outputMode: "default" }
   ]);
 });
 
@@ -199,7 +218,12 @@ test("syncDatabase aborts when confirmation is declined", async () => {
   await assert.rejects(
     syncDatabase(
       buildAppConfig(false),
-      { from: "production", to: "development", yes: false },
+      {
+        from: "production",
+        to: "development",
+        yes: false,
+        outputMode: "default"
+      },
       dependencies
     ),
     /Sync cancelled\./
@@ -213,12 +237,17 @@ test("syncDatabase delegates execution to runSync", async () => {
 
   await syncDatabase(
     buildAppConfig(false),
-    { from: "production", to: "development", yes: true },
+    {
+      from: "production",
+      to: "development",
+      yes: true,
+      outputMode: "default"
+    },
     dependencies
   );
 
   assert.deepEqual(calls.runSyncCalls, [
-    { from: "production", to: "development" }
+    { from: "production", to: "development", outputMode: "default" }
   ]);
 });
 
@@ -228,7 +257,12 @@ test("syncDatabase rejects invalid paths before confirmation or dump work begins
   await assert.rejects(
     syncDatabase(
       buildAppConfig(true),
-      { from: "development", to: "production", yes: false },
+      {
+        from: "development",
+        to: "production",
+        yes: false,
+        outputMode: "default"
+      },
       dependencies
     ),
     /Sync path not allowed: development->production/
@@ -236,6 +270,42 @@ test("syncDatabase rejects invalid paths before confirmation or dump work begins
 
   assert.deepEqual(calls.promptMessages, []);
   assert.equal(calls.runSyncCalls.length, 0);
+});
+
+test("parseOutputMode rejects quiet and verbose together", () => {
+  assert.throws(
+    () => parseOutputMode({ quiet: true, verbose: true }),
+    /Flags --quiet and --verbose cannot be used together/
+  );
+});
+
+test("runSync suppresses summary output in quiet mode", async () => {
+  const { dependencies, calls } = createRunSyncDependencies();
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development", outputMode: "quiet" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.output, []);
+});
+
+test("runSync preserves summary output in default mode", async () => {
+  const { dependencies, calls } = createRunSyncDependencies();
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development", outputMode: "default" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.output, [
+    "Starting sync production -> development\n",
+    "Dumping source production...\n",
+    "Restoring target development...\n",
+    "Cleaning up sync temp artifacts...\n"
+  ]);
 });
 
 test("runSync performs dump then restore then cleanup", async () => {
@@ -266,7 +336,7 @@ test("runSync performs dump then restore then cleanup", async () => {
 
   await runSync(
     buildAppConfig(false),
-    { from: "production", to: "development" },
+    { from: "production", to: "development", outputMode: "default" },
     dependencies
   );
 
@@ -288,7 +358,7 @@ test("runSync forces drop semantics even when config default is false", async ()
 
   await runSync(
     buildAppConfig(false),
-    { from: "production", to: "development" },
+    { from: "production", to: "development", outputMode: "default" },
     dependencies
   );
 
@@ -311,7 +381,7 @@ test("runSync attempts cleanup when restore fails", async () => {
   await assert.rejects(
     runSync(
       buildAppConfig(false),
-      { from: "production", to: "development" },
+      { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
     /restore failed/
@@ -330,7 +400,7 @@ test("runSync attempts cleanup when dump fails", async () => {
   await assert.rejects(
     runSync(
       buildAppConfig(false),
-      { from: "production", to: "development" },
+      { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
     /dump failed/
@@ -353,7 +423,7 @@ test("runSync preserves the original failure when cleanup fails too", async () =
   await assert.rejects(
     runSync(
       buildAppConfig(false),
-      { from: "production", to: "development" },
+      { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
     /restore failed/

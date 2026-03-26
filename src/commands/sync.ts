@@ -1,5 +1,6 @@
 import { AppConfig, EnvironmentId } from "../config/types.js";
 import { promptConfirm } from "../lib/prompts.js";
+import { OutputMode } from "../lib/output.js";
 import { runSync } from "../lib/sync.js";
 
 const ALLOWED_SYNC_PATHS = new Set([
@@ -31,7 +32,12 @@ export function assertAllowedSyncPath(
 
 export async function syncDatabase(
   appConfig: AppConfig,
-  input: { from: EnvironmentId; to: EnvironmentId; yes: boolean },
+  input: {
+    from: EnvironmentId;
+    to: EnvironmentId;
+    yes: boolean;
+    outputMode: OutputMode;
+  },
   dependencies: SyncDependencies = DEFAULT_SYNC_DEPENDENCIES
 ): Promise<void> {
   assertAllowedSyncPath(input.from, input.to);
@@ -45,5 +51,9 @@ export async function syncDatabase(
     }
   }
 
-  await dependencies.runSync(appConfig, { from: input.from, to: input.to });
+  await dependencies.runSync(appConfig, {
+    from: input.from,
+    to: input.to,
+    outputMode: input.outputMode
+  });
 }

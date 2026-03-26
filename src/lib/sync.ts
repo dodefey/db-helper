@@ -5,6 +5,7 @@ import {
   createLocalTempFile,
   restoreArchiveToEnvironment
 } from "./mongo.js";
+import { OutputMode, shouldPrintCommandSummary } from "./output.js";
 
 export interface RunSyncDependencies {
   writeStdout: (message: string) => void;
@@ -24,29 +25,38 @@ const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
 
 export async function runSync(
   appConfig: AppConfig,
-  input: { from: EnvironmentId; to: EnvironmentId },
+  input: { from: EnvironmentId; to: EnvironmentId; outputMode: OutputMode },
   dependencies: RunSyncDependencies = DEFAULT_RUN_SYNC_DEPENDENCIES
 ): Promise<void> {
   const source = appConfig.environments[input.from];
   const target = appConfig.environments[input.to];
+  const printSummary = shouldPrintCommandSummary(input.outputMode);
   const tempArchive = dependencies.createLocalTempFile(
     appConfig,
     ".archive.gz"
   );
 
   try {
-    dependencies.writeStdout(`Starting sync ${input.from} -> ${input.to}\n`);
-    dependencies.writeStdout(`Dumping source ${input.from}...\n`);
-    await dependencies.createArchiveBackup(source, appConfig, tempArchive);
-    dependencies.writeStdout(`Restoring target ${input.to}...\n`);
+    if (printSummary) {
+      dependencies.writeStdout(`Starting sync ${input.from} -> ${input.to}\n`);
+      dependencies.writeStdout(`Dumping source ${input.from}...\n`);
+    }
+    await dependencies.createArchiveBackup(source, appConfig, tempArchive, {
+      outputMode: input.outputMode
+    });
+    if (printSummary) {
+      dependencies.writeStdout(`Restoring target ${input.to}...\n`);
+    }
     await dependencies.restoreArchiveToEnvironment(
       target,
       appConfig,
       tempArchive,
-      { drop: true }
+      { drop: true, outputMode: input.outputMode }
     );
   } finally {
-    dependencies.writeStdout(`Cleaning up sync temp artifacts...\n`);
+    if (printSummary) {
+      dependencies.writeStdout(`Cleaning up sync temp artifacts...\n`);
+    }
     await dependencies.unlink(tempArchive).catch(() => undefined);
   }
 }

@@ -7,6 +7,7 @@ import { runInteractive } from "./commands/interactive.js";
 import { recoverDatabase } from "./commands/recover.js";
 import { restoreCollection, restoreFull } from "./commands/restore.js";
 import { syncDatabase } from "./commands/sync.js";
+import { parseOutputMode } from "./lib/output.js";
 
 type ParsedArgs = {
   positional: string[];
@@ -77,7 +78,7 @@ Commands:
   backup create --from <environment> [--note <text>] [--tag <tag>]
   backup list [--from <environment>] [--tag <tag>]
   backup inspect --backup <backup-name>
-  sync --from <environment> --to <environment> [--yes]
+  sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
   restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore]
   restore collection --backup <backup-name> --collection <name> --to <environment> [--yes]
   recover
@@ -95,6 +96,10 @@ async function main(): Promise<void> {
   }
 
   const appConfig = await loadEnvConfig(getFlag(args.flags, "env-file"));
+  const outputMode = parseOutputMode({
+    quiet: getBooleanFlag(args.flags, "quiet"),
+    verbose: getBooleanFlag(args.flags, "verbose")
+  });
 
   switch (command) {
     case "interactive":
@@ -137,7 +142,8 @@ async function main(): Promise<void> {
       await syncDatabase(appConfig, {
         from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
         to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
-        yes: getBooleanFlag(args.flags, "yes")
+        yes: getBooleanFlag(args.flags, "yes"),
+        outputMode
       });
       return;
     case "restore":

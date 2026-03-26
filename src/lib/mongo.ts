@@ -5,6 +5,7 @@ import {
   BackupManifest,
   EnvironmentConfig
 } from "../config/types.js";
+import { OutputMode, shouldStreamSubprocessOutput } from "./output.js";
 import { runCommand } from "./exec.js";
 
 function mongoUri(env: EnvironmentConfig): string {
@@ -34,18 +35,18 @@ async function cleanupRemoteArchive(
 
 async function runRemote(
   env: EnvironmentConfig,
-  remoteCommand: string
+  remoteCommand: string,
+  streamOutput = true
 ): Promise<string> {
   if (!env.sshUser || !env.sshKeyPath) {
     throw new Error(`Remote environment ${env.id} is missing SSH config`);
   }
 
-  return runCommand("ssh", [
-    "-i",
-    env.sshKeyPath,
-    `${env.sshUser}@${env.host}`,
-    remoteCommand
-  ]);
+  return runCommand(
+    "ssh",
+    ["-i", env.sshKeyPath, `${env.sshUser}@${env.host}`, remoteCommand],
+    { streamOutput }
+  );
 }
 
 async function copyFromRemote(
@@ -129,15 +130,19 @@ print(JSON.stringify(counts));
 export async function createArchiveBackup(
   env: EnvironmentConfig,
   appConfig: AppConfig,
-  destinationFile: string
+  destinationFile: string,
+  options: { outputMode?: OutputMode } = {}
 ): Promise<void> {
+  const streamOutput = shouldStreamSubprocessOutput(
+    options.outputMode ?? "verbose"
+  );
+
   if (env.kind === "local") {
-    await runCommand("mongodump", [
-      "--uri",
-      mongoUri(env),
-      "--gzip",
-      `--archive=${destinationFile}`
-    ]);
+    await runCommand(
+      "mongodump",
+      ["--uri", mongoUri(env), "--gzip", `--archive=${destinationFile}`],
+      { streamOutput }
+    );
     return;
   }
 
@@ -145,7 +150,8 @@ export async function createArchiveBackup(
   try {
     await runRemote(
       env,
-      `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`
+      `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`,
+      streamOutput
     );
     await copyFromRemote(env, remotePath, destinationFile);
   } finally {
@@ -157,8 +163,11 @@ export async function restoreArchiveToEnvironment(
   env: EnvironmentConfig,
   appConfig: AppConfig,
   archiveFile: string,
-  options: { collection?: string; drop: boolean }
+  options: { collection?: string; drop: boolean; outputMode?: OutputMode }
 ): Promise<void> {
+  const streamOutput = shouldStreamSubprocessOutput(
+    options.outputMode ?? "verbose"
+  );
   const baseArgs = ["--uri", mongoUri(env), "--gzip"];
   if (options.drop) {
     baseArgs.push("--drop");
@@ -169,18 +178,27 @@ export async function restoreArchiveToEnvironment(
   }
 
   if (env.kind === "local") {
-    await runCommand("mongorestore", [...baseArgs, `--archive=${archiveFile}`]);
+    await runCommand(
+      "mongorestore",
+      [...baseArgs, `--archive=${archiveFile}`],
+      { streamOutput }
+    );
     return;
   }
 
   const remotePath = remoteArchivePath(appConfig, env);
   try {
-    await runRemote(env, `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`);
+    await runRemote(
+      env,
+      `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
+      streamOutput
+    );
     await copyToRemote(env, archiveFile, remotePath);
     const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
     await runRemote(
       env,
-      `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`
+      `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
+      streamOutput
     );
   } finally {
     await cleanupRemoteArchive(env, remotePath);

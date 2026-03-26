@@ -29,28 +29,32 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
       await syncDatabase(appConfig, {
         from: "production",
         to: "development",
-        yes: false
+        yes: false,
+        outputMode: "default"
       });
       return;
     case "sync-prod-test":
       await syncDatabase(appConfig, {
         from: "production",
         to: "test",
-        yes: false
+        yes: false,
+        outputMode: "default"
       });
       return;
     case "sync-dev-test":
       await syncDatabase(appConfig, {
         from: "development",
         to: "test",
-        yes: false
+        yes: false,
+        outputMode: "default"
       });
       return;
     case "sync-test-dev":
       await syncDatabase(appConfig, {
         from: "test",
         to: "development",
-        yes: false
+        yes: false,
+        outputMode: "default"
       });
       return;
     case "restore-collection": {
