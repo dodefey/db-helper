@@ -58,6 +58,10 @@ Status:
 - map known legacy env keys into the current config shape
 - add overwrite protection and tests
 
+Status:
+
+- complete
+
 ### Phase 4: Interactive init
 
 - add prompt-driven config creation
