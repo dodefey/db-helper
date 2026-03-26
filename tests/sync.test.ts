@@ -369,8 +369,8 @@ test("runSync preserves summary output in default mode", async () => {
     "Checking collection counts...\n",
     "Checked collection counts: 1/2 (orders)\n",
     "Checked collection counts: 2/2 (customers)\n",
-    "Sync production -> development complete.\n",
-    "Cleaning up sync temp artifacts...\n"
+    "Cleaning up sync temp artifacts...\n",
+    "Sync production -> development complete. Verified 2 collections.\n"
   ]);
   assert.deepEqual(calls.countedCollections, [
     { env: "production", collections: ["orders", "customers"] }
@@ -411,8 +411,8 @@ test("runSync rewrites count progress on one line for interactive stdout", async
     "\rChecked collection counts: 1/2 (orders)",
     "\rChecked collection counts: 2/2 (customers)",
     "\n",
-    "Sync production -> development complete.\n",
-    "Cleaning up sync temp artifacts...\n"
+    "Cleaning up sync temp artifacts...\n",
+    "Sync production -> development complete. Verified 2 collections.\n"
   ]);
 });
 
@@ -462,8 +462,8 @@ test("runSync performs dump then restore then cleanup", async () => {
     "Checking collection counts...\n",
     "Checked collection counts: 1/2 (orders)\n",
     "Checked collection counts: 2/2 (customers)\n",
-    "Sync production -> development complete.\n",
-    "Cleaning up sync temp artifacts...\n"
+    "Cleaning up sync temp artifacts...\n",
+    "Sync production -> development complete. Verified 2 collections.\n"
   ]);
   assert.deepEqual(calls.listedCollections, ["production"]);
   assert.deepEqual(calls.countedCollections, [

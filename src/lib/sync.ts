@@ -130,6 +130,7 @@ export async function runSync(
     appConfig,
     ".archive.gz"
   );
+  let syncSucceeded = false;
 
   try {
     if (printSummary) {
@@ -214,9 +215,7 @@ export async function runSync(
           }`
       );
     }
-    if (printSummary) {
-      dependencies.writeStdout(`Sync ${input.from} -> ${input.to} complete.\n`);
-    }
+    syncSucceeded = true;
   } finally {
     if (countProgressActive) {
       dependencies.writeStdout("\n");
@@ -226,5 +225,10 @@ export async function runSync(
       dependencies.writeStdout(`Cleaning up sync temp artifacts...\n`);
     }
     await dependencies.unlink(tempArchive).catch(() => undefined);
+    if (printSummary && syncSucceeded) {
+      dependencies.writeStdout(
+        `Sync ${input.from} -> ${input.to} complete. Verified ${collectionList.length} collections.\n`
+      );
+    }
   }
 }
