@@ -7,6 +7,7 @@ import {
 } from "../config/loadConfig.js";
 import { AppConfig } from "../config/types.js";
 import { exists } from "../lib/fs.js";
+import { promptText } from "../lib/prompts.js";
 
 export class ConfigCommandError extends Error {
   readonly alreadyReported = true;
@@ -19,6 +20,7 @@ export interface ConfigCommandDependencies {
   readFile: (filePath: string) => Promise<string>;
   ensureDirectory: (dirPath: string) => Promise<void>;
   writeFile: (filePath: string, content: string) => Promise<void>;
+  promptText: (message: string) => Promise<string>;
   writeStdout: (message: string) => void;
 }
 
@@ -35,8 +37,56 @@ const DEFAULT_CONFIG_COMMAND_DEPENDENCIES: ConfigCommandDependencies = {
   async writeFile(filePath: string, content: string): Promise<void> {
     await writeFile(filePath, content, "utf8");
   },
+  promptText,
   writeStdout: (message: string): void => {
     process.stdout.write(message);
+  }
+};
+
+const DEFAULT_CONFIG: ConfigFile = {
+  defaults: {
+    authSource: "admin",
+    defaultDropOnRestore: true
+  },
+  paths: {
+    backupRoot: path.join(path.join(path.sep, "tmp"), "db-helper-backups"),
+    tempRoot: path.join(path.sep, "tmp", "db-helper")
+  },
+  environments: {
+    development: {
+      label: "Local Development",
+      kind: "local",
+      host: "localhost",
+      mongoHost: "localhost",
+      mongoPort: 7854,
+      databaseName: "development",
+      mongoUser: "sysadmin",
+      mongoPassword: ""
+    },
+    test: {
+      label: "Test Server",
+      kind: "remote",
+      host: "test.example.com",
+      mongoHost: "localhost",
+      mongoPort: 7854,
+      databaseName: "development",
+      mongoUser: "sysadmin",
+      mongoPassword: "",
+      sshUser: "ubuntu",
+      sshKeyPath: "~/.ssh/db-helper-test.pem"
+    },
+    production: {
+      label: "Production Server",
+      kind: "remote",
+      host: "prod.example.com",
+      mongoHost: "localhost",
+      mongoPort: 7854,
+      databaseName: "production",
+      mongoUser: "sysadmin",
+      mongoPassword: "",
+      sshUser: "ubuntu",
+      sshKeyPath: "~/.ssh/db-helper-production.pem"
+    }
   }
 };
 
@@ -174,6 +224,94 @@ function convertEnvFileToConfig(content: string): ConfigFile {
   };
 }
 
+async function promptWithDefault(
+  prompt: (message: string) => Promise<string>,
+  label: string,
+  defaultValue: string
+): Promise<string> {
+  const value = await prompt(`${label} [${defaultValue}]`);
+  return value.trim() ? value.trim() : defaultValue;
+}
+
+async function promptEnvironmentConfig(
+  id: "development" | "test" | "production",
+  defaults: ImportedEnvironment,
+  prompt: (message: string) => Promise<string>
+): Promise<ImportedEnvironment> {
+  const kind = await promptWithDefault(prompt, `${id} kind`, defaults.kind);
+  if (kind !== "local" && kind !== "remote") {
+    throw new Error(`Invalid ${id} kind: ${kind}`);
+  }
+
+  const config: ImportedEnvironment = {
+    label: await promptWithDefault(prompt, `${id} label`, defaults.label),
+    kind,
+    host: await promptWithDefault(prompt, `${id} host`, defaults.host),
+    mongoHost: await promptWithDefault(
+      prompt,
+      `${id} mongo host`,
+      defaults.mongoHost
+    ),
+    mongoPort: parseInteger(
+      await promptWithDefault(
+        prompt,
+        `${id} mongo port`,
+        String(defaults.mongoPort)
+      ),
+      `${id} mongo port`
+    ),
+    databaseName: await promptWithDefault(
+      prompt,
+      `${id} database name`,
+      defaults.databaseName
+    ),
+    mongoUser: await promptWithDefault(
+      prompt,
+      `${id} mongo user`,
+      defaults.mongoUser
+    ),
+    mongoPassword: await promptWithDefault(
+      prompt,
+      `${id} mongo password`,
+      defaults.mongoPassword
+    )
+  };
+
+  if (kind === "remote") {
+    config.sshUser = await promptWithDefault(
+      prompt,
+      `${id} ssh user`,
+      defaults.sshUser ?? "ubuntu"
+    );
+    config.sshKeyPath = await promptWithDefault(
+      prompt,
+      `${id} ssh key path`,
+      defaults.sshKeyPath ?? "~/.ssh/id_rsa"
+    );
+  }
+
+  return config;
+}
+
+async function writeConfigFile(
+  config: ConfigFile,
+  destinationPath: string,
+  force: boolean,
+  dependencies: ConfigCommandDependencies
+): Promise<void> {
+  if (!force && (await dependencies.fileExists(destinationPath))) {
+    throw new Error(
+      `Config already exists at ${destinationPath}. Re-run with --force to overwrite.`
+    );
+  }
+
+  await dependencies.ensureDirectory(path.dirname(destinationPath));
+  await dependencies.writeFile(
+    destinationPath,
+    `${JSON.stringify(config, null, 2)}\n`
+  );
+}
+
 export async function runConfigValidate(
   configPath?: string,
   dependencies: ConfigCommandDependencies = DEFAULT_CONFIG_COMMAND_DEPENDENCIES
@@ -205,12 +343,6 @@ export async function runInitFromEnvFile(
     ? path.resolve(input.configPath)
     : getRecommendedUserConfigPath();
 
-  if (!input.force && (await dependencies.fileExists(destinationPath))) {
-    throw new Error(
-      `Config already exists at ${destinationPath}. Re-run with --force to overwrite.`
-    );
-  }
-
   dependencies.writeStdout(
     `Importing config from env file ${input.fromEnvFile}...\n`
   );
@@ -220,11 +352,73 @@ export async function runInitFromEnvFile(
   );
   const config = convertEnvFileToConfig(envFileContent);
 
-  await dependencies.ensureDirectory(path.dirname(destinationPath));
-  await dependencies.writeFile(
-    destinationPath,
-    `${JSON.stringify(config, null, 2)}\n`
-  );
+  await writeConfigFile(config, destinationPath, input.force, dependencies);
+
+  dependencies.writeStdout(`Config written: ${destinationPath}\n`);
+  dependencies.writeStdout("Next: db-helper config validate\n");
+}
+
+export async function runInteractiveInit(
+  input: {
+    configPath?: string;
+    force: boolean;
+  },
+  dependencies: ConfigCommandDependencies = DEFAULT_CONFIG_COMMAND_DEPENDENCIES
+): Promise<void> {
+  const destinationPath = input.configPath
+    ? path.resolve(input.configPath)
+    : getRecommendedUserConfigPath();
+
+  dependencies.writeStdout("Starting interactive config setup...\n");
+
+  const config: ConfigFile = {
+    defaults: {
+      authSource: await promptWithDefault(
+        dependencies.promptText,
+        "Mongo auth source",
+        DEFAULT_CONFIG.defaults.authSource
+      ),
+      defaultDropOnRestore: parseBoolean(
+        await promptWithDefault(
+          dependencies.promptText,
+          "Default drop on restore",
+          String(DEFAULT_CONFIG.defaults.defaultDropOnRestore)
+        ),
+        "default drop on restore"
+      )
+    },
+    paths: {
+      backupRoot: await promptWithDefault(
+        dependencies.promptText,
+        "Backup root",
+        DEFAULT_CONFIG.paths.backupRoot
+      ),
+      tempRoot: await promptWithDefault(
+        dependencies.promptText,
+        "Temp root",
+        DEFAULT_CONFIG.paths.tempRoot
+      )
+    },
+    environments: {
+      development: await promptEnvironmentConfig(
+        "development",
+        DEFAULT_CONFIG.environments.development,
+        dependencies.promptText
+      ),
+      test: await promptEnvironmentConfig(
+        "test",
+        DEFAULT_CONFIG.environments.test,
+        dependencies.promptText
+      ),
+      production: await promptEnvironmentConfig(
+        "production",
+        DEFAULT_CONFIG.environments.production,
+        dependencies.promptText
+      )
+    }
+  };
+
+  await writeConfigFile(config, destinationPath, input.force, dependencies);
 
   dependencies.writeStdout(`Config written: ${destinationPath}\n`);
   dependencies.writeStdout("Next: db-helper config validate\n");

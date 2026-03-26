@@ -2,7 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   ConfigCommandDependencies,
-  runInitFromEnvFile
+  runInitFromEnvFile,
+  runInteractiveInit
 } from "../src/commands/config.js";
 
 const SAMPLE_ENV_FILE = `# Shared settings
@@ -75,6 +76,9 @@ function createDependencies(
       async ensureDirectory(): Promise<void> {},
       async writeFile(filePath: string, content: string): Promise<void> {
         writes.push({ path: filePath, content });
+      },
+      async promptText(): Promise<string> {
+        return "";
       },
       writeStdout(message: string): void {
         output.push(message);
@@ -157,4 +161,96 @@ test("runInitFromEnvFile allows overwrite with force", async () => {
   );
 
   assert.equal(writes.length, 1);
+});
+
+test("runInteractiveInit writes a config from prompts", async () => {
+  const answers = [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "dev-pass",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "test-pass",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "prod-pass",
+    "",
+    ""
+  ];
+  const { dependencies, writes, output } = createDependencies({
+    async promptText(): Promise<string> {
+      return answers.shift() ?? "";
+    }
+  });
+
+  await runInteractiveInit(
+    {
+      configPath: "/tmp/config.json",
+      force: false
+    },
+    dependencies
+  );
+
+  assert.equal(writes.length, 1);
+  const written = JSON.parse(writes[0].content) as {
+    defaults: { authSource: string; defaultDropOnRestore: boolean };
+    environments: {
+      development: { mongoPassword: string };
+      test: { sshUser: string };
+      production: { sshKeyPath: string };
+    };
+  };
+  assert.equal(written.defaults.authSource, "admin");
+  assert.equal(written.defaults.defaultDropOnRestore, true);
+  assert.equal(written.environments.development.mongoPassword, "dev-pass");
+  assert.equal(written.environments.test.sshUser, "ubuntu");
+  assert.equal(
+    written.environments.production.sshKeyPath,
+    "~/.ssh/db-helper-production.pem"
+  );
+  assert.deepEqual(output, [
+    "Starting interactive config setup...\n",
+    "Config written: /tmp/config.json\n",
+    "Next: db-helper config validate\n"
+  ]);
+});
+
+test("runInteractiveInit refuses to overwrite without force", async () => {
+  const { dependencies } = createDependencies({
+    async fileExists(): Promise<boolean> {
+      return true;
+    }
+  });
+
+  await assert.rejects(
+    runInteractiveInit(
+      {
+        configPath: "/tmp/config.json",
+        force: false
+      },
+      dependencies
+    ),
+    /Re-run with --force/
+  );
 });

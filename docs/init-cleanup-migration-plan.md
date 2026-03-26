@@ -68,10 +68,18 @@ Status:
 - support destination override with `--config`
 - add overwrite protection and tests
 
+Status:
+
+- complete
+
 ### Phase 5: Docs and standalone setup flow
 
 - update README setup/install guidance
 - record final status in [hardening-migration-status.md](hardening-migration-status.md)
+
+Status:
+
+- complete
 
 ## Notes for Implementation
 
@@ -88,3 +96,7 @@ The migration is complete when:
 - all five phases are complete
 - tests cover validation, import, interactive init, and overwrite behavior
 - README describes the preferred standalone setup path
+
+Current status:
+
+- complete

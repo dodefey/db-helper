@@ -4,7 +4,11 @@
 
 ## Setup
 
-Copy `config.example.json` to `config.json` and fill in the connection details for all three environments.
+The standalone setup flow is now:
+
+1. `db-helper init`
+2. `db-helper config validate`
+3. `db-helper doctor`
 
 By default, the CLI looks for configuration in this order:
 
@@ -27,18 +31,23 @@ npm start -- --help
 ```
 
 ```bash
-# create your local config
-cp config.example.json config.json
+# create a config interactively at the default user location
+db-helper init
 ```
 
 ```bash
-# validate your config
-npm start -- doctor
+# import a config from the legacy env-file format
+db-helper init --from-env-file /path/to/.env
 ```
 
 ```bash
-# use a different config file explicitly
-npm start -- doctor --config /path/to/config.json
+# validate config shape without network checks
+db-helper config validate
+```
+
+```bash
+# validate your config and connectivity
+db-helper doctor
 ```
 
 ```bash
@@ -47,8 +56,13 @@ npm install -g .
 ```
 
 ```bash
-# place a long-lived user config in the default standalone location
-mkdir -p ~/.config/db-helper && cp config.example.json ~/.config/db-helper/config.json
+# write the config somewhere else explicitly
+db-helper init --config /path/to/config.json
+```
+
+```bash
+# validate a non-default config file explicitly
+db-helper config validate --config /path/to/config.json
 ```
 
 ## Command Reference

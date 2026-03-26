@@ -5,7 +5,11 @@ import {
 } from "./config/loadConfig.js";
 import { ENVIRONMENT_IDS, EnvironmentId } from "./config/types.js";
 import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
-import { runConfigValidate, runInitFromEnvFile } from "./commands/config.js";
+import {
+  runConfigValidate,
+  runInitFromEnvFile,
+  runInteractiveInit
+} from "./commands/config.js";
 import { runDoctor } from "./commands/doctor.js";
 import { runInteractive } from "./commands/interactive.js";
 import { recoverDatabase } from "./commands/recover.js";
@@ -123,9 +127,11 @@ async function main(): Promise<void> {
         });
         return;
       }
-      throw new Error(
-        "Interactive init is not implemented yet. Use --from-env-file for now."
-      );
+      await runInteractiveInit({
+        configPath: getFlag(args.flags, "config"),
+        force: getBooleanFlag(args.flags, "force")
+      });
+      return;
     case "config":
       if (subcommand === "validate") {
         await runConfigValidate(getFlag(args.flags, "config"));

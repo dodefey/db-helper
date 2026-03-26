@@ -23,6 +23,12 @@ The following command surfaces have been hardened and brought into a consistent 
 
 The configuration model has also been migrated to `config.json`, replacing the earlier `.env`-based setup.
 
+Standalone config management now exists through:
+
+- `db-helper init`
+- `db-helper init --from-env-file <path>`
+- `db-helper config validate`
+
 For those surfaces, the repo now has:
 
 - a thin command layer
@@ -64,6 +70,13 @@ Config loading was also manually validated through both:
 
 - explicit `--config ./config.json`
 - default `config.json` discovery
+
+The config-management flow itself has direct test coverage for:
+
+- config validation success/failure
+- env-file import
+- interactive init
+- overwrite protection
 
 ## Current Architecture
 
@@ -124,13 +137,13 @@ Recommended follow-up:
 
 ### 4. Standalone CLI usability
 
-The package is now closer to a standalone CLI, but there is still room to improve install and first-run UX.
+The package is now much closer to a standalone CLI, but there is still room to improve install and first-run UX.
 
 Recommended follow-up:
 
 - decide whether to prefer the user config path over `./config.json` long-term
-- add a first-run config bootstrap command if the tool is going to be published broadly
 - document global install and upgrade flow more explicitly once packaging is finalized
+- consider adding a config edit/update workflow later if manual JSON editing becomes a recurring pain
 
 ## Notes On Older Planning Docs
 
