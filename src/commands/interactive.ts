@@ -75,7 +75,8 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
         backup,
         collection,
         to: target,
-        yes: false
+        yes: false,
+        outputMode: "default"
       });
       return;
     }

@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Phase 3 complete; later phases pending
+Status: Phase 4 complete; later phases pending
 Branch baseline: main
 Sequence: restore contract first, restore execution second, restore output and interruption hardening third
 ```
@@ -33,7 +33,7 @@ This document is the canonical working record for restore cleanup. It should be 
 - production restore creates a pre-restore production backup by default
 - restore verification exists for `restore full`
 - restore now has a phase-aware interruption and dirty-target contract in the execution layer
-- restore does not yet have a dedicated output model
+- restore now has default, quiet, and verbose output behavior in the execution layer
 
 ### Current repo state
 
@@ -64,11 +64,11 @@ That concentration made failure behavior and testing harder to evolve safely.
 
 Phase 2 resolves the core of that problem by moving restore execution into [src/lib/restore.ts](/Users/davidodefey/projects/dbtools/src/lib/restore.ts).
 
-### Restore now has a stronger operational contract, but output is still behind
+### Restore now has a stronger operational contract and phase-aware operator output
 
-The current code now has strong production protections, verification, and phase-aware dirty-target messaging, but it still does not have the same operator-output model sync and backup use.
+The current code now has strong production protections, verification, phase-aware dirty-target messaging, and the same basic output-mode model sync and backup use.
 
-This is the main operational gap in restore today.
+The next remaining work is mostly broader command-surface coverage and README cleanup.
 
 ### Restore now has the same execution-layer shape sync and backup use
 
@@ -186,12 +186,15 @@ Notes:
 
 Status:
 
-- pending
+- complete
 
 Notes:
 
 - reuse the existing repo output conventions from sync and backup
 - avoid synthetic progress indicators
+- restore full now reports start, pre-restore backup, restore, verify, and final success
+- restore collection now reports start, collection restore, and final success
+- quiet mode now suppresses normal success-path summaries
 
 ### Phase 5
 

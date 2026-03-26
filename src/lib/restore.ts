@@ -7,6 +7,7 @@ import {
 import { restoreArchiveToEnvironment } from "./mongo.js";
 import { verifyRestore } from "./verify.js";
 import { backupCreate } from "../commands/backup.js";
+import { OutputMode } from "./output.js";
 
 export interface RunRestoreDependencies {
   ensureBackupArtifacts: typeof ensureBackupArtifacts;
@@ -16,6 +17,7 @@ export interface RunRestoreDependencies {
   restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
   verifyRestore: typeof verifyRestore;
   installInterruptHandler: (onInterrupt: () => void) => () => void;
+  writeStdout: (message: string) => void;
 }
 
 const DEFAULT_RUN_RESTORE_DEPENDENCIES: RunRestoreDependencies = {
@@ -29,7 +31,8 @@ const DEFAULT_RUN_RESTORE_DEPENDENCIES: RunRestoreDependencies = {
     const handler = (): void => onInterrupt();
     process.on("SIGINT", handler);
     return () => process.off("SIGINT", handler);
-  }
+  },
+  writeStdout: (message) => process.stdout.write(message)
 };
 
 type RestorePhase =
@@ -121,47 +124,69 @@ export async function runRestoreFull(
     backup: string;
     to: EnvironmentId;
     skipPreBackup: boolean;
+    outputMode: OutputMode;
   },
   dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES
 ): Promise<void> {
   const abortController = new AbortController();
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
+  const printSummary = input.outputMode !== "quiet";
   const removeInterruptHandler = dependencies.installInterruptHandler(() => {
     abortController.abort();
   });
 
   try {
+    if (printSummary) {
+      dependencies.writeStdout(
+        `Starting restore ${input.backup} -> ${input.to}\n`
+      );
+    }
     await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
     const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
     const target = appConfig.environments[input.to];
 
     if (target.isProduction && !input.skipPreBackup) {
       currentPhase = "pre_restore_backup";
+      if (printSummary) {
+        dependencies.writeStdout("Creating pre-restore backup...\n");
+      }
       await dependencies.backupCreate(appConfig, {
         from: "production",
         note: `automatic pre-restore backup before restoring ${input.backup}`,
         tags: ["pre-restore"],
-        outputMode: "default"
+        outputMode: input.outputMode
       });
     }
 
     currentPhase = "restore";
     targetMayBeDirty = true;
+    if (printSummary) {
+      dependencies.writeStdout(`Restoring target ${input.to}...\n`);
+    }
     await dependencies.restoreArchiveToEnvironment(
       target,
       appConfig,
       dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
       {
         drop: appConfig.defaultDropOnRestore,
+        outputMode: input.outputMode,
         signal: abortController.signal
       }
     );
 
     currentPhase = "verify";
-    const verification = await dependencies.verifyRestore(target, backup.manifest, {
-      signal: abortController.signal
-    });
+    if (printSummary) {
+      dependencies.writeStdout(`Verifying target ${input.to}...\n`);
+    }
+    const verification = await dependencies.verifyRestore(
+      target,
+      backup.manifest,
+      {
+        outputMode: input.outputMode,
+        signal: abortController.signal
+      }
+    );
     if (
       verification.missingCollections.length > 0 ||
       verification.countMismatches.length > 0
@@ -169,6 +194,9 @@ export async function runRestoreFull(
       throw new Error(
         formatRestoreVerificationFailure(backup, input.to, verification)
       );
+    }
+    if (printSummary) {
+      dependencies.writeStdout(`Restore complete: ${input.backup} -> ${input.to}\n`);
     }
   } catch (error) {
     throw new Error(
@@ -193,17 +221,24 @@ export async function runRestoreCollection(
     backup: string;
     collection: string;
     to: EnvironmentId;
+    outputMode: OutputMode;
   },
   dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES
 ): Promise<void> {
   const abortController = new AbortController();
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
+  const printSummary = input.outputMode !== "quiet";
   const removeInterruptHandler = dependencies.installInterruptHandler(() => {
     abortController.abort();
   });
 
   try {
+    if (printSummary) {
+      dependencies.writeStdout(
+        `Starting restore ${input.backup}:${input.collection} -> ${input.to}\n`
+      );
+    }
     await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
     const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
     if (!backup.manifest.collectionList.includes(input.collection)) {
@@ -214,12 +249,27 @@ export async function runRestoreCollection(
 
     currentPhase = "restore";
     targetMayBeDirty = true;
+    if (printSummary) {
+      dependencies.writeStdout(
+        `Restoring collection ${input.collection} into ${input.to}...\n`
+      );
+    }
     await dependencies.restoreArchiveToEnvironment(
       appConfig.environments[input.to],
       appConfig,
       dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
-      { collection: input.collection, drop: true, signal: abortController.signal }
+      {
+        collection: input.collection,
+        drop: true,
+        outputMode: input.outputMode,
+        signal: abortController.signal
+      }
     );
+    if (printSummary) {
+      dependencies.writeStdout(
+        `Restore complete: ${input.backup}:${input.collection} -> ${input.to}\n`
+      );
+    }
   } catch (error) {
     throw new Error(
       formatRestoreFailure({

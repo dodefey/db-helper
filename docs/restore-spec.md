@@ -18,8 +18,8 @@ The command exists for operational workflows such as:
 CLI forms:
 
 ```bash
-db-helper restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore]
-db-helper restore collection --backup <backup-name> --collection <name> --to <environment> [--yes]
+db-helper restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
+db-helper restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--quiet] [--verbose]
 ```
 
 Required flags:
@@ -29,8 +29,8 @@ Required flags:
 
 Optional flags:
 
-- `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`
-- `restore collection`: `--yes`
+- `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`, `--quiet`, `--verbose`
+- `restore collection`: `--yes`, `--quiet`, `--verbose`
 
 No selective multi-collection restore mode is supported.
 

@@ -48,6 +48,7 @@ export async function recoverDatabase(appConfig: AppConfig): Promise<void> {
     to: target,
     yes: false,
     skipPreBackup: false,
-    forceProductionRestore: target === "production"
+    forceProductionRestore: target === "production",
+    outputMode: "default"
   });
 }

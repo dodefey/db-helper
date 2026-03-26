@@ -7,6 +7,7 @@ import {
   runRestoreCollection,
   runRestoreFull
 } from "../lib/restore.js";
+import { OutputMode } from "../lib/output.js";
 
 export interface RestoreDependencies {
   promptConfirm: typeof promptConfirm;
@@ -71,6 +72,7 @@ export async function restoreFull(
     yes: boolean;
     skipPreBackup: boolean;
     forceProductionRestore: boolean;
+    outputMode: OutputMode;
   },
   dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
@@ -91,19 +93,27 @@ export async function restoreFull(
   await dependencies.runRestoreFull(appConfig, {
     backup: input.backup,
     to: input.to,
-    skipPreBackup: input.skipPreBackup
+    skipPreBackup: input.skipPreBackup,
+    outputMode: input.outputMode
   });
 }
 
 export async function restoreCollection(
   appConfig: AppConfig,
-  input: { backup: string; collection: string; to: EnvironmentId; yes: boolean },
+  input: {
+    backup: string;
+    collection: string;
+    to: EnvironmentId;
+    yes: boolean;
+    outputMode: OutputMode;
+  },
   dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
   await confirmRestore(input.to, input.yes, dependencies);
   await dependencies.runRestoreCollection(appConfig, {
     backup: input.backup,
     collection: input.collection,
-    to: input.to
+    to: input.to,
+    outputMode: input.outputMode
   });
 }

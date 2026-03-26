@@ -83,11 +83,13 @@ function createRestoreCommandDependencies(
       backup: string;
       to: EnvironmentId;
       skipPreBackup: boolean;
+      outputMode: "default" | "quiet" | "verbose";
     }>;
     runRestoreCollectionArgs: Array<{
       backup: string;
       collection: string;
       to: EnvironmentId;
+      outputMode: "default" | "quiet" | "verbose";
     }>;
   };
 } {
@@ -99,11 +101,13 @@ function createRestoreCommandDependencies(
       backup: string;
       to: EnvironmentId;
       skipPreBackup: boolean;
+      outputMode: "default" | "quiet" | "verbose";
     }>,
     runRestoreCollectionArgs: [] as Array<{
       backup: string;
       collection: string;
       to: EnvironmentId;
+      outputMode: "default" | "quiet" | "verbose";
     }>
   };
 
@@ -154,6 +158,7 @@ function createRunRestoreDependencies(
     }>;
     verifications: EnvironmentId[];
     interruptHandler?: () => void;
+    output: string[];
   };
 } {
   const calls = {
@@ -173,7 +178,8 @@ function createRunRestoreDependencies(
       drop: boolean;
     }>,
     verifications: [] as EnvironmentId[],
-    interruptHandler: undefined as (() => void) | undefined
+    interruptHandler: undefined as (() => void) | undefined,
+    output: [] as string[]
   };
 
   const dependencies: RunRestoreDependencies = {
@@ -222,6 +228,9 @@ function createRunRestoreDependencies(
         calls.interruptHandler = undefined;
       };
     },
+    writeStdout(message: string): void {
+      calls.output.push(message);
+    },
     ...overrides
   };
 
@@ -238,7 +247,8 @@ test("restoreFull prompts before running restore when --yes is false", async () 
       to: "development",
       yes: false,
       skipPreBackup: false,
-      forceProductionRestore: false
+      forceProductionRestore: false,
+      outputMode: "default"
     },
     dependencies
   );
@@ -250,7 +260,8 @@ test("restoreFull prompts before running restore when --yes is false", async () 
     {
       backup: "backup-name",
       to: "development",
-      skipPreBackup: false
+      skipPreBackup: false,
+      outputMode: "default"
     }
   ]);
 });
@@ -265,7 +276,8 @@ test("restoreFull enforces production confirmation before running restore", asyn
       to: "production",
       yes: false,
       skipPreBackup: false,
-      forceProductionRestore: true
+      forceProductionRestore: true,
+      outputMode: "default"
     },
     dependencies
   );
@@ -280,7 +292,8 @@ test("restoreFull enforces production confirmation before running restore", asyn
     {
       backup: "backup-name",
       to: "production",
-      skipPreBackup: false
+      skipPreBackup: false,
+      outputMode: "default"
     }
   ]);
 });
@@ -294,7 +307,8 @@ test("restoreCollection delegates after confirmation", async () => {
       backup: "backup-name",
       collection: "orders",
       to: "development",
-      yes: false
+      yes: false,
+      outputMode: "default"
     },
     dependencies
   );
@@ -306,7 +320,8 @@ test("restoreCollection delegates after confirmation", async () => {
     {
       backup: "backup-name",
       collection: "orders",
-      to: "development"
+      to: "development",
+      outputMode: "default"
     }
   ]);
 });
@@ -319,7 +334,8 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
     {
       backup: "backup-name",
       to: "production",
-      skipPreBackup: false
+      skipPreBackup: false,
+      outputMode: "default"
     },
     dependencies
   );
@@ -343,6 +359,13 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
     }
   ]);
   assert.deepEqual(calls.verifications, ["production"]);
+  assert.deepEqual(calls.output, [
+    "Starting restore backup-name -> production\n",
+    "Creating pre-restore backup...\n",
+    "Restoring target production...\n",
+    "Verifying target production...\n",
+    "Restore complete: backup-name -> production\n"
+  ]);
 });
 
 test("runRestoreFull throws when verification fails", async () => {
@@ -371,7 +394,8 @@ test("runRestoreFull throws when verification fails", async () => {
         {
           backup: "backup-name",
           to: "development",
-          skipPreBackup: true
+          skipPreBackup: true,
+          outputMode: "default"
         },
         dependencies
       ),
@@ -393,7 +417,8 @@ test("runRestoreFull reports dirty-target risk when interrupted during restore",
         {
           backup: "backup-name",
           to: "development",
-          skipPreBackup: false
+          skipPreBackup: false,
+          outputMode: "default"
         },
         dependencies
       ),
@@ -415,7 +440,8 @@ test("runRestoreFull reports target unchanged when pre-restore backup fails", as
         {
           backup: "backup-name",
           to: "production",
-          skipPreBackup: false
+          skipPreBackup: false,
+          outputMode: "default"
         },
         dependencies
       ),
@@ -431,7 +457,8 @@ test("runRestoreCollection validates collection membership and restores with dro
     {
       backup: "backup-name",
       collection: "orders",
-      to: "test"
+      to: "test",
+      outputMode: "default"
     },
     dependencies
   );
@@ -443,6 +470,11 @@ test("runRestoreCollection validates collection membership and restores with dro
       collection: "orders",
       drop: true
     }
+  ]);
+  assert.deepEqual(calls.output, [
+    "Starting restore backup-name:orders -> test\n",
+    "Restoring collection orders into test...\n",
+    "Restore complete: backup-name:orders -> test\n"
   ]);
 });
 
@@ -466,7 +498,8 @@ test("runRestoreCollection rejects collections missing from the backup", async (
         {
           backup: "backup-name",
           collection: "orders",
-          to: "development"
+          to: "development",
+          outputMode: "default"
         },
         dependencies
       ),
@@ -488,10 +521,28 @@ test("runRestoreCollection reports dirty-target risk on restore failure", async 
         {
           backup: "backup-name",
           collection: "orders",
-          to: "development"
+          to: "development",
+          outputMode: "default"
         },
         dependencies
       ),
     /Restore failed during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nrestore failed/
   );
+});
+
+test("runRestoreFull suppresses summary output in quiet mode", async () => {
+  const { dependencies, calls } = createRunRestoreDependencies();
+
+  await runRestoreFull(
+    buildAppConfig(),
+    {
+      backup: "backup-name",
+      to: "development",
+      skipPreBackup: true,
+      outputMode: "quiet"
+    },
+    dependencies
+  );
+
+  assert.deepEqual(calls.output, []);
 });
