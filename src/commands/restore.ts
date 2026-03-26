@@ -1,20 +1,39 @@
 import { AppConfig, BackupRecord, EnvironmentId } from "../config/types.js";
 import {
-  archivePathForBackup,
-  ensureBackupArtifacts,
   readBackup
 } from "../lib/backups.js";
-import { restoreArchiveToEnvironment } from "../lib/mongo.js";
 import { promptConfirm, promptText } from "../lib/prompts.js";
-import { verifyRestore } from "../lib/verify.js";
-import { backupCreate } from "./backup.js";
+import {
+  runRestoreCollection,
+  runRestoreFull
+} from "../lib/restore.js";
 
-async function confirmRestore(to: EnvironmentId, yes: boolean): Promise<void> {
+export interface RestoreDependencies {
+  promptConfirm: typeof promptConfirm;
+  promptText: typeof promptText;
+  readBackup: typeof readBackup;
+  runRestoreFull: typeof runRestoreFull;
+  runRestoreCollection: typeof runRestoreCollection;
+}
+
+const DEFAULT_RESTORE_DEPENDENCIES: RestoreDependencies = {
+  promptConfirm,
+  promptText,
+  readBackup,
+  runRestoreFull,
+  runRestoreCollection
+};
+
+async function confirmRestore(
+  to: EnvironmentId,
+  yes: boolean,
+  dependencies: RestoreDependencies
+): Promise<void> {
   if (yes) {
     return;
   }
 
-  const approved = await promptConfirm(
+  const approved = await dependencies.promptConfirm(
     `This will restore data into ${to}. Continue?`
   );
   if (!approved) {
@@ -25,7 +44,8 @@ async function confirmRestore(to: EnvironmentId, yes: boolean): Promise<void> {
 async function confirmProductionRestore(
   backup: BackupRecord,
   yes: boolean,
-  force: boolean
+  force: boolean,
+  dependencies: RestoreDependencies
 ): Promise<void> {
   if (!force) {
     throw new Error("Production restore requires --force-production-restore");
@@ -35,7 +55,7 @@ async function confirmProductionRestore(
     return;
   }
 
-  const phrase = await promptText(
+  const phrase = await dependencies.promptText(
     `Type RESTORE ${backup.name} TO PRODUCTION to confirm`
   );
   if (phrase !== `RESTORE ${backup.name} TO PRODUCTION`) {
@@ -51,76 +71,39 @@ export async function restoreFull(
     yes: boolean;
     skipPreBackup: boolean;
     forceProductionRestore: boolean;
-  }
+  },
+  dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
-  await ensureBackupArtifacts(appConfig.backupRoot, input.backup);
-  const backup = await readBackup(appConfig.backupRoot, input.backup);
+  const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
   const target = appConfig.environments[input.to];
 
-  await confirmRestore(input.to, input.yes);
+  await confirmRestore(input.to, input.yes, dependencies);
 
   if (target.isProduction) {
     await confirmProductionRestore(
       backup,
       input.yes,
-      input.forceProductionRestore
-    );
-    if (!input.skipPreBackup) {
-      await backupCreate(appConfig, {
-        from: "production",
-        note: `automatic pre-restore backup before restoring ${input.backup}`,
-        tags: ["pre-restore"],
-        outputMode: "default"
-      });
-    }
-  }
-
-  await restoreArchiveToEnvironment(
-    target,
-    appConfig,
-    archivePathForBackup(appConfig.backupRoot, input.backup),
-    {
-      drop: appConfig.defaultDropOnRestore
-    }
-  );
-
-  const verification = await verifyRestore(target, backup.manifest);
-  if (
-    verification.missingCollections.length > 0 ||
-    verification.countMismatches.length > 0
-  ) {
-    throw new Error(
-      `Restore verification failed for ${backup.name} -> ${input.to}\n` +
-        `Missing collections: ${verification.missingCollections.join(", ") || "none"}\n` +
-        `Count mismatches: ${
-          verification.countMismatches
-            .map(
-              (item) =>
-                `${item.collection} expected=${item.expected} actual=${item.actual}`
-            )
-            .join(", ") || "none"
-        }`
+      input.forceProductionRestore,
+      dependencies
     );
   }
+
+  await dependencies.runRestoreFull(appConfig, {
+    backup: input.backup,
+    to: input.to,
+    skipPreBackup: input.skipPreBackup
+  });
 }
 
 export async function restoreCollection(
   appConfig: AppConfig,
-  input: { backup: string; collection: string; to: EnvironmentId; yes: boolean }
+  input: { backup: string; collection: string; to: EnvironmentId; yes: boolean },
+  dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
-  await ensureBackupArtifacts(appConfig.backupRoot, input.backup);
-  const backup = await readBackup(appConfig.backupRoot, input.backup);
-  if (!backup.manifest.collectionList.includes(input.collection)) {
-    throw new Error(
-      `Collection ${input.collection} not present in backup ${input.backup}`
-    );
-  }
-
-  await confirmRestore(input.to, input.yes);
-  await restoreArchiveToEnvironment(
-    appConfig.environments[input.to],
-    appConfig,
-    archivePathForBackup(appConfig.backupRoot, input.backup),
-    { collection: input.collection, drop: true }
-  );
+  await confirmRestore(input.to, input.yes, dependencies);
+  await dependencies.runRestoreCollection(appConfig, {
+    backup: input.backup,
+    collection: input.collection,
+    to: input.to
+  });
 }

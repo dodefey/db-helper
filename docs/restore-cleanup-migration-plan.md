@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-03-26 (America/Chicago)
-Status: Draft; cleanup not started
+Status: Phase 2 complete; later phases pending
 Branch baseline: main
 Sequence: restore contract first, restore execution second, restore output and interruption hardening third
 ```
@@ -18,7 +18,8 @@ This document is the canonical working record for restore cleanup. It should be 
 ### Current restore state
 
 - [src/cli.ts](/Users/davidodefey/projects/dbtools/src/cli.ts) exposes `restore full` and `restore collection`
-- [src/commands/restore.ts](/Users/davidodefey/projects/dbtools/src/commands/restore.ts) currently owns backup validation, confirmation, production-specific safety checks, pre-restore backup orchestration, restore execution, and verification directly
+- [src/commands/restore.ts](/Users/davidodefey/projects/dbtools/src/commands/restore.ts) now delegates restore execution into a dedicated restore layer while keeping confirmation and production safety gates in the command layer
+- [src/lib/restore.ts](/Users/davidodefey/projects/dbtools/src/lib/restore.ts) now owns backup validation, pre-restore production backup orchestration, restore execution, and verification
 - [src/lib/backups.ts](/Users/davidodefey/projects/dbtools/src/lib/backups.ts) owns backup artifact validation and manifest reading
 - [src/lib/mongo.ts](/Users/davidodefey/projects/dbtools/src/lib/mongo.ts) owns archive restore transport
 - [src/lib/verify.ts](/Users/davidodefey/projects/dbtools/src/lib/verify.ts) owns restore verification
@@ -31,13 +32,13 @@ This document is the canonical working record for restore cleanup. It should be 
 - production restore requires `--force-production-restore` and an extra typed confirmation
 - production restore creates a pre-restore production backup by default
 - restore verification exists for `restore full`
-- restore does not yet have a dedicated interruption contract or execution layer
+- restore does not yet have a dedicated interruption contract or output model
 
 ### Current repo state
 
 - sync and backup have already been hardened with execution layers, output modes, cleanup contracts, and interruption handling
 - restore is now the highest-risk remaining command surface because it can modify `production`
-- restore currently has no direct dedicated test file
+- restore now has direct tests for command delegation and extracted execution behavior through [tests/restore.test.ts](/Users/davidodefey/projects/dbtools/tests/restore.test.ts)
 
 ## Findings
 
@@ -47,9 +48,9 @@ Unlike sync, restore can target `production`.
 
 That makes restore the command surface where safety messaging, interruption handling, and execution boundaries matter most.
 
-### Restore logic is still concentrated in one command file
+### Restore logic was too concentrated in one command file
 
-[src/commands/restore.ts](/Users/davidodefey/projects/dbtools/src/commands/restore.ts) currently mixes:
+[src/commands/restore.ts](/Users/davidodefey/projects/dbtools/src/commands/restore.ts) previously mixed:
 
 - backup validation
 - target confirmation
@@ -58,7 +59,9 @@ That makes restore the command surface where safety messaging, interruption hand
 - archive restore execution
 - verification
 
-That concentration makes failure behavior and testing harder to evolve safely.
+That concentration made failure behavior and testing harder to evolve safely.
+
+Phase 2 resolves the core of that problem by moving restore execution into [src/lib/restore.ts](/Users/davidodefey/projects/dbtools/src/lib/restore.ts).
 
 ### Restore has safety rules, but not yet a full operational contract
 
@@ -66,15 +69,15 @@ The current code has strong production protections and verification, but it does
 
 This is the main operational gap in restore today.
 
-### Restore needs the same layered shape sync and backup now have
+### Restore now has the same execution-layer shape sync and backup use
 
-Sync and backup are now easier to reason about because they each have:
+Sync, backup, and now restore are easier to reason about because they each have:
 
 - a thin command layer
 - a dedicated execution layer
 - direct tests around the execution contract
 
-Restore should move to the same structure instead of staying as a command-heavy workflow.
+The next restore phases should build on that structure instead of moving orchestration back into the command layer.
 
 ## Proposed Target Shape
 
@@ -150,12 +153,13 @@ Status:
 
 Status:
 
-- pending
+- complete within current scope
 
 Notes:
 
-- start with `restore full`
-- keep `restore collection` in scope, but do not let it block the first execution-layer extraction
+- [src/lib/restore.ts](/Users/davidodefey/projects/dbtools/src/lib/restore.ts) is now the canonical restore execution unit
+- [src/commands/restore.ts](/Users/davidodefey/projects/dbtools/src/commands/restore.ts) should stay focused on confirmation and production safety gates
+- [tests/restore.test.ts](/Users/davidodefey/projects/dbtools/tests/restore.test.ts) now covers command delegation and basic execution behavior for `restore full` and `restore collection`
 
 ### Phase 3
 
