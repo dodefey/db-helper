@@ -522,7 +522,7 @@ test("runSync attempts cleanup when restore fails", async () => {
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /restore failed/
+    /Sync failed during restore.*Target development may be dirty\./s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
@@ -560,7 +560,7 @@ test("runSync fails when verification finds mismatches", async () => {
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync verification failed/
+    /Sync failed during verify.*Target development may be dirty\./s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
@@ -579,7 +579,7 @@ test("runSync attempts cleanup when dump fails", async () => {
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /dump failed/
+    /Sync failed during dump.*Target development was not modified\..*dump failed/s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
@@ -602,6 +602,6 @@ test("runSync preserves the original failure when cleanup fails too", async () =
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /restore failed/
+    /Sync failed during restore.*Target development may be dirty\..*Temp artifact cleanup also failed\..*restore failed/s
   );
 });

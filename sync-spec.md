@@ -113,17 +113,15 @@ Future enhancement, not part of this spec:
 
 ## Verification
 
-Phase 1 does not require post-sync verification.
+Phase 1 requires post-sync verification.
 
-Reason:
+Required verification behavior:
 
-- sync currently operates as a dump-and-restore transport workflow
-- verification policy should be added deliberately, not implied
-
-Future enhancement, not part of this spec:
-
+- verify that the expected collection set exists on the target
 - verify source and target collection counts after restore
-- verify expected collection set exists on target
+- exclude internal Mongo collections such as `system.*` from sync verification
+
+Verification is part of the sync operation. A sync that restores successfully but fails verification must still be treated as a failed sync.
 
 ## Execution Model
 
@@ -175,6 +173,28 @@ Failure cases include:
 No rollback is guaranteed.
 
 If restore fails after target drop has started, the target may be left partially restored. This is acceptable for phase 1 because `sync` targets only non-production environments.
+
+### Dirty Target Contract
+
+`sync` does not guarantee rollback of target database state.
+
+The command must distinguish failures by phase and define the operator expectation for each case:
+
+- failure before restore starts:
+  - target database state is unchanged
+- failure after restore starts but before restore completes:
+  - target database state may be partially replaced
+  - target must be treated as dirty until a fresh sync or manual inspection confirms it is usable
+- failure after restore completes but during verification:
+  - target database state has been modified
+  - target must be treated as dirty until manual inspection or a subsequent successful sync confirms it is usable
+- failure during temp artifact cleanup after successful restore and verification:
+  - target database state may still be valid
+  - the command should report cleanup failure separately from database-state failure
+
+The implementation must preserve the primary operational failure and must not replace it with a cleanup-only failure.
+
+The implementation should surface phase-aware operator messaging so a failed sync clearly states whether the target may be dirty.
 
 ## Logging and Operator Output
 

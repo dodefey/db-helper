@@ -79,6 +79,71 @@ const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
   unlink
 };
 
+type SyncPhase =
+  | "source_metadata"
+  | "dump"
+  | "restore"
+  | "verify"
+  | "cleanup";
+
+class SyncPhaseError extends Error {
+  readonly phase: SyncPhase;
+  readonly targetMayBeDirty: boolean;
+  readonly cleanupFailed: boolean;
+  readonly cause?: unknown;
+
+  constructor(input: {
+    phase: SyncPhase;
+    message: string;
+    targetMayBeDirty: boolean;
+    cleanupFailed?: boolean;
+    cause?: unknown;
+  }) {
+    super(input.message);
+    this.name = "SyncPhaseError";
+    this.phase = input.phase;
+    this.targetMayBeDirty = input.targetMayBeDirty;
+    this.cleanupFailed = input.cleanupFailed ?? false;
+    this.cause = input.cause;
+  }
+}
+
+function formatSyncFailure(
+  input: {
+    from: EnvironmentId;
+    to: EnvironmentId;
+    phase: SyncPhase;
+    targetMayBeDirty: boolean;
+    details: string;
+    cleanupFailed?: boolean;
+  }
+): string {
+  const phaseLabel =
+    input.phase === "source_metadata"
+      ? "source metadata"
+      : input.phase;
+  const targetStatus = input.targetMayBeDirty
+    ? `Target ${input.to} may be dirty.`
+    : `Target ${input.to} was not modified.`;
+  const cleanupStatus = input.cleanupFailed
+    ? " Temp artifact cleanup also failed."
+    : "";
+
+  return (
+    `Sync failed during ${phaseLabel} for ${input.from} -> ${input.to}.\n` +
+    `${targetStatus}${cleanupStatus}\n` +
+    `${input.details}`
+  );
+}
+
+function getErrorDetails(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
 function filterSyncCollections(collections: string[]): string[] {
   return collections.filter((name) => !name.startsWith("system."));
 }
@@ -131,12 +196,16 @@ export async function runSync(
     ".archive.gz"
   );
   let syncSucceeded = false;
+  let currentPhase: SyncPhase = "dump";
+  let targetMayBeDirty = false;
+  let primaryError: SyncPhaseError | undefined;
 
   try {
     if (printSummary) {
       dependencies.writeStdout(`Starting sync ${input.from} -> ${input.to}\n`);
     }
     if (printSummary) {
+      currentPhase = "dump";
       await dependencies.runWithElapsedStatus(
         `Dumping source ${input.from}...`,
         () =>
@@ -145,11 +214,14 @@ export async function runSync(
           })
       );
     } else {
+      currentPhase = "dump";
       await dependencies.createArchiveBackup(source, appConfig, tempArchive, {
         outputMode: input.outputMode
       });
     }
     if (printSummary) {
+      currentPhase = "restore";
+      targetMayBeDirty = true;
       await dependencies.runWithElapsedStatus(
         `Restoring target ${input.to}...`,
         () =>
@@ -164,6 +236,8 @@ export async function runSync(
       dependencies.writeStdout(`Checking collection presence...\n`);
       dependencies.writeStdout(`Checking collection counts...\n`);
     } else {
+      currentPhase = "restore";
+      targetMayBeDirty = true;
       await dependencies.restoreArchiveToEnvironment(
         target,
         appConfig,
@@ -171,6 +245,7 @@ export async function runSync(
         { drop: true, outputMode: input.outputMode }
       );
     }
+    currentPhase = "verify";
     const verification = await dependencies.verifyRestore(
       target,
       verificationManifest,
@@ -200,35 +275,96 @@ export async function runSync(
       verification.missingCollections.length > 0 ||
       verification.countMismatches.length > 0
     ) {
-      throw new Error(
-        `Sync verification failed for ${input.from} -> ${input.to}\n` +
-          `Missing collections: ${
-            verification.missingCollections.join(", ") || "none"
-          }\n` +
-          `Count mismatches: ${
-            verification.countMismatches
-              .map(
-                (item) =>
-                  `${item.collection} expected=${item.expected} actual=${item.actual}`
-              )
-              .join(", ") || "none"
-          }`
-      );
+      throw new SyncPhaseError({
+        phase: "verify",
+        targetMayBeDirty: true,
+        message: formatSyncFailure({
+          from: input.from,
+          to: input.to,
+          phase: "verify",
+          targetMayBeDirty: true,
+          details:
+            `Missing collections: ${
+              verification.missingCollections.join(", ") || "none"
+            }\n` +
+            `Count mismatches: ${
+              verification.countMismatches
+                .map(
+                  (item) =>
+                    `${item.collection} expected=${item.expected} actual=${item.actual}`
+                )
+                .join(", ") || "none"
+            }`
+        })
+      });
     }
     syncSucceeded = true;
-  } finally {
-    if (countProgressActive) {
-      dependencies.writeStdout("\n");
-      countProgressLastWidth = 0;
+  } catch (error) {
+    if (error instanceof SyncPhaseError) {
+      primaryError = error;
+    } else {
+      primaryError = new SyncPhaseError({
+        phase: currentPhase,
+        targetMayBeDirty,
+        cause: error,
+        message: formatSyncFailure({
+          from: input.from,
+          to: input.to,
+          phase: currentPhase,
+          targetMayBeDirty,
+          details: getErrorDetails(error)
+        })
+      });
     }
-    if (printSummary) {
-      dependencies.writeStdout(`Cleaning up sync temp artifacts...\n`);
+  }
+  if (countProgressActive) {
+    dependencies.writeStdout("\n");
+    countProgressLastWidth = 0;
+  }
+  if (printSummary) {
+    dependencies.writeStdout(`Cleaning up sync temp artifacts...\n`);
+  }
+  try {
+    await dependencies.unlink(tempArchive);
+  } catch (error) {
+    if (primaryError) {
+      primaryError = new SyncPhaseError({
+        phase: primaryError.phase,
+        targetMayBeDirty: primaryError.targetMayBeDirty,
+        cleanupFailed: true,
+        cause: primaryError.cause,
+        message: formatSyncFailure({
+          from: input.from,
+          to: input.to,
+          phase: primaryError.phase,
+          targetMayBeDirty: primaryError.targetMayBeDirty,
+          details: getErrorDetails(primaryError.cause ?? primaryError),
+          cleanupFailed: true
+        })
+      });
+    } else if (!syncSucceeded) {
+      primaryError = new SyncPhaseError({
+        phase: "cleanup",
+        targetMayBeDirty,
+        cause: error,
+        cleanupFailed: true,
+        message: formatSyncFailure({
+          from: input.from,
+          to: input.to,
+          phase: "cleanup",
+          targetMayBeDirty,
+          details: getErrorDetails(error),
+          cleanupFailed: true
+        })
+      });
     }
-    await dependencies.unlink(tempArchive).catch(() => undefined);
-    if (printSummary && syncSucceeded) {
-      dependencies.writeStdout(
-        `Sync ${input.from} -> ${input.to} complete. Verified ${collectionList.length} collections.\n`
-      );
-    }
+  }
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (printSummary && syncSucceeded) {
+    dependencies.writeStdout(
+      `Sync ${input.from} -> ${input.to} complete. Verified ${collectionList.length} collections.\n`
+    );
   }
 }
