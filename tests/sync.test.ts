@@ -85,20 +85,29 @@ function createRunSyncDependencies(
   calls: {
     output: string[];
     tempFiles: string[];
+    listedCollections: EnvironmentId[];
+    countedCollections: Array<{ env: EnvironmentId; collections: string[] }>;
     dumps: Array<{ source: EnvironmentId; destination: string }>;
     restores: Array<{ target: EnvironmentId; archive: string; drop: boolean }>;
+    verifications: EnvironmentId[];
     unlinks: string[];
   };
 } {
   const calls = {
     output: [] as string[],
     tempFiles: [] as string[],
+    listedCollections: [] as EnvironmentId[],
+    countedCollections: [] as Array<{
+      env: EnvironmentId;
+      collections: string[];
+    }>,
     dumps: [] as Array<{ source: EnvironmentId; destination: string }>,
     restores: [] as Array<{
       target: EnvironmentId;
       archive: string;
       drop: boolean;
     }>,
+    verifications: [] as EnvironmentId[],
     unlinks: [] as string[]
   };
 
@@ -110,6 +119,17 @@ function createRunSyncDependencies(
       const path = "/tmp/db-helper/test-sync.archive.gz";
       calls.tempFiles.push(path);
       return path;
+    },
+    async listCollections(env): Promise<string[]> {
+      calls.listedCollections.push(env.id);
+      return ["orders", "customers"];
+    },
+    async getCollectionCounts(
+      env,
+      collections
+    ): Promise<Record<string, number>> {
+      calls.countedCollections.push({ env: env.id, collections });
+      return Object.fromEntries(collections.map((name) => [name, 1]));
     },
     async createArchiveBackup(env, _appConfig, destinationFile): Promise<void> {
       calls.dumps.push({ source: env.id, destination: destinationFile });
@@ -125,6 +145,22 @@ function createRunSyncDependencies(
         archive: archiveFile,
         drop: options.drop
       });
+    },
+    async verifyRestore(env): Promise<{
+      collectionsPresent: string[];
+      missingCollections: string[];
+      countMismatches: Array<{
+        collection: string;
+        expected: number;
+        actual: number;
+      }>;
+    }> {
+      calls.verifications.push(env.id);
+      return {
+        collectionsPresent: ["orders", "customers"],
+        missingCollections: [],
+        countMismatches: []
+      };
     },
     async unlink(path: string): Promise<void> {
       calls.unlinks.push(path);
@@ -289,6 +325,7 @@ test("runSync suppresses summary output in quiet mode", async () => {
   );
 
   assert.deepEqual(calls.output, []);
+  assert.deepEqual(calls.verifications, ["development"]);
 });
 
 test("runSync preserves summary output in default mode", async () => {
@@ -304,6 +341,8 @@ test("runSync preserves summary output in default mode", async () => {
     "Starting sync production -> development\n",
     "Dumping source production...\n",
     "Restoring target development...\n",
+    "Verifying target development...\n",
+    "Sync production -> development complete.\n",
     "Cleaning up sync temp artifacts...\n"
   ]);
 });
@@ -349,8 +388,15 @@ test("runSync performs dump then restore then cleanup", async () => {
     "Starting sync production -> development\n",
     "Dumping source production...\n",
     "Restoring target development...\n",
+    "Verifying target development...\n",
+    "Sync production -> development complete.\n",
     "Cleaning up sync temp artifacts...\n"
   ]);
+  assert.deepEqual(calls.listedCollections, ["production"]);
+  assert.deepEqual(calls.countedCollections, [
+    { env: "production", collections: ["orders", "customers"] }
+  ]);
+  assert.deepEqual(calls.verifications, ["development"]);
 });
 
 test("runSync forces drop semantics even when config default is false", async () => {
@@ -385,6 +431,44 @@ test("runSync attempts cleanup when restore fails", async () => {
       dependencies
     ),
     /restore failed/
+  );
+
+  assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
+});
+
+test("runSync fails when verification finds mismatches", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async verifyRestore(env): Promise<{
+      collectionsPresent: string[];
+      missingCollections: string[];
+      countMismatches: Array<{
+        collection: string;
+        expected: number;
+        actual: number;
+      }>;
+    }> {
+      calls.verifications.push(env.id);
+      return {
+        collectionsPresent: ["orders"],
+        missingCollections: ["customers"],
+        countMismatches: [
+          {
+            collection: "orders",
+            expected: 1,
+            actual: 0
+          }
+        ]
+      };
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      dependencies
+    ),
+    /Sync verification failed/
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
