@@ -58,9 +58,9 @@ const DEFAULT_CONFIG: ConfigFile = {
       kind: "local",
       host: "localhost",
       mongoHost: "localhost",
-      mongoPort: 7854,
+      mongoPort: 27017,
       databaseName: "development",
-      mongoUser: "sysadmin",
+      mongoUser: "",
       mongoPassword: ""
     },
     test: {
@@ -68,11 +68,11 @@ const DEFAULT_CONFIG: ConfigFile = {
       kind: "remote",
       host: "test.example.com",
       mongoHost: "localhost",
-      mongoPort: 7854,
+      mongoPort: 27017,
       databaseName: "development",
-      mongoUser: "sysadmin",
+      mongoUser: "",
       mongoPassword: "",
-      sshUser: "ubuntu",
+      sshUser: "",
       sshKeyPath: "~/.ssh/db-helper-test.pem"
     },
     production: {
@@ -80,11 +80,11 @@ const DEFAULT_CONFIG: ConfigFile = {
       kind: "remote",
       host: "prod.example.com",
       mongoHost: "localhost",
-      mongoPort: 7854,
+      mongoPort: 27017,
       databaseName: "production",
-      mongoUser: "sysadmin",
+      mongoUser: "",
       mongoPassword: "",
-      sshUser: "ubuntu",
+      sshUser: "",
       sshKeyPath: "~/.ssh/db-helper-production.pem"
     }
   }
@@ -257,6 +257,20 @@ async function promptWithDefault(
   return value.trim() ? value.trim() : defaultValue;
 }
 
+async function promptConfirmWithDefault(
+  prompt: (message: string) => Promise<string>,
+  label: string,
+  defaultYes = true
+): Promise<boolean> {
+  const suffix = defaultYes ? "[Y/n]" : "[y/N]";
+  const value = (await prompt(`${label} ${suffix}`)).trim().toLowerCase();
+  if (!value) {
+    return defaultYes;
+  }
+
+  return value === "y" || value === "yes";
+}
+
 async function promptEnvironmentConfig(
   id: "development" | "test" | "production",
   defaults: ImportedEnvironment,
@@ -305,7 +319,7 @@ async function promptEnvironmentConfig(
     config.sshUser = await promptWithDefault(
       prompt,
       `${id} ssh user`,
-      defaults.sshUser ?? "ubuntu"
+      defaults.sshUser ?? ""
     );
     config.sshKeyPath = await promptWithDefault(
       prompt,
@@ -472,23 +486,50 @@ export async function runInteractiveInit(
       )
     },
     environments: {
-      development: await promptEnvironmentConfig(
-        "development",
-        DEFAULT_CONFIG.environments.development,
-        dependencies.promptText
-      ),
-      test: await promptEnvironmentConfig(
-        "test",
-        DEFAULT_CONFIG.environments.test,
-        dependencies.promptText
-      ),
-      production: await promptEnvironmentConfig(
-        "production",
-        DEFAULT_CONFIG.environments.production,
-        dependencies.promptText
-      )
+      development: DEFAULT_CONFIG.environments.development,
+      test: DEFAULT_CONFIG.environments.test,
+      production: DEFAULT_CONFIG.environments.production
     }
   };
+
+  if (
+    await promptConfirmWithDefault(
+      dependencies.promptText,
+      "Set up development environment?"
+    )
+  ) {
+    config.environments.development = await promptEnvironmentConfig(
+      "development",
+      DEFAULT_CONFIG.environments.development,
+      dependencies.promptText
+    );
+  }
+
+  if (
+    await promptConfirmWithDefault(
+      dependencies.promptText,
+      "Set up test environment?"
+    )
+  ) {
+    config.environments.test = await promptEnvironmentConfig(
+      "test",
+      DEFAULT_CONFIG.environments.test,
+      dependencies.promptText
+    );
+  }
+
+  if (
+    await promptConfirmWithDefault(
+      dependencies.promptText,
+      "Set up production environment?"
+    )
+  ) {
+    config.environments.production = await promptEnvironmentConfig(
+      "production",
+      DEFAULT_CONFIG.environments.production,
+      dependencies.promptText
+    );
+  }
 
   await writeConfigFile(config, destinationPath, input.force, dependencies);
 

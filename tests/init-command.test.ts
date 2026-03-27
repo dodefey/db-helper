@@ -176,7 +176,9 @@ test("runInteractiveInit writes a config from prompts", async () => {
     "",
     "",
     "",
+    "",
     "dev-pass",
+    "",
     "",
     "",
     "",
@@ -235,6 +237,50 @@ test("runInteractiveInit writes a config from prompts", async () => {
     "Config written: /tmp/config.json\n",
     "Next: db-helper config validate\n"
   ]);
+});
+
+test("runInteractiveInit can skip test and production setup", async () => {
+  const answers = [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "dev-pass",
+    "n",
+    "n"
+  ];
+  const { dependencies, writes } = createDependencies({
+    async promptText(): Promise<string> {
+      return answers.shift() ?? "";
+    }
+  });
+
+  await runInteractiveInit(
+    {
+      configPath: "/tmp/config.json",
+      force: false
+    },
+    dependencies
+  );
+
+  const written = JSON.parse(writes[0].content) as {
+    environments: {
+      development: { mongoPassword: string };
+      test: { host: string };
+      production: { host: string };
+    };
+  };
+  assert.equal(written.environments.development.mongoPassword, "dev-pass");
+  assert.equal(written.environments.test.host, "test.example.com");
+  assert.equal(written.environments.production.host, "prod.example.com");
 });
 
 test("runInteractiveInit refuses to overwrite without force", async () => {

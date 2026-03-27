@@ -13,9 +13,9 @@
       "kind": "local",
       "host": "localhost",
       "mongoHost": "localhost",
-      "mongoPort": 7854,
+      "mongoPort": 27017,
       "databaseName": "development",
-      "mongoUser": "sysadmin",
+      "mongoUser": "",
       "mongoPassword": "changeme"
     },
     "test": {
@@ -23,11 +23,11 @@
       "kind": "remote",
       "host": "test.example.com",
       "mongoHost": "localhost",
-      "mongoPort": 7854,
+      "mongoPort": 27017,
       "databaseName": "development",
-      "sshUser": "ubuntu",
+      "sshUser": "",
       "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
-      "mongoUser": "sysadmin",
+      "mongoUser": "",
       "mongoPassword": "changeme"
     },
     "production": {
@@ -35,11 +35,11 @@
       "kind": "remote",
       "host": "prod.example.com",
       "mongoHost": "localhost",
-      "mongoPort": 7854,
+      "mongoPort": 27017,
       "databaseName": "production",
-      "sshUser": "ubuntu",
+      "sshUser": "",
       "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
-      "mongoUser": "sysadmin",
+      "mongoUser": "",
       "mongoPassword": "changeme"
     }
   }

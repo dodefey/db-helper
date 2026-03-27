@@ -10,6 +10,225 @@ The standalone setup flow is now:
 2. `db-helper config validate`
 3. `db-helper doctor`
 
+### Init Walkthrough
+
+`db-helper init` creates a config at the default user location unless you pass `--config <path>`.
+
+Press Enter to accept the default shown in brackets.
+
+Prompt-by-prompt:
+
+```bash
+# Mongo auth database used by generated connection URIs
+Mongo auth source [admin]:
+```
+
+Use `admin` unless your Mongo users authenticate against a different auth DB.
+
+```bash
+# default restore behavior for commands that still honor this setting
+Default drop on restore [true]:
+```
+
+Use `true` unless you have a specific reason to keep restore non-dropping by default.
+
+```bash
+# local directory where db-helper stores backup folders
+Backup root [/tmp/db-helper-backups]:
+```
+
+Use a durable path if you want backups to survive reboots and temp cleanup.
+
+```bash
+# temp working directory for archives and intermediate files
+Temp root [/tmp/db-helper]:
+```
+
+Usually the default is fine.
+
+Development prompts:
+
+```bash
+# human label shown in menus and output
+development label [Local Development]:
+```
+
+```bash
+# local or remote
+development kind [local]:
+```
+
+For a normal local development database, keep `local`.
+
+```bash
+# machine or DNS name for the environment
+development host [localhost]:
+```
+
+```bash
+# Mongo host used in the connection string
+development mongo host [localhost]:
+```
+
+```bash
+# Mongo TCP port
+development mongo port [27017]:
+```
+
+```bash
+# actual database name on the server
+development database name [development]:
+```
+
+```bash
+# Mongo username
+development mongo user []:
+```
+
+```bash
+# Mongo password
+development mongo password []:
+```
+
+Test prompts use the same database fields, plus SSH:
+
+```bash
+# human label shown in menus and output
+test label [Test Server]:
+```
+
+```bash
+# local or remote
+test kind [remote]:
+```
+
+For a hosted test server, keep `remote`.
+
+```bash
+# SSH host / machine hostname
+test host [test.example.com]:
+```
+
+```bash
+# Mongo host as seen from that remote machine
+test mongo host [localhost]:
+```
+
+```bash
+# Mongo TCP port on the remote machine
+test mongo port [27017]:
+```
+
+```bash
+# database name on test
+test database name [development]:
+```
+
+```bash
+# Mongo username on test
+test mongo user []:
+```
+
+```bash
+# Mongo password on test
+test mongo password []:
+```
+
+```bash
+# SSH username
+test ssh user []:
+```
+
+```bash
+# SSH private key path
+test ssh key path [~/.ssh/db-helper-test.pem]:
+```
+
+Production prompts are the same shape:
+
+```bash
+# human label shown in menus and output
+production label [Production Server]:
+```
+
+```bash
+# local or remote
+production kind [remote]:
+```
+
+```bash
+# SSH host / machine hostname
+production host [prod.example.com]:
+```
+
+```bash
+# Mongo host as seen from that remote machine
+production mongo host [localhost]:
+```
+
+```bash
+# Mongo TCP port
+production mongo port [27017]:
+```
+
+```bash
+# production database name
+production database name [production]:
+```
+
+```bash
+# production Mongo username
+production mongo user []:
+```
+
+```bash
+# production Mongo password
+production mongo password []:
+```
+
+```bash
+# production SSH username
+production ssh user []:
+```
+
+```bash
+# production SSH private key path
+production ssh key path [~/.ssh/db-helper-production.pem]:
+```
+
+Current limitation:
+
+- passwords are currently visible while typing
+
+Typical first-run flow:
+
+```bash
+# install the CLI globally
+npm install -g @dodefey/db-helper
+```
+
+```bash
+# create the config interactively
+db-helper init
+```
+
+```bash
+# validate config shape
+db-helper config validate
+```
+
+```bash
+# validate tooling and connectivity
+db-helper doctor
+```
+
+If you already have the old env-file format, import it instead:
+
+```bash
+# import a legacy env file into config.json format
+db-helper init --from-env-file /path/to/.env
+```
+
 By default, the CLI looks for configuration in this order:
 
 - `./config.json`
