@@ -2,6 +2,15 @@
   "name": "db-helper",
   "version": "0.1.0",
   "description": "Operational MongoDB backup, sync, restore, and recovery CLI",
+  "author": "David Odefey",
+  "homepage": "https://github.com/dodefey/db-helper",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dodefey/db-helper.git"
+  },
+  "bugs": {
+    "url": "https://github.com/dodefey/db-helper/issues"
+  },
   "license": "MIT",
   "keywords": [
     "mongodb",
