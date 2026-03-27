@@ -164,7 +164,11 @@ function createRunSyncDependencies(
         drop: options.drop
       });
     },
-    async verifyRestore(env, manifest, options): Promise<{
+    async verifyRestore(
+      env,
+      manifest,
+      options
+    ): Promise<{
       collectionsPresent: string[];
       missingCollections: string[];
       countMismatches: Array<{

@@ -37,7 +37,11 @@ export async function verifyRestore(
     for (const [collection, expected] of Object.entries(
       manifest.collectionCounts
     )) {
-      const restoredCounts = await getCollectionCounts(env, [collection], options);
+      const restoredCounts = await getCollectionCounts(
+        env,
+        [collection],
+        options
+      );
       const actual = restoredCounts[collection];
       completed += 1;
       options.onCountedCollection?.({ completed, total, collection });

@@ -218,7 +218,12 @@ function createRunRestoreDependencies(
       calls.backupCreates.push(input);
       return buildBackupRecord("production");
     },
-    async restoreArchiveToEnvironment(env, _appConfig, archivePath, options): Promise<void> {
+    async restoreArchiveToEnvironment(
+      env,
+      _appConfig,
+      archivePath,
+      options
+    ): Promise<void> {
       calls.restores.push({
         target: env.id,
         archivePath,
@@ -228,7 +233,11 @@ function createRunRestoreDependencies(
         outputMode: options.outputMode
       });
     },
-    async verifyRestore(env, _manifest, options): Promise<{
+    async verifyRestore(
+      env,
+      _manifest,
+      options
+    ): Promise<{
       collectionsPresent: string[];
       missingCollections: string[];
       countMismatches: Array<{

@@ -28,7 +28,9 @@ async function cleanupRemoteArchive(
   env: EnvironmentConfig,
   remotePath: string
 ): Promise<void> {
-  await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`, true).catch(() => undefined);
+  await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`, true).catch(
+    () => undefined
+  );
 }
 
 async function runRemote(

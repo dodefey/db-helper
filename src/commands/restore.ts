@@ -1,12 +1,7 @@
 import { AppConfig, BackupRecord, EnvironmentId } from "../config/types.js";
-import {
-  readBackup
-} from "../lib/backups.js";
+import { readBackup } from "../lib/backups.js";
 import { promptConfirm, promptText } from "../lib/prompts.js";
-import {
-  runRestoreCollection,
-  runRestoreFull
-} from "../lib/restore.js";
+import { runRestoreCollection, runRestoreFull } from "../lib/restore.js";
 import { OutputMode } from "../lib/output.js";
 
 export interface RestoreDependencies {
@@ -76,7 +71,10 @@ export async function restoreFull(
   },
   dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
-  const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
+  const backup = await dependencies.readBackup(
+    appConfig.backupRoot,
+    input.backup
+  );
   const target = appConfig.environments[input.to];
 
   await confirmRestore(input.to, input.yes, dependencies);
@@ -110,7 +108,10 @@ export async function restoreCollection(
   },
   dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
-  const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
+  const backup = await dependencies.readBackup(
+    appConfig.backupRoot,
+    input.backup
+  );
   const target = appConfig.environments[input.to];
 
   await confirmRestore(input.to, input.yes, dependencies);

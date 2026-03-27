@@ -48,8 +48,7 @@ type RestorePhase =
 
 function isInterruptedError(error: unknown): boolean {
   return (
-    error instanceof Error &&
-    error.message.startsWith("Command interrupted:")
+    error instanceof Error && error.message.startsWith("Command interrupted:")
   );
 }
 
@@ -172,8 +171,14 @@ export async function runRestoreFull(
         `Starting restore ${input.backup} -> ${input.to}\n`
       );
     }
-    await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
-    const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
+    await dependencies.ensureBackupArtifacts(
+      appConfig.backupRoot,
+      input.backup
+    );
+    const backup = await dependencies.readBackup(
+      appConfig.backupRoot,
+      input.backup
+    );
 
     if (target.isProduction && !input.skipPreBackup) {
       currentPhase = "pre_restore_backup";
@@ -226,7 +231,9 @@ export async function runRestoreFull(
       );
     }
     if (printSummary) {
-      dependencies.writeStdout(`Restore complete: ${input.backup} -> ${input.to}\n`);
+      dependencies.writeStdout(
+        `Restore complete: ${input.backup} -> ${input.to}\n`
+      );
     }
   } catch (error) {
     throw new Error(
@@ -271,8 +278,14 @@ export async function runRestoreCollection(
         `Starting restore ${input.backup}:${input.collection} -> ${input.to}\n`
       );
     }
-    await dependencies.ensureBackupArtifacts(appConfig.backupRoot, input.backup);
-    const backup = await dependencies.readBackup(appConfig.backupRoot, input.backup);
+    await dependencies.ensureBackupArtifacts(
+      appConfig.backupRoot,
+      input.backup
+    );
+    const backup = await dependencies.readBackup(
+      appConfig.backupRoot,
+      input.backup
+    );
     if (!backup.manifest.collectionList.includes(input.collection)) {
       throw new Error(
         `Collection ${input.collection} not present in backup ${input.backup}`

@@ -95,12 +95,7 @@ const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
   unlink: removeTempArchiveIfPresent
 };
 
-type SyncPhase =
-  | "source_metadata"
-  | "dump"
-  | "restore"
-  | "verify"
-  | "cleanup";
+type SyncPhase = "source_metadata" | "dump" | "restore" | "verify" | "cleanup";
 
 class SyncPhaseError extends Error {
   readonly phase: SyncPhase;
@@ -127,21 +122,17 @@ class SyncPhaseError extends Error {
   }
 }
 
-function formatSyncFailure(
-  input: {
-    from: EnvironmentId;
-    to: EnvironmentId;
-    phase: SyncPhase;
-    targetMayBeDirty: boolean;
-    details: string;
-    cleanupFailed?: boolean;
-    interrupted?: boolean;
-  }
-): string {
+function formatSyncFailure(input: {
+  from: EnvironmentId;
+  to: EnvironmentId;
+  phase: SyncPhase;
+  targetMayBeDirty: boolean;
+  details: string;
+  cleanupFailed?: boolean;
+  interrupted?: boolean;
+}): string {
   const phaseLabel =
-    input.phase === "source_metadata"
-      ? "source metadata"
-      : input.phase;
+    input.phase === "source_metadata" ? "source metadata" : input.phase;
   const actionLabel = input.interrupted ? "interrupted" : "failed";
   const targetStatus = input.targetMayBeDirty
     ? `Target database may be dirty. Restore it from a known good backup or rerun sync before trusting it.`
@@ -150,7 +141,7 @@ function formatSyncFailure(
     ? "Attempted to delete temporary sync artifacts, but cleanup may not have finished."
     : input.interrupted
       ? "Attempted to delete temporary sync artifacts, but cleanup success is not confirmed."
-    : "";
+      : "";
   const details = input.interrupted
     ? "The sync was interrupted by the operator."
     : input.details;
@@ -172,7 +163,9 @@ function getErrorDetails(error: unknown): string {
 }
 
 function isInterruptedError(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith("Command interrupted:");
+  return (
+    error instanceof Error && error.message.startsWith("Command interrupted:")
+  );
 }
 
 function filterSyncCollections(collections: string[]): string[] {
@@ -286,7 +279,11 @@ export async function runSync(
         target,
         appConfig,
         tempArchive,
-        { drop: true, outputMode: input.outputMode, signal: abortController.signal }
+        {
+          drop: true,
+          outputMode: input.outputMode,
+          signal: abortController.signal
+        }
       );
     }
     currentPhase = "verify";
@@ -301,7 +298,10 @@ export async function runSync(
               const message = `Checked collection counts: ${completed}/${total} (${collection})`;
               if (dependencies.isInteractiveStdout()) {
                 countProgressActive = true;
-                const paddedMessage = message.padEnd(countProgressLastWidth, " ");
+                const paddedMessage = message.padEnd(
+                  countProgressLastWidth,
+                  " "
+                );
                 countProgressLastWidth = paddedMessage.length;
                 dependencies.writeStdout(`\r${paddedMessage}`);
                 return;

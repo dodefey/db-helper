@@ -11,7 +11,12 @@ import {
 } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const USER_CONFIG_PATH = path.join(homedir(), ".config", "db-helper", "config.json");
+const USER_CONFIG_PATH = path.join(
+  homedir(),
+  ".config",
+  "db-helper",
+  "config.json"
+);
 
 type RawConfig = {
   defaults?: {
@@ -67,7 +72,10 @@ function optionalString(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function requirePositiveInteger(value: number | undefined, name: string): number {
+function requirePositiveInteger(
+  value: number | undefined,
+  name: string
+): number {
   if (value === undefined) {
     throw new Error(`Missing required numeric config value: ${name}`);
   }
@@ -103,9 +111,10 @@ function parseEnvironment(
     mongoHost: raw.mongoHost
       ? requireString(raw.mongoHost, `${id}.mongoHost`)
       : requireString(raw.host, `${id}.host`),
-    mongoPort: raw.mongoPort === undefined
-      ? 27017
-      : requirePositiveInteger(raw.mongoPort, `${id}.mongoPort`),
+    mongoPort:
+      raw.mongoPort === undefined
+        ? 27017
+        : requirePositiveInteger(raw.mongoPort, `${id}.mongoPort`),
     databaseName: requireString(raw.databaseName, `${id}.databaseName`),
     mongoUser: requireString(raw.mongoUser, `${id}.mongoUser`),
     mongoPassword: requireString(raw.mongoPassword, `${id}.mongoPassword`),

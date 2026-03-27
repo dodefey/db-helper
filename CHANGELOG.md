@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3
+
 - renamed the primary executable command from `db-helper` to `dbh`
 - made interactive `init` more standalone-friendly:
   - staged environment setup prompts

@@ -183,10 +183,7 @@ function parseEnvFile(content: string): Record<string, string> {
   return values;
 }
 
-function requireEnvValue(
-  env: Record<string, string>,
-  name: string
-): string {
+function requireEnvValue(env: Record<string, string>, name: string): string {
   const value = env[name];
   if (!value) {
     throw new Error(`Missing required env value: ${name}`);
@@ -411,7 +408,9 @@ export async function runConfigShowRedacted(
 ): Promise<void> {
   const resolvedPath = await dependencies.resolveConfigPath(configPath);
   const config = await dependencies.loadConfig(resolvedPath);
-  dependencies.writeStdout(`${JSON.stringify(redactConfig(config), null, 2)}\n`);
+  dependencies.writeStdout(
+    `${JSON.stringify(redactConfig(config), null, 2)}\n`
+  );
 }
 
 export async function runInitFromEnvFile(

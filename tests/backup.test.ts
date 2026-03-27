@@ -12,7 +12,10 @@ import {
   backupList,
   BackupCommandDependencies
 } from "../src/commands/backup.js";
-import { runBackupCreate, RunBackupCreateDependencies } from "../src/lib/backup.js";
+import {
+  runBackupCreate,
+  RunBackupCreateDependencies
+} from "../src/lib/backup.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
   return {
@@ -71,7 +74,10 @@ function createBackupDependencies(
     removeInterruptHandlerCount: 0,
     ensuredDirs: [] as string[],
     listedCollections: [] as EnvironmentId[],
-    countedCollections: [] as Array<{ env: EnvironmentId; collections: string[] }>,
+    countedCollections: [] as Array<{
+      env: EnvironmentId;
+      collections: string[];
+    }>,
     listedCollectionOutputModes: [] as Array<string | undefined>,
     countedCollectionOutputModes: [] as Array<string | undefined>,
     archives: [] as string[],
@@ -116,12 +122,21 @@ function createBackupDependencies(
       calls.listedCollectionOutputModes.push(options?.outputMode);
       return ["orders", "system.views", "customers"];
     },
-    async getCollectionCounts(env, collections, options): Promise<Record<string, number>> {
+    async getCollectionCounts(
+      env,
+      collections,
+      options
+    ): Promise<Record<string, number>> {
       calls.countedCollections.push({ env: env.id, collections });
       calls.countedCollectionOutputModes.push(options?.outputMode);
       return Object.fromEntries(collections.map((name) => [name, 1]));
     },
-    async createArchiveBackup(_env, _appConfig, archiveFile, options): Promise<void> {
+    async createArchiveBackup(
+      _env,
+      _appConfig,
+      archiveFile,
+      options
+    ): Promise<void> {
       calls.archives.push(archiveFile);
       calls.archiveOutputModes.push(options?.outputMode);
     },
@@ -181,7 +196,10 @@ test("runBackupCreate builds a valid backup record", async () => {
     { env: "development", collections: ["orders", "customers"] }
   ]);
   assert.deepEqual(calls.countedCollectionOutputModes, ["default"]);
-  assert.equal(calls.archives[0], "/tmp/db-helper-backups/2026-03-26T12-00-00-development/dump.archive.gz");
+  assert.equal(
+    calls.archives[0],
+    "/tmp/db-helper-backups/2026-03-26T12-00-00-development/dump.archive.gz"
+  );
   assert.deepEqual(calls.archiveOutputModes, ["default"]);
   assert.equal(calls.manifests[0].sourceEnvironment, "development");
   assert.deepEqual(calls.manifests[0].collectionList, ["orders", "customers"]);
@@ -239,7 +257,12 @@ test("runBackupCreate preserves the primary failure when cleanup fails", async (
 
 test("runBackupCreate reports interruption during archive creation", async () => {
   const { dependencies, calls, triggerInterrupt } = createBackupDependencies({
-    async createArchiveBackup(_env, _appConfig, _archiveFile, options): Promise<void> {
+    async createArchiveBackup(
+      _env,
+      _appConfig,
+      _archiveFile,
+      options
+    ): Promise<void> {
       triggerInterrupt();
       if (options?.signal?.aborted) {
         throw new Error("Command interrupted: mongodump");
@@ -396,16 +419,18 @@ test("backupCreate delegates to runBackupCreate with output mode", async () => {
     dependencies
   );
 
-  assert.deepEqual(calls, [[
-    appConfig,
-    {
-      from: "development",
-      note: "known-good",
-      tags: ["known-good"],
-      backupName: "backup-name",
-      outputMode: "verbose"
-    }
-  ]]);
+  assert.deepEqual(calls, [
+    [
+      appConfig,
+      {
+        from: "development",
+        note: "known-good",
+        tags: ["known-good"],
+        backupName: "backup-name",
+        outputMode: "verbose"
+      }
+    ]
+  ]);
   assert.deepEqual(result, expectedRecord);
 });
 
@@ -529,13 +554,7 @@ test("backupInspect validates artifacts before reading the backup", async () => 
 
   const result = await backupInspect(appConfig, "backup-name", dependencies);
 
-  assert.deepEqual(calls.ensured, [[
-    appConfig.backupRoot,
-    "backup-name"
-  ]]);
-  assert.deepEqual(calls.read, [[
-    appConfig.backupRoot,
-    "backup-name"
-  ]]);
+  assert.deepEqual(calls.ensured, [[appConfig.backupRoot, "backup-name"]]);
+  assert.deepEqual(calls.read, [[appConfig.backupRoot, "backup-name"]]);
   assert.deepEqual(result, expectedRecord);
 });

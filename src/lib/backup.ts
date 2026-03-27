@@ -1,5 +1,10 @@
 import path from "node:path";
-import { AppConfig, BackupManifest, BackupRecord, EnvironmentId } from "../config/types.js";
+import {
+  AppConfig,
+  BackupManifest,
+  BackupRecord,
+  EnvironmentId
+} from "../config/types.js";
 import {
   archivePathForBackup,
   buildBackupName,
@@ -101,7 +106,9 @@ async function runWithElapsedStatus<T>(
 }
 
 function isInterruptedError(error: unknown): boolean {
-  return error instanceof Error && error.message.startsWith("Command interrupted:");
+  return (
+    error instanceof Error && error.message.startsWith("Command interrupted:")
+  );
 }
 
 function getErrorDetails(error: unknown): string {
@@ -277,7 +284,10 @@ export async function runBackupCreate(
     }
     await dependencies.ensureBackupArtifacts(appConfig.backupRoot, backupName);
 
-    const record = await dependencies.readBackup(appConfig.backupRoot, backupName);
+    const record = await dependencies.readBackup(
+      appConfig.backupRoot,
+      backupName
+    );
     if (printSummary) {
       dependencies.writeStdout(`Backup complete: ${record.name}\n`);
       dependencies.writeStdout(`Path: ${record.path}\n`);
@@ -287,7 +297,10 @@ export async function runBackupCreate(
     const interruptedFailure = interrupted || isInterruptedError(error);
 
     try {
-      await dependencies.removeBackupArtifacts(appConfig.backupRoot, backupName);
+      await dependencies.removeBackupArtifacts(
+        appConfig.backupRoot,
+        backupName
+      );
     } catch {
       cleanupFailed = true;
     }
