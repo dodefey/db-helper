@@ -21,10 +21,9 @@
   ],
   "type": "module",
   "bin": {
-    "db-helper": "./bin/db-helper"
+    "db-helper": "./dist/src/cli.js"
   },
   "files": [
-    "bin",
     "dist",
     "README.md",
     "config.example.json"
