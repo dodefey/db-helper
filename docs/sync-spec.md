@@ -17,7 +17,7 @@ The command exists for operational refresh workflows such as:
 CLI form:
 
 ```bash
-db-helper sync --from <environment> --to <environment> [--yes]
+dbh sync --from <environment> --to <environment> [--yes]
 ```
 
 Required flags:

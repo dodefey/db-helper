@@ -155,7 +155,7 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") {
         throw new Error(
-          `No config found at ${resolvedPath}. Run 'db-helper init' or pass --config <path>.`
+          `No config found at ${resolvedPath}. Run 'dbh init' or pass --config <path>.`
         );
       }
       throw new Error(

@@ -25,9 +25,9 @@ The configuration model has also been migrated to `config.json`, replacing the e
 
 Standalone config management now exists through:
 
-- `db-helper init`
-- `db-helper init --from-env-file <path>`
-- `db-helper config validate`
+- `dbh init`
+- `dbh init --from-env-file <path>`
+- `dbh config validate`
 
 For those surfaces, the repo now has:
 

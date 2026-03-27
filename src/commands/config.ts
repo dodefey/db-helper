@@ -438,7 +438,7 @@ export async function runInitFromEnvFile(
   await writeConfigFile(config, destinationPath, input.force, dependencies);
 
   dependencies.writeStdout(`Config written: ${destinationPath}\n`);
-  dependencies.writeStdout("Next: db-helper config validate\n");
+  dependencies.writeStdout("Next: dbh config validate\n");
 }
 
 export async function runInteractiveInit(
@@ -534,5 +534,5 @@ export async function runInteractiveInit(
   await writeConfigFile(config, destinationPath, input.force, dependencies);
 
   dependencies.writeStdout(`Config written: ${destinationPath}\n`);
-  dependencies.writeStdout("Next: db-helper config validate\n");
+  dependencies.writeStdout("Next: dbh config validate\n");
 }

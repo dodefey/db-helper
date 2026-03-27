@@ -81,7 +81,7 @@ function parseEnvironment(
 }
 
 function printHelp(): void {
-  process.stdout.write(`db-helper
+  process.stdout.write(`dbh
 
 Global flags:
   --config <path>

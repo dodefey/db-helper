@@ -146,6 +146,6 @@ test("default config candidates include the user config location", () => {
 test("loadConfig reports missing config with init guidance", async () => {
   await assert.rejects(
     () => loadConfig("/tmp/definitely-missing-db-helper-config.json"),
-    /Run 'db-helper init' or pass --config <path>/
+    /Run 'dbh init' or pass --config <path>/
   );
 });

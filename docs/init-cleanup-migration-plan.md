@@ -2,12 +2,12 @@
 
 ## Goal
 
-Add a real standalone setup path for `db-helper` so operators can create or import `config.json` without manually building the file from scratch.
+Add a real standalone setup path for `dbh` so operators can create or import `config.json` without manually building the file from scratch.
 
 This migration covers:
 
-- `db-helper init`
-- `db-helper config validate`
+- `dbh init`
+- `dbh config validate`
 
 It does not expand into secret manager integration or richer config lifecycle tooling.
 
@@ -44,7 +44,7 @@ The repo should have:
 
 ### Phase 2: Config validation command
 
-- add `db-helper config validate`
+- add `dbh config validate`
 - test config validation success and failure output
 - keep it local-only and non-networked
 
@@ -54,7 +54,7 @@ Status:
 
 ### Phase 3: Env-file import init
 
-- add `db-helper init --from-env-file <path>`
+- add `dbh init --from-env-file <path>`
 - map known legacy env keys into the current config shape
 - add overwrite protection and tests
 

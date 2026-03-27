@@ -120,7 +120,7 @@ test("runInitFromEnvFile imports legacy env config into config json", async () =
   assert.deepEqual(output, [
     "Importing config from env file /tmp/.env.test...\n",
     "Config written: /tmp/config.json\n",
-    "Next: db-helper config validate\n"
+    "Next: dbh config validate\n"
   ]);
 });
 
@@ -226,7 +226,7 @@ test("runInteractiveInit writes a config from prompts", async () => {
   assert.equal(written.defaults.authSource, "admin");
   assert.equal(written.defaults.defaultDropOnRestore, true);
   assert.equal(written.environments.development.mongoPassword, "dev-pass");
-  assert.equal(written.environments.test.sshUser, "ubuntu");
+  assert.equal(written.environments.test.sshUser, "");
   assert.equal(
     written.environments.production.sshKeyPath,
     "~/.ssh/db-helper-production.pem"
@@ -235,7 +235,7 @@ test("runInteractiveInit writes a config from prompts", async () => {
     "Starting interactive config setup...\n",
     "Writing config to /tmp/config.json. Press Enter to accept defaults.\n",
     "Config written: /tmp/config.json\n",
-    "Next: db-helper config validate\n"
+    "Next: dbh config validate\n"
   ]);
 });
 

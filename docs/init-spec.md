@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`init` is the standalone setup command for `db-helper`.
+`init` is the standalone setup command for `dbh`.
 
 Its job is to create or import a valid `config.json` for the operator without requiring them to hand-author the full file structure from scratch.
 
@@ -15,12 +15,12 @@ Use `doctor` after `init` to verify binaries, SSH, paths, and Mongo connectivity
 CLI forms:
 
 ```text
-db-helper init
-db-helper init --config <path>
-db-helper init --from-env-file <path>
-db-helper init --force
-db-helper config validate
-db-helper config validate --config <path>
+dbh init
+dbh init --config <path>
+dbh init --from-env-file <path>
+dbh init --force
+dbh config validate
+dbh config validate --config <path>
 ```
 
 ## Config Destination Rules
@@ -41,7 +41,7 @@ If `--config <path>` is provided:
 
 ### Interactive mode
 
-Used when `db-helper init` is run without `--from-env-file`.
+Used when `dbh init` is run without `--from-env-file`.
 
 The command should prompt for:
 
@@ -98,8 +98,8 @@ Default success output for `init` should be concise and practical:
 - where the config was written
 - whether it was created interactively or imported
 - next step:
-  - `db-helper config validate`
-  - `db-helper doctor`
+  - `dbh config validate`
+  - `dbh doctor`
 
 Failure output should clearly state:
 
@@ -108,7 +108,7 @@ Failure output should clearly state:
 
 ## Validation Command
 
-`db-helper config validate` should:
+`dbh config validate` should:
 
 - load the config using the same resolver as the rest of the CLI
 - validate required structure and required fields
@@ -145,8 +145,8 @@ Out of scope for the first `init` implementation:
 
 The `init` migration is complete when:
 
-- `db-helper config validate` exists and is tested
-- `db-helper init --from-env-file <path>` works and is tested
-- interactive `db-helper init` works and is tested
+- `dbh config validate` exists and is tested
+- `dbh init --from-env-file <path>` works and is tested
+- interactive `dbh init` works and is tested
 - overwrite behavior is explicit and tested
 - README documents the standalone setup flow

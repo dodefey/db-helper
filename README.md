@@ -1,18 +1,18 @@
 # db-helper
 
-`db-helper` is a standalone TypeScript CLI for safe Mongo backup, sync, restore, recovery, and maintenance operations across `development`, `test`, and `production`.
+`db-helper` is a standalone TypeScript CLI for safe Mongo backup, sync, restore, recovery, and maintenance operations across `development`, `test`, and `production`. The executable command is `dbh`.
 
 ## Setup
 
 The standalone setup flow is now:
 
-1. `db-helper init`
-2. `db-helper config validate`
-3. `db-helper doctor`
+1. `dbh init`
+2. `dbh config validate`
+3. `dbh doctor`
 
 ### Init Walkthrough
 
-`db-helper init` creates a config at the default user location unless you pass `--config <path>`.
+`dbh init` creates a config at the default user location unless you pass `--config <path>`.
 
 Press Enter to accept the default shown in brackets.
 
@@ -209,24 +209,24 @@ npm install -g @dodefey/db-helper
 
 ```bash
 # create the config interactively
-db-helper init
+dbh init
 ```
 
 ```bash
 # validate config shape
-db-helper config validate
+dbh config validate
 ```
 
 ```bash
 # validate tooling and connectivity
-db-helper doctor
+dbh doctor
 ```
 
 If you already have the old env-file format, import it instead:
 
 ```bash
 # import a legacy env file into config.json format
-db-helper init --from-env-file /path/to/.env
+dbh init --from-env-file /path/to/.env
 ```
 
 By default, the CLI looks for configuration in this order:
@@ -246,32 +246,32 @@ npm install -g .
 
 ```bash
 # bootstrap the user-level config interactively
-db-helper init
+dbh init
 ```
 
 ```bash
 # validate config shape without network checks
-db-helper config validate
+dbh config validate
 ```
 
 ```bash
 # validate config and connectivity
-db-helper doctor
+dbh doctor
 ```
 
 ```bash
-# show which config file db-helper will use
-db-helper config path
+# show which config file dbh will use
+dbh config path
 ```
 
 ```bash
 # inspect config safely with secrets redacted
-db-helper config show --redacted
+dbh config show --redacted
 ```
 
 ```bash
 # import a config from the legacy env-file format
-db-helper init --from-env-file /path/to/.env
+dbh init --from-env-file /path/to/.env
 ```
 
 ```bash
@@ -281,61 +281,61 @@ npm install && npm start -- --help
 
 ```bash
 # validate a non-default config file explicitly
-db-helper config validate --config /path/to/config.json
+dbh config validate --config /path/to/config.json
 ```
 
 ## Command Reference
 
 ```bash
 # open the interactive workflow menu
-db-helper interactive
+dbh interactive
 ```
 
 ```bash
 # create a timestamped backup
-db-helper backup create --from production
+dbh backup create --from production
 ```
 
 ```bash
 # list backups, newest first
-db-helper backup list
+dbh backup list
 ```
 
 ```bash
 # inspect one backup manifest
-db-helper backup inspect --backup 2026-03-16T10-30-00-production
+dbh backup inspect --backup 2026-03-16T10-30-00-production
 ```
 
 ```bash
 # sync between allowed environments
-db-helper sync --from production --to development --yes
+dbh sync --from production --to development --yes
 ```
 
 ```bash
 # restore a full backup
-db-helper restore full --backup 2026-03-16T10-30-00-production --to development --yes
+dbh restore full --backup 2026-03-16T10-30-00-production --to development --yes
 ```
 
 ```bash
 # restore a single collection
-db-helper restore collection --backup 2026-03-16T10-30-00-production --collection orders --to test --yes
+dbh restore collection --backup 2026-03-16T10-30-00-production --collection orders --to test --yes
 ```
 
 ```bash
 # guided recovery workflow
-db-helper recover
+dbh recover
 ```
 
 ```bash
 # validate local tooling and connectivity
-db-helper doctor
+dbh doctor
 ```
 
 ## Backup
 
 `backup` is the command for capturing a full snapshot of one configured environment into a local archive plus manifest. In practice, it is most useful before risky work, before replacing a target with `sync` or `restore`, or when you want to preserve a known-good production snapshot for later recovery.
 
-It creates a timestamped backup directory under the configured backup root, writes `dump.archive.gz`, writes `manifest.json`, and validates the result before reporting success. If backup creation fails or is interrupted, `db-helper` treats the result as invalid and attempts cleanup of incomplete artifacts.
+It creates a timestamped backup directory under the configured backup root, writes `dump.archive.gz`, writes `manifest.json`, and validates the result before reporting success. If backup creation fails or is interrupted, `dbh` treats the result as invalid and attempts cleanup of incomplete artifacts.
 
 ### Usage
 
@@ -345,27 +345,27 @@ Common workflows:
 
 ```bash
 # create a production backup before maintenance
-db-helper backup create --from production
+dbh backup create --from production
 ```
 
 ```bash
 # create a manual recovery point before syncing into development
-db-helper backup create --from development --note "pre-sync recovery point" --tag pre-sync
+dbh backup create --from development --note "pre-sync recovery point" --tag pre-sync
 ```
 
 ```bash
 # create a known-good snapshot with a note and tag
-db-helper backup create --from production --note "known good after deploy" --tag known-good
+dbh backup create --from production --note "known good after deploy" --tag known-good
 ```
 
 ```bash
 # list backups for one environment
-db-helper backup list --from production
+dbh backup list --from production
 ```
 
 ```bash
 # inspect one backup manifest before restore or review
-db-helper backup inspect --backup 2026-03-16T10-30-00-production
+dbh backup inspect --backup 2026-03-16T10-30-00-production
 ```
 
 If `backup create` is interrupted during archive creation, manifest write, or validation, do not trust the partial result. The command will attempt cleanup, but an interrupted run should be treated as not having produced a usable backup unless it completed successfully.
@@ -375,9 +375,9 @@ If `backup create` is interrupted during archive creation, manifest write, or va
 CLI forms:
 
 ```bash
-db-helper backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
-db-helper backup list [--from <environment>] [--tag <tag>]
-db-helper backup inspect --backup <backup-name>
+dbh backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
+dbh backup list [--from <environment>] [--tag <tag>]
+dbh backup inspect --backup <backup-name>
 ```
 
 Required flags:
@@ -409,22 +409,22 @@ Common workflows:
 
 ```bash
 # refresh development from production
-db-helper sync --from production --to development
+dbh sync --from production --to development
 ```
 
 ```bash
 # refresh test from production without a confirmation prompt
-db-helper sync --from production --to test --yes
+dbh sync --from production --to test --yes
 ```
 
 ```bash
 # move test data into development
-db-helper sync --from test --to development --yes
+dbh sync --from test --to development --yes
 ```
 
 ```bash
 # create a manual backup of the target before syncing
-db-helper backup create --from development
+dbh backup create --from development
 ```
 
 If `sync` is interrupted during `restore` or `verify`, treat the target as dirty. The normal recovery path is to rerun `sync` from a known-good source or restore the target from backup.
@@ -434,7 +434,7 @@ If `sync` is interrupted during `restore` or `verify`, treat the target as dirty
 CLI form:
 
 ```bash
-db-helper sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
+dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
 ```
 
 Required flags:
@@ -487,22 +487,22 @@ Common workflows:
 
 ```bash
 # restore a known-good production backup into development
-db-helper restore full --backup 2026-03-16T10-30-00-production --to development
+dbh restore full --backup 2026-03-16T10-30-00-production --to development
 ```
 
 ```bash
 # restore a test environment from a known backup without a confirmation prompt
-db-helper restore full --backup 2026-03-16T10-30-00-production --to test --yes
+dbh restore full --backup 2026-03-16T10-30-00-production --to test --yes
 ```
 
 ```bash
 # restore one collection from a backup into development
-db-helper restore collection --backup 2026-03-16T10-30-00-production --collection orders --to development
+dbh restore collection --backup 2026-03-16T10-30-00-production --collection orders --to development
 ```
 
 ```bash
 # restore production from a named backup with the required production safeguards
-db-helper restore full --backup 2026-03-16T10-30-00-production --to production --force-production-restore
+dbh restore full --backup 2026-03-16T10-30-00-production --to production --force-production-restore
 ```
 
 If `restore` is interrupted during `restore` or `verify`, treat the target as dirty. The safe recovery path is to rerun the restore from a known-good backup or restore the target again before trusting it.
@@ -512,8 +512,8 @@ If `restore` is interrupted during `restore` or `verify`, treat the target as di
 CLI forms:
 
 ```bash
-db-helper restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
-db-helper restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
+dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
+dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
 ```
 
 Required flags:

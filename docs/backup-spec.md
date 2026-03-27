@@ -18,9 +18,9 @@ The command exists for operational workflows such as:
 CLI forms:
 
 ```bash
-db-helper backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
-db-helper backup list [--from <environment>] [--tag <tag>]
-db-helper backup inspect --backup <backup-name>
+dbh backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
+dbh backup list [--from <environment>] [--tag <tag>]
+dbh backup inspect --backup <backup-name>
 ```
 
 Required flags:

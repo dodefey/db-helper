@@ -6,7 +6,7 @@ Initial public release.
 
 Highlights:
 
-- standalone `db-helper` CLI packaging
+- standalone `dbh` CLI packaging
 - `backup create`, `backup list`, and `backup inspect`
 - `sync` with verification, interruption handling, and practical dirty-target guidance
 - `restore full` and `restore collection` with production safety gates

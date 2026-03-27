@@ -21,7 +21,7 @@
   ],
   "type": "module",
   "bin": {
-    "db-helper": "./dist/src/cli.js"
+    "dbh": "./dist/src/cli.js"
   },
   "files": [
     "dist",
