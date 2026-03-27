@@ -26,7 +26,7 @@
       "mongoPort": 27017,
       "databaseName": "development",
       "sshUser": "",
-      "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
+      "sshKeyPath": "",
       "mongoUser": "",
       "mongoPassword": "changeme"
     },
@@ -38,7 +38,7 @@
       "mongoPort": 27017,
       "databaseName": "production",
       "sshUser": "",
-      "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
+      "sshKeyPath": "",
       "mongoUser": "",
       "mongoPassword": "changeme"
     }

@@ -185,6 +185,29 @@ test("runDoctor reports unreadable remote ssh key and continues", async () => {
   assert.deepEqual(calls.connectivity, ["development", "test", "production"]);
 });
 
+test("runDoctor skips ssh key readability checks when remote ssh key path is omitted", async () => {
+  const appConfig = buildAppConfig(
+    {},
+    {
+      test: {
+        kind: "remote",
+        sshUser: "",
+        sshKeyPath: ""
+      },
+      production: {
+        kind: "remote",
+        sshUser: ""
+      }
+    }
+  );
+  const { dependencies, calls } = createDoctorDependencies();
+
+  await runDoctor(appConfig, dependencies);
+
+  assert.deepEqual(calls.readablePaths, []);
+  assert.deepEqual(calls.connectivity, ["development", "test", "production"]);
+});
+
 test("runDoctor reports missing credentials and skips connectivity for that environment", async () => {
   const appConfig = buildAppConfig(
     {},

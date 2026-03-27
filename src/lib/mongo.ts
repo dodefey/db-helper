@@ -37,15 +37,12 @@ async function runRemote(
   streamOutput = true,
   signal?: AbortSignal
 ): Promise<string> {
-  if (!env.sshUser || !env.sshKeyPath) {
-    throw new Error(`Remote environment ${env.id} is missing SSH config`);
-  }
+  const target = env.sshUser ? `${env.sshUser}@${env.host}` : env.host;
+  const sshArgs = env.sshKeyPath
+    ? ["-i", env.sshKeyPath, target, remoteCommand]
+    : [target, remoteCommand];
 
-  return runCommand(
-    "ssh",
-    ["-i", env.sshKeyPath, `${env.sshUser}@${env.host}`, remoteCommand],
-    { streamOutput, signal }
-  );
+  return runCommand("ssh", sshArgs, { streamOutput, signal });
 }
 
 async function copyFromRemote(
@@ -54,12 +51,11 @@ async function copyFromRemote(
   localPath: string,
   signal?: AbortSignal
 ): Promise<void> {
-  await runCommand("scp", [
-    "-i",
-    env.sshKeyPath!,
-    `${env.sshUser}@${env.host}:${remotePath}`,
-    localPath
-  ], { signal });
+  const sourceTarget = `${env.sshUser ? `${env.sshUser}@` : ""}${env.host}:${remotePath}`;
+  const scpArgs = env.sshKeyPath
+    ? ["-i", env.sshKeyPath, sourceTarget, localPath]
+    : [sourceTarget, localPath];
+  await runCommand("scp", scpArgs, { signal });
 }
 
 async function copyToRemote(
@@ -68,12 +64,11 @@ async function copyToRemote(
   remotePath: string,
   signal?: AbortSignal
 ): Promise<void> {
-  await runCommand("scp", [
-    "-i",
-    env.sshKeyPath!,
-    localPath,
-    `${env.sshUser}@${env.host}:${remotePath}`
-  ], { signal });
+  const destinationTarget = `${env.sshUser ? `${env.sshUser}@` : ""}${env.host}:${remotePath}`;
+  const scpArgs = env.sshKeyPath
+    ? ["-i", env.sshKeyPath, localPath, destinationTarget]
+    : [localPath, destinationTarget];
+  await runCommand("scp", scpArgs, { signal });
 }
 
 export async function listCollections(

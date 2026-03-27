@@ -73,7 +73,7 @@ const DEFAULT_CONFIG: ConfigFile = {
       mongoUser: "",
       mongoPassword: "",
       sshUser: "",
-      sshKeyPath: "~/.ssh/db-helper-test.pem"
+      sshKeyPath: ""
     },
     production: {
       label: "Production Server",
@@ -85,7 +85,7 @@ const DEFAULT_CONFIG: ConfigFile = {
       mongoUser: "",
       mongoPassword: "",
       sshUser: "",
-      sshKeyPath: "~/.ssh/db-helper-production.pem"
+      sshKeyPath: ""
     }
   }
 };
@@ -218,8 +218,8 @@ function buildImportedEnvironment(
   };
 
   if (kind === "remote") {
-    imported.sshUser = requireEnvValue(env, `${prefix}_USER`);
-    imported.sshKeyPath = requireEnvValue(env, `${prefix}_SSH_KEY`);
+    imported.sshUser = env[`${prefix}_USER`] ?? "";
+    imported.sshKeyPath = env[`${prefix}_SSH_KEY`] ?? "";
   }
 
   return imported;
@@ -324,7 +324,7 @@ async function promptEnvironmentConfig(
     config.sshKeyPath = await promptWithDefault(
       prompt,
       `${id} ssh key path`,
-      defaults.sshKeyPath ?? "~/.ssh/id_rsa"
+      defaults.sshKeyPath ?? ""
     );
   }
 

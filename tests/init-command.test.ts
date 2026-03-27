@@ -116,6 +116,7 @@ test("runInitFromEnvFile imports legacy env config into config json", async () =
   assert.equal(written.paths.backupRoot, "/tmp/db-backups");
   assert.equal(written.environments.development.mongoPassword, "dev-pass");
   assert.equal(written.environments.test.sshUser, "ubuntu");
+  assert.equal(written.environments.test.sshKeyPath, "/tmp/test.pem");
   assert.equal(written.environments.production.host, "prod.example.com");
   assert.deepEqual(output, [
     "Importing config from env file /tmp/.env.test...\n",
@@ -227,10 +228,7 @@ test("runInteractiveInit writes a config from prompts", async () => {
   assert.equal(written.defaults.defaultDropOnRestore, true);
   assert.equal(written.environments.development.mongoPassword, "dev-pass");
   assert.equal(written.environments.test.sshUser, "");
-  assert.equal(
-    written.environments.production.sshKeyPath,
-    "~/.ssh/db-helper-production.pem"
-  );
+  assert.equal(written.environments.production.sshKeyPath, "");
   assert.deepEqual(output, [
     "Starting interactive config setup...\n",
     "Writing config to /tmp/config.json. Press Enter to accept defaults.\n",

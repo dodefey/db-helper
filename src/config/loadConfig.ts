@@ -58,6 +58,15 @@ function requireString(value: string | undefined, name: string): string {
   return value;
 }
 
+function optionalString(value: string | undefined): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed ? trimmed : undefined;
+}
+
 function requirePositiveInteger(value: number | undefined, name: string): number {
   if (value === undefined) {
     throw new Error(`Missing required numeric config value: ${name}`);
@@ -105,10 +114,11 @@ function parseEnvironment(
   };
 
   if (kind === "remote") {
-    config.sshUser = requireString(raw.sshUser, `${id}.sshUser`);
-    config.sshKeyPath = expandHomePath(
-      requireString(raw.sshKeyPath, `${id}.sshKeyPath`)
-    );
+    config.sshUser = optionalString(raw.sshUser);
+    const sshKeyPath = optionalString(raw.sshKeyPath);
+    if (sshKeyPath) {
+      config.sshKeyPath = expandHomePath(sshKeyPath);
+    }
   }
 
   return config;

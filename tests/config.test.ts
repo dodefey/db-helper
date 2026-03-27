@@ -91,6 +91,60 @@ test("loadConfig parses a valid config file", async () => {
   });
 });
 
+test("loadConfig allows remote ssh user and key path to be omitted", async () => {
+  await withTempDir(async (dir) => {
+    const configPath = path.join(dir, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          paths: {
+            backupRoot: "/tmp/backups",
+            tempRoot: "/tmp/db-helper"
+          },
+          environments: {
+            development: {
+              label: "Development",
+              kind: "local",
+              host: "localhost",
+              databaseName: "development",
+              mongoUser: "dev-user",
+              mongoPassword: "dev-pass"
+            },
+            test: {
+              label: "Test",
+              kind: "remote",
+              host: "test-alias",
+              databaseName: "development",
+              mongoUser: "test-user",
+              mongoPassword: "test-pass",
+              sshUser: "",
+              sshKeyPath: ""
+            },
+            production: {
+              label: "Production",
+              kind: "remote",
+              host: "prod-alias",
+              databaseName: "production",
+              mongoUser: "prod-user",
+              mongoPassword: "prod-pass"
+            }
+          }
+        },
+        null,
+        2
+      )
+    );
+
+    const config = await loadConfig(configPath);
+
+    assert.equal(config.environments.test.sshUser, undefined);
+    assert.equal(config.environments.test.sshKeyPath, undefined);
+    assert.equal(config.environments.production.sshUser, undefined);
+    assert.equal(config.environments.production.sshKeyPath, undefined);
+  });
+});
+
 test("loadConfig rejects missing required environments", async () => {
   await withTempDir(async (dir) => {
     const configPath = path.join(dir, "config.json");

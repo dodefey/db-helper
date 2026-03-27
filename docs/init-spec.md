@@ -77,6 +77,7 @@ Interactive mode should:
 - show sensible defaults where possible
 - avoid silently inventing deployment-specific values
 - write the completed config only after all prompts succeed
+- allow blank SSH user and SSH key path values so operators can rely on SSH host aliases, agents, keychain-backed identities, or `~/.ssh/config`
 
 ### Import mode
 

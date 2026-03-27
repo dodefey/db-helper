@@ -139,10 +139,14 @@ test mongo password []:
 test ssh user []:
 ```
 
+Leave this blank if your SSH host alias or local SSH config supplies the user.
+
 ```bash
 # SSH private key path
-test ssh key path [~/.ssh/db-helper-test.pem]:
+test ssh key path []:
 ```
+
+Leave this blank to use your SSH agent, macOS keychain-backed identities, or `~/.ssh/config`.
 
 Production prompts are the same shape:
 
@@ -191,10 +195,14 @@ production mongo password []:
 production ssh user []:
 ```
 
+Leave this blank if your SSH host alias or local SSH config supplies the user.
+
 ```bash
 # production SSH private key path
-production ssh key path [~/.ssh/db-helper-production.pem]:
+production ssh key path []:
 ```
+
+Leave this blank to use your SSH agent, macOS keychain-backed identities, or `~/.ssh/config`.
 
 Current limitation:
 
