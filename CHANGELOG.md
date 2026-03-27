@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.5
+
 - `init` now fails before prompting when the destination config already exists and `--force` is not set
 
 ## 0.1.4
