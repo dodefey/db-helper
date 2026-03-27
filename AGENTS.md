@@ -29,6 +29,20 @@
 - If `init`, install, config resolution, or command naming changes, update the README walkthrough and setup flow in the same change.
 - For changes to backup, sync, restore, config bootstrap, or install/publish flows, do at least one real smoke test when practical and note material findings in the work summary.
 
+## Git And Release Expectations
+
+- Use concise imperative commit subjects for normal development commits, with no trailing period.
+- Keep normal commit subjects focused on the user-visible or code-level change, not on tool chatter or incidental implementation detail.
+- If release prep needs its own commit, use `Prepare X.Y.Z release`.
+- The version-cut commit should use the exact version as its subject, for example `0.1.5`.
+- Release tags must use the form `vX.Y.Z` and be annotated tags.
+- Cut releases only from a clean `main` branch.
+- Publish only from the exact tagged release commit on `main`, not from a dirty worktree or an untagged follow-up commit.
+- Before cutting a release, update `CHANGELOG.md`, move shipped items out of `Unreleased`, and run the full repo checks.
+- Before publishing, run `npm pack` and inspect the resulting tarball contents.
+- After publishing, verify the published package version and do at least one real install/executable smoke test against the published package.
+- If a release is wrong after tagging or publishing, do not rewrite the old tag or version. Cut a new patch release instead.
+
 ## Output Expectations
 
 - Follow [output-standards.md](output-standards.md) when changing CLI command output.
