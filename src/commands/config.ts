@@ -328,8 +328,7 @@ async function promptEnvironmentConfig(
   return config;
 }
 
-async function writeConfigFile(
-  config: ConfigFile,
+async function assertConfigWritable(
   destinationPath: string,
   force: boolean,
   dependencies: ConfigCommandDependencies
@@ -339,6 +338,15 @@ async function writeConfigFile(
       `Config already exists at ${destinationPath}. Re-run with --force to overwrite.`
     );
   }
+}
+
+async function writeConfigFile(
+  config: ConfigFile,
+  destinationPath: string,
+  force: boolean,
+  dependencies: ConfigCommandDependencies
+): Promise<void> {
+  await assertConfigWritable(destinationPath, force, dependencies);
 
   await dependencies.ensureDirectory(path.dirname(destinationPath));
   await dependencies.writeFile(
@@ -429,6 +437,8 @@ export async function runInitFromEnvFile(
     `Importing config from env file ${input.fromEnvFile}...\n`
   );
 
+  await assertConfigWritable(destinationPath, input.force, dependencies);
+
   const envFileContent = await dependencies.readFile(
     path.resolve(input.fromEnvFile)
   );
@@ -450,6 +460,8 @@ export async function runInteractiveInit(
   const destinationPath = input.configPath
     ? path.resolve(input.configPath)
     : getRecommendedUserConfigPath();
+
+  await assertConfigWritable(destinationPath, input.force, dependencies);
 
   dependencies.writeStdout("Starting interactive config setup...\n");
   dependencies.writeStdout(

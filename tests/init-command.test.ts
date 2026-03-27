@@ -282,9 +282,14 @@ test("runInteractiveInit can skip test and production setup", async () => {
 });
 
 test("runInteractiveInit refuses to overwrite without force", async () => {
-  const { dependencies } = createDependencies({
+  let prompted = false;
+  const { dependencies, output, writes } = createDependencies({
     async fileExists(): Promise<boolean> {
       return true;
+    },
+    async promptText(): Promise<string> {
+      prompted = true;
+      return "";
     }
   });
 
@@ -298,4 +303,8 @@ test("runInteractiveInit refuses to overwrite without force", async () => {
     ),
     /Re-run with --force/
   );
+
+  assert.equal(prompted, false);
+  assert.deepEqual(output, []);
+  assert.deepEqual(writes, []);
 });
