@@ -21,23 +21,13 @@ You can always override that with `--config <path>`.
 ## Install
 
 ```bash
-# install dependencies
-npm install
+# install the CLI globally for normal operator use
+npm install -g .
 ```
 
 ```bash
-# run the CLI in place
-npm start -- --help
-```
-
-```bash
-# create a config interactively at the default user location
+# bootstrap the user-level config interactively
 db-helper init
-```
-
-```bash
-# import a config from the legacy env-file format
-db-helper init --from-env-file /path/to/.env
 ```
 
 ```bash
@@ -46,18 +36,28 @@ db-helper config validate
 ```
 
 ```bash
-# validate your config and connectivity
+# validate config and connectivity
 db-helper doctor
 ```
 
 ```bash
-# install the CLI globally once you are ready to use it outside this repo
-npm install -g .
+# show which config file db-helper will use
+db-helper config path
 ```
 
 ```bash
-# write the config somewhere else explicitly
-db-helper init --config /path/to/config.json
+# inspect config safely with secrets redacted
+db-helper config show --redacted
+```
+
+```bash
+# import a config from the legacy env-file format
+db-helper init --from-env-file /path/to/.env
+```
+
+```bash
+# run the CLI in place during development
+npm install && npm start -- --help
 ```
 
 ```bash

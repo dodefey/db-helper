@@ -119,6 +119,30 @@ type ImportedEnvironment = {
   sshKeyPath?: string;
 };
 
+type RedactedConfigView = {
+  backupRoot: string;
+  tempRoot: string;
+  authSource: string;
+  defaultDropOnRestore: boolean;
+  environments: Record<
+    string,
+    {
+      id: string;
+      label: string;
+      kind: string;
+      host: string;
+      mongoHost: string;
+      mongoPort: number;
+      databaseName: string;
+      mongoUser: string;
+      mongoPassword: string;
+      sshUser?: string;
+      sshKeyPath?: string;
+      isProduction: boolean;
+    }
+  >;
+};
+
 function parseBoolean(value: string, name: string): boolean {
   if (value === "true") {
     return true;
@@ -312,6 +336,34 @@ async function writeConfigFile(
   );
 }
 
+function redactConfig(appConfig: AppConfig): RedactedConfigView {
+  return {
+    backupRoot: appConfig.backupRoot,
+    tempRoot: appConfig.tempRoot,
+    authSource: appConfig.authSource,
+    defaultDropOnRestore: appConfig.defaultDropOnRestore,
+    environments: Object.fromEntries(
+      Object.entries(appConfig.environments).map(([id, env]) => [
+        id,
+        {
+          id: env.id,
+          label: env.label,
+          kind: env.kind,
+          host: env.host,
+          mongoHost: env.mongoHost,
+          mongoPort: env.mongoPort,
+          databaseName: env.databaseName,
+          mongoUser: env.mongoUser,
+          mongoPassword: env.mongoPassword ? "<redacted>" : "",
+          sshUser: env.sshUser,
+          sshKeyPath: env.sshKeyPath,
+          isProduction: env.isProduction
+        }
+      ])
+    )
+  };
+}
+
 export async function runConfigValidate(
   configPath?: string,
   dependencies: ConfigCommandDependencies = DEFAULT_CONFIG_COMMAND_DEPENDENCIES
@@ -329,6 +381,23 @@ export async function runConfigValidate(
   }
 
   dependencies.writeStdout(`Config is valid: ${resolvedPath}\n`);
+}
+
+export async function runConfigPath(
+  configPath?: string,
+  dependencies: ConfigCommandDependencies = DEFAULT_CONFIG_COMMAND_DEPENDENCIES
+): Promise<void> {
+  const resolvedPath = await dependencies.resolveConfigPath(configPath);
+  dependencies.writeStdout(`${resolvedPath}\n`);
+}
+
+export async function runConfigShowRedacted(
+  configPath?: string,
+  dependencies: ConfigCommandDependencies = DEFAULT_CONFIG_COMMAND_DEPENDENCIES
+): Promise<void> {
+  const resolvedPath = await dependencies.resolveConfigPath(configPath);
+  const config = await dependencies.loadConfig(resolvedPath);
+  dependencies.writeStdout(`${JSON.stringify(redactConfig(config), null, 2)}\n`);
 }
 
 export async function runInitFromEnvFile(
@@ -370,6 +439,9 @@ export async function runInteractiveInit(
     : getRecommendedUserConfigPath();
 
   dependencies.writeStdout("Starting interactive config setup...\n");
+  dependencies.writeStdout(
+    `Writing config to ${destinationPath}. Press Enter to accept defaults.\n`
+  );
 
   const config: ConfigFile = {
     defaults: {

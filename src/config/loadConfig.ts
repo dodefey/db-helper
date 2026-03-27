@@ -153,6 +153,11 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
   const resolvedPath = await resolveConfigPath(configPath);
   const fileContent = await readFile(resolvedPath, "utf8").catch(
     (error: NodeJS.ErrnoException) => {
+      if (error.code === "ENOENT") {
+        throw new Error(
+          `No config found at ${resolvedPath}. Run 'db-helper init' or pass --config <path>.`
+        );
+      }
       throw new Error(
         `Failed to read config file at ${resolvedPath}: ${error.message}`
       );

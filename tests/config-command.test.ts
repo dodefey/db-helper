@@ -4,6 +4,8 @@ import { AppConfig } from "../src/config/types.js";
 import {
   ConfigCommandDependencies,
   ConfigCommandError,
+  runConfigPath,
+  runConfigShowRedacted,
   runConfigValidate
 } from "../src/commands/config.js";
 
@@ -116,4 +118,27 @@ test("runConfigValidate reports failure for an invalid config", async () => {
     "Validating config...\n",
     "Config validation failed: Missing required environment config: test\n"
   ]);
+});
+
+test("runConfigPath prints the resolved config path", async () => {
+  const { dependencies, output } = createDependencies();
+
+  await runConfigPath("/tmp/config.json", dependencies);
+
+  assert.deepEqual(output, ["/tmp/config.json\n"]);
+});
+
+test("runConfigShowRedacted hides mongo passwords", async () => {
+  const { dependencies, output } = createDependencies();
+
+  await runConfigShowRedacted("/tmp/config.json", dependencies);
+
+  const shown = JSON.parse(output[0]) as {
+    environments: {
+      development: { mongoPassword: string };
+      test: { mongoPassword: string };
+    };
+  };
+  assert.equal(shown.environments.development.mongoPassword, "<redacted>");
+  assert.equal(shown.environments.test.mongoPassword, "<redacted>");
 });

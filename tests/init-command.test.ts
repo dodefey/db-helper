@@ -231,6 +231,7 @@ test("runInteractiveInit writes a config from prompts", async () => {
   );
   assert.deepEqual(output, [
     "Starting interactive config setup...\n",
+    "Writing config to /tmp/config.json. Press Enter to accept defaults.\n",
     "Config written: /tmp/config.json\n",
     "Next: db-helper config validate\n"
   ]);

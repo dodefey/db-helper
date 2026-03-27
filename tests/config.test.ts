@@ -142,3 +142,10 @@ test("default config candidates include the user config location", () => {
   assert.equal(candidates[0], path.resolve(process.cwd(), "config.json"));
   assert.equal(candidates[1], getRecommendedUserConfigPath());
 });
+
+test("loadConfig reports missing config with init guidance", async () => {
+  await assert.rejects(
+    () => loadConfig("/tmp/definitely-missing-db-helper-config.json"),
+    /Run 'db-helper init' or pass --config <path>/
+  );
+});

@@ -6,6 +6,8 @@ import {
 import { ENVIRONMENT_IDS, EnvironmentId } from "./config/types.js";
 import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
 import {
+  runConfigPath,
+  runConfigShowRedacted,
   runConfigValidate,
   runInitFromEnvFile,
   runInteractiveInit
@@ -90,8 +92,10 @@ Default config search:
 
 Commands:
   init [--from-env-file <path>] [--config <path>] [--force]
-  interactive
   config validate
+  config path
+  config show --redacted
+  interactive
   backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
   backup list [--from <environment>] [--tag <tag>]
   backup inspect --backup <backup-name>
@@ -135,6 +139,19 @@ async function main(): Promise<void> {
     case "config":
       if (subcommand === "validate") {
         await runConfigValidate(getFlag(args.flags, "config"));
+        return;
+      }
+      if (subcommand === "path") {
+        await runConfigPath(getFlag(args.flags, "config"));
+        return;
+      }
+      if (subcommand === "show") {
+        if (!getBooleanFlag(args.flags, "redacted")) {
+          throw new Error(
+            "Config show requires --redacted. Refusing to print secrets."
+          );
+        }
+        await runConfigShowRedacted(getFlag(args.flags, "config"));
         return;
       }
       break;
