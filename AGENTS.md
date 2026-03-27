@@ -21,6 +21,13 @@
 
 - Prefer formatting only touched files during active work to avoid unrelated churn.
 - If lint or format rules require broader cleanup to make a touched change valid, include that cleanup in the same change rather than bypassing the tool.
+- Do not bake in operator-specific ports, usernames, hosts, or SSH assumptions when setting defaults, examples, prompts, or docs for standalone CLI behavior.
+- Keep [CHANGELOG.md](CHANGELOG.md) up to date for user-visible behavior, packaging, install, config, safety, or workflow changes.
+- Record unreleased work under an `## Unreleased` section until it is shipped in a tagged/published release.
+- When cutting a release, move the relevant `Unreleased` entries into the new versioned section instead of leaving them duplicated.
+- Tag releases in git when a version is actually cut and published so the changelog, package version, and repo history stay aligned.
+- If `init`, install, config resolution, or command naming changes, update the README walkthrough and setup flow in the same change.
+- For changes to backup, sync, restore, config bootstrap, or install/publish flows, do at least one real smoke test when practical and note material findings in the work summary.
 
 ## Output Expectations
 

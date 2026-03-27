@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- renamed the primary executable command from `db-helper` to `dbh`
+- made interactive `init` more standalone-friendly:
+  - staged environment setup prompts
+  - generic Mongo defaults
+  - prompt-by-prompt README walkthrough
+- added SSH agent / keychain / `~/.ssh/config` support for remote environments by making SSH user and SSH key path optional
+- improved packaging and install behavior for the standalone CLI
+- added the `dbh` release workflow documentation and ongoing changelog maintenance policy
+
 ## 0.1.0
 
 Initial public release.
