@@ -1,6 +1,6 @@
 {
   "name": "@dodefey/db-helper",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Operational MongoDB backup, sync, restore, and recovery CLI",
   "author": "David Odefey",
   "homepage": "https://github.com/dodefey/db-helper",
