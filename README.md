@@ -248,8 +248,8 @@ You can always override that with `--config <path>`.
 ## Install
 
 ```bash
-# install the CLI globally for normal operator use
-npm install -g .
+# install the published CLI globally for normal operator use
+npm install -g @dodefey/db-helper
 ```
 
 ```bash
@@ -265,6 +265,13 @@ dbh config validate
 ```bash
 # validate config and connectivity
 dbh doctor
+```
+
+For repo-local development, you can still install from the current checkout instead:
+
+```bash
+# install directly from the current repo checkout
+npm install -g .
 ```
 
 ```bash

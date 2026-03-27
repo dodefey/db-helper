@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- `init` now fails before prompting when the destination config already exists and `--force` is not set
+
+## 0.1.4
+
 - fixed the published `dbh` executable packaging so global installs resolve the CLI correctly
 
 ## 0.1.3
