@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- fixed the published `dbh` executable packaging so global installs resolve the CLI correctly
+
 ## 0.1.3
 
 - renamed the primary executable command from `db-helper` to `dbh`

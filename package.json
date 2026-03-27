@@ -21,9 +21,10 @@
   ],
   "type": "module",
   "bin": {
-    "dbh": "./dist/src/cli.js"
+    "dbh": "./bin/dbh.js"
   },
   "files": [
+    "bin",
     "dist",
     "README.md",
     "config.example.json"
