@@ -31,17 +31,17 @@
 
 ## Git And Release Expectations
 
-- Use concise imperative commit subjects for normal development commits, with no trailing period.
-- Keep normal commit subjects focused on the user-visible or code-level change, not on tool chatter or incidental implementation detail.
+- Use concise imperative commit subjects for normal development commits, with no trailing period and no tool chatter.
 - If release prep needs its own commit, use `Prepare X.Y.Z release`.
 - The version-cut commit should use the exact version as its subject, for example `0.1.5`.
-- Release tags must use the form `vX.Y.Z` and be annotated tags.
-- Cut releases only from a clean `main` branch.
-- Publish only from the exact tagged release commit on `main`, not from a dirty worktree or an untagged follow-up commit.
-- Before cutting a release, update `CHANGELOG.md`, move shipped items out of `Unreleased`, and run the full repo checks.
-- Before publishing, run `npm pack` and inspect the resulting tarball contents.
-- After publishing, verify the published package version and do at least one real install/executable smoke test against the published package.
-- If a release is wrong after tagging or publishing, do not rewrite the old tag or version. Cut a new patch release instead.
+- Cut releases only from a clean `main` branch, and publish only from the exact tagged release commit.
+- Before cutting a release, move shipped work out of `## Unreleased`, update every shipped version reference in `package.json`, `package-lock.json`, and `src/version.ts`, then run the full repo checks.
+- Release tags must be annotated tags named `vX.Y.Z`.
+- Before publishing, have the agent run `npm pack` and inspect the tarball contents. If `~/.npm` is blocked by root-owned files, use `npm pack --cache /tmp/dbh-npm-cache` instead of changing the operator's home directory.
+- Keep `npm publish` manual. The handoff must include the exact publish command, any temporary-cache variant, and the post-publish verification commands.
+- Treat any `npm publish` warning that npm auto-corrected `package.json` as a release blocker. Fix the metadata in repo and cut a new patch release instead of publishing a corrected package from an existing tag.
+- After publishing, verify the published version and do at least one real install/executable smoke test.
+- If a release is wrong after tagging or publishing, do not rewrite the old tag or version; cut a new patch release instead.
 
 ## Output Expectations
 
