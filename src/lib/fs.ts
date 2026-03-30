@@ -33,9 +33,20 @@ export async function writeJsonFile(
 }
 
 export async function listDirectories(rootPath: string): Promise<string[]> {
-  const entries = await readdir(rootPath, { withFileTypes: true }).catch(
-    () => []
-  );
+  let entries;
+  try {
+    entries = await readdir(rootPath, { withFileTypes: true });
+  } catch (error) {
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      error.code === "ENOENT"
+    ) {
+      return [];
+    }
+    throw error;
+  }
   return entries
     .filter((entry) => entry.isDirectory())
     .map((entry) => path.join(rootPath, entry.name));
