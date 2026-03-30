@@ -88,7 +88,12 @@ function createRunSyncDependencies(
     listedCollections: EnvironmentId[];
     countedCollections: Array<{ env: EnvironmentId; collections: string[] }>;
     dumps: Array<{ source: EnvironmentId; destination: string }>;
-    restores: Array<{ target: EnvironmentId; archive: string; drop: boolean }>;
+    restores: Array<{
+      target: EnvironmentId;
+      archive: string;
+      drop: boolean;
+      sourceDatabaseName?: string;
+    }>;
     verifications: EnvironmentId[];
     unlinks: string[];
     interruptHandler?: () => void;
@@ -107,6 +112,7 @@ function createRunSyncDependencies(
       target: EnvironmentId;
       archive: string;
       drop: boolean;
+      sourceDatabaseName?: string;
     }>,
     verifications: [] as EnvironmentId[],
     unlinks: [] as string[],
@@ -161,7 +167,8 @@ function createRunSyncDependencies(
       calls.restores.push({
         target: env.id,
         archive: archiveFile,
-        drop: options.drop
+        drop: options.drop,
+        sourceDatabaseName: options.sourceDatabaseName
       });
     },
     async verifyRestore(
@@ -445,7 +452,8 @@ test("runSync performs dump then restore then cleanup", async () => {
       calls.restores.push({
         target: env.id,
         archive: archiveFile,
-        drop: options.drop
+        drop: options.drop,
+        sourceDatabaseName: options.sourceDatabaseName
       });
     },
     async unlink(path: string): Promise<void> {
@@ -516,7 +524,50 @@ test("runSync forces drop semantics even when config default is false", async ()
     {
       target: "development",
       archive: "/tmp/db-helper/test-sync.archive.gz",
-      drop: true
+      drop: true,
+      sourceDatabaseName: "production"
+    }
+  ]);
+});
+
+test("runSync reports source metadata failures with sync phase context", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async listCollections(): Promise<string[]> {
+      throw new Error("metadata failed");
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      dependencies
+    ),
+    /Sync failed during source metadata.*Target database was not modified\..*metadata failed/s
+  );
+
+  assert.deepEqual(calls.unlinks, []);
+  assert.equal(calls.interruptHandler, undefined);
+});
+
+test("runSync passes the source database name into restore remapping", async () => {
+  const appConfig = buildAppConfig(false);
+  appConfig.environments.production.databaseName = "prod_db";
+  appConfig.environments.development.databaseName = "dev_db";
+  const { dependencies, calls } = createRunSyncDependencies();
+
+  await runSync(
+    appConfig,
+    { from: "production", to: "development", outputMode: "default" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.restores, [
+    {
+      target: "development",
+      archive: "/tmp/db-helper/test-sync.archive.gz",
+      drop: true,
+      sourceDatabaseName: "prod_db"
     }
   ]);
 });

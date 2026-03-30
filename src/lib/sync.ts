@@ -206,32 +206,32 @@ export async function runSync(
   });
   let countProgressActive = false;
   let countProgressLastWidth = 0;
-  const collectionList = filterSyncCollections(
-    await dependencies.listCollections(source, {
-      outputMode: input.outputMode,
-      signal: abortController.signal
-    })
-  );
-  const collectionCounts = await dependencies.getCollectionCounts(
-    source,
-    collectionList,
-    { outputMode: input.outputMode, signal: abortController.signal }
-  );
-  const verificationManifest = buildSyncVerificationManifest(
-    input.from,
-    collectionList,
-    collectionCounts
-  );
-  const tempArchive = dependencies.createLocalTempFile(
-    appConfig,
-    ".archive.gz"
-  );
   let syncSucceeded = false;
-  let currentPhase: SyncPhase = "dump";
+  let currentPhase: SyncPhase = "source_metadata";
   let targetMayBeDirty = false;
   let primaryError: SyncPhaseError | undefined;
+  let collectionList: string[] = [];
+  let tempArchive = "";
 
   try {
+    collectionList = filterSyncCollections(
+      await dependencies.listCollections(source, {
+        outputMode: input.outputMode,
+        signal: abortController.signal
+      })
+    );
+    const collectionCounts = await dependencies.getCollectionCounts(
+      source,
+      collectionList,
+      { outputMode: input.outputMode, signal: abortController.signal }
+    );
+    const verificationManifest = buildSyncVerificationManifest(
+      input.from,
+      collectionList,
+      collectionCounts
+    );
+    tempArchive = dependencies.createLocalTempFile(appConfig, ".archive.gz");
+
     if (printSummary) {
       dependencies.writeStdout(`Starting sync ${input.from} -> ${input.to}\n`);
     }
@@ -263,6 +263,7 @@ export async function runSync(
             appConfig,
             tempArchive,
             {
+              sourceDatabaseName: source.databaseName,
               drop: true,
               outputMode: input.outputMode,
               signal: abortController.signal
@@ -280,6 +281,7 @@ export async function runSync(
         appConfig,
         tempArchive,
         {
+          sourceDatabaseName: source.databaseName,
           drop: true,
           outputMode: input.outputMode,
           signal: abortController.signal
@@ -365,52 +367,55 @@ export async function runSync(
         })
       });
     }
+  } finally {
+    removeInterruptHandler();
   }
-  removeInterruptHandler();
   if (countProgressActive) {
     dependencies.writeStdout("\n");
     countProgressLastWidth = 0;
   }
-  if (printSummary) {
+  if (printSummary && tempArchive) {
     dependencies.writeStdout(`Cleaning up sync temp artifacts...\n`);
   }
-  try {
-    await dependencies.unlink(tempArchive);
-  } catch (error) {
-    if (primaryError) {
-      primaryError = new SyncPhaseError({
-        phase: primaryError.phase,
-        targetMayBeDirty: primaryError.targetMayBeDirty,
-        cleanupFailed: true,
-        interrupted: primaryError.interrupted,
-        cause: primaryError.cause,
-        message: formatSyncFailure({
-          from: input.from,
-          to: input.to,
+  if (tempArchive) {
+    try {
+      await dependencies.unlink(tempArchive);
+    } catch (error) {
+      if (primaryError) {
+        primaryError = new SyncPhaseError({
           phase: primaryError.phase,
           targetMayBeDirty: primaryError.targetMayBeDirty,
+          cleanupFailed: true,
           interrupted: primaryError.interrupted,
-          details: getErrorDetails(primaryError.cause ?? primaryError),
-          cleanupFailed: true
-        })
-      });
-    } else if (!syncSucceeded) {
-      primaryError = new SyncPhaseError({
-        phase: "cleanup",
-        targetMayBeDirty,
-        cause: error,
-        cleanupFailed: true,
-        interrupted,
-        message: formatSyncFailure({
-          from: input.from,
-          to: input.to,
+          cause: primaryError.cause,
+          message: formatSyncFailure({
+            from: input.from,
+            to: input.to,
+            phase: primaryError.phase,
+            targetMayBeDirty: primaryError.targetMayBeDirty,
+            interrupted: primaryError.interrupted,
+            details: getErrorDetails(primaryError.cause ?? primaryError),
+            cleanupFailed: true
+          })
+        });
+      } else if (!syncSucceeded) {
+        primaryError = new SyncPhaseError({
           phase: "cleanup",
           targetMayBeDirty,
+          cause: error,
+          cleanupFailed: true,
           interrupted,
-          details: getErrorDetails(error),
-          cleanupFailed: true
-        })
-      });
+          message: formatSyncFailure({
+            from: input.from,
+            to: input.to,
+            phase: "cleanup",
+            targetMayBeDirty,
+            interrupted,
+            details: getErrorDetails(error),
+            cleanupFailed: true
+          })
+        });
+      }
     }
   }
   if (primaryError) {

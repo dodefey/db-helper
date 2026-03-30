@@ -28,8 +28,29 @@ async function cleanupRemoteArchive(
   env: EnvironmentConfig,
   remotePath: string
 ): Promise<void> {
-  await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`, true).catch(
-    () => undefined
+  await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`, true);
+}
+
+function getErrorDetails(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
+  }
+
+  return String(error);
+}
+
+function combineWithCleanupFailure(
+  primaryError: unknown,
+  cleanupError: unknown
+): Error {
+  const primaryDetails = getErrorDetails(primaryError);
+  const cleanupDetails = getErrorDetails(cleanupError);
+
+  return new Error(
+    `${primaryDetails}\nRemote temporary archive cleanup failed: ${cleanupDetails}`,
+    {
+      cause: primaryError instanceof Error ? primaryError : undefined
+    }
   );
 }
 
@@ -150,6 +171,8 @@ export async function createArchiveBackup(
   }
 
   const remotePath = remoteArchivePath(appConfig, env);
+  let primaryError: unknown;
+  let cleanupError: unknown;
   try {
     await runRemote(
       env,
@@ -158,8 +181,26 @@ export async function createArchiveBackup(
       options.signal
     );
     await copyFromRemote(env, remotePath, destinationFile, options.signal);
-  } finally {
+  } catch (error) {
+    primaryError = error;
+  }
+  try {
     await cleanupRemoteArchive(env, remotePath);
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  if (primaryError && cleanupError) {
+    throw combineWithCleanupFailure(primaryError, cleanupError);
+  }
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (cleanupError) {
+    throw new Error(
+      `Remote temporary archive cleanup failed: ${getErrorDetails(cleanupError)}`,
+      { cause: cleanupError }
+    );
   }
 }
 
@@ -212,6 +253,8 @@ export async function restoreArchiveToEnvironment(
   }
 
   const remotePath = remoteArchivePath(appConfig, env);
+  let primaryError: unknown;
+  let cleanupError: unknown;
   try {
     await runRemote(
       env,
@@ -227,8 +270,26 @@ export async function restoreArchiveToEnvironment(
       streamOutput,
       options.signal
     );
-  } finally {
+  } catch (error) {
+    primaryError = error;
+  }
+  try {
     await cleanupRemoteArchive(env, remotePath);
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  if (primaryError && cleanupError) {
+    throw combineWithCleanupFailure(primaryError, cleanupError);
+  }
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (cleanupError) {
+    throw new Error(
+      `Remote temporary archive cleanup failed: ${getErrorDetails(cleanupError)}`,
+      { cause: cleanupError }
+    );
   }
 }
 

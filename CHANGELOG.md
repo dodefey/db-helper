@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- fixed `sync` so source metadata failures are reported with phase-aware sync errors instead of bypassing sync failure handling
+- fixed `sync` so full restores remap the source database namespace into the target database instead of no-oping until verification catches count mismatches
+- fixed remote archive cleanup so dump/restore cleanup failures are surfaced instead of being silently swallowed
+
 ## 0.1.5
 
 - `init` now fails before prompting when the destination config already exists and `--force` is not set
