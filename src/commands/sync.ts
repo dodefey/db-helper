@@ -44,7 +44,7 @@ export async function syncDatabase(
 
   if (!input.yes) {
     const approved = await dependencies.promptConfirm(
-      `This will replace ${input.to} with ${input.from}. Continue?`
+      `This will replace ${input.to} with an exact copy of ${input.from}. Continue?`
     );
     if (!approved) {
       throw new Error("Sync cancelled.");

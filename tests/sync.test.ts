@@ -94,6 +94,7 @@ function createRunSyncDependencies(
       drop: boolean;
       sourceDatabaseName?: string;
     }>;
+    droppedCollections: Array<{ target: EnvironmentId; collections: string[] }>;
     verifications: EnvironmentId[];
     unlinks: string[];
     interruptHandler?: () => void;
@@ -113,6 +114,10 @@ function createRunSyncDependencies(
       archive: string;
       drop: boolean;
       sourceDatabaseName?: string;
+    }>,
+    droppedCollections: [] as Array<{
+      target: EnvironmentId;
+      collections: string[];
     }>,
     verifications: [] as EnvironmentId[],
     unlinks: [] as string[],
@@ -170,6 +175,9 @@ function createRunSyncDependencies(
         drop: options.drop,
         sourceDatabaseName: options.sourceDatabaseName
       });
+    },
+    async dropCollections(env, collections): Promise<void> {
+      calls.droppedCollections.push({ target: env.id, collections });
     },
     async verifyRestore(
       env,
@@ -255,7 +263,7 @@ test("syncDatabase prompts before syncing when --yes is not provided", async () 
   );
 
   assert.deepEqual(calls.promptMessages, [
-    "This will replace development with production. Continue?"
+    "This will replace development with an exact copy of production. Continue?"
   ]);
   assert.deepEqual(calls.runSyncCalls, [
     { from: "production", to: "development", outputMode: "default" }
@@ -368,6 +376,9 @@ test("runSync suppresses summary output in quiet mode", async () => {
   assert.deepEqual(calls.countedCollections, [
     { env: "production", collections: ["orders", "customers"] }
   ]);
+  assert.deepEqual(calls.droppedCollections, [
+    { target: "development", collections: [] }
+  ]);
 });
 
 test("runSync preserves summary output in default mode", async () => {
@@ -383,6 +394,7 @@ test("runSync preserves summary output in default mode", async () => {
     "Starting sync production -> development\n",
     "Dumping source production...\n",
     "Restoring target development...\n",
+    "Removing target-only collections from development...\n",
     "Verifying target development...\n",
     "Checking collection presence...\n",
     "Checking collection counts...\n",
@@ -393,6 +405,9 @@ test("runSync preserves summary output in default mode", async () => {
   ]);
   assert.deepEqual(calls.countedCollections, [
     { env: "production", collections: ["orders", "customers"] }
+  ]);
+  assert.deepEqual(calls.droppedCollections, [
+    { target: "development", collections: [] }
   ]);
 });
 
@@ -424,6 +439,7 @@ test("runSync rewrites count progress on one line for interactive stdout", async
     "\n",
     "\rRestoring target development... 00:00",
     "\n",
+    "Removing target-only collections from development...\n",
     "Verifying target development...\n",
     "Checking collection presence...\n",
     "Checking collection counts...\n",
@@ -456,6 +472,10 @@ test("runSync performs dump then restore then cleanup", async () => {
         sourceDatabaseName: options.sourceDatabaseName
       });
     },
+    async dropCollections(env, collections): Promise<void> {
+      events.push(`prune:${env.id}:${collections.join(",")}`);
+      calls.droppedCollections.push({ target: env.id, collections });
+    },
     async unlink(path: string): Promise<void> {
       events.push(`cleanup:${path}`);
       calls.unlinks.push(path);
@@ -471,12 +491,14 @@ test("runSync performs dump then restore then cleanup", async () => {
   assert.deepEqual(events, [
     "dump:production:/tmp/db-helper/test-sync.archive.gz",
     "restore:development:/tmp/db-helper/test-sync.archive.gz:true",
+    "prune:development:",
     "cleanup:/tmp/db-helper/test-sync.archive.gz"
   ]);
   assert.deepEqual(calls.output, [
     "Starting sync production -> development\n",
     "Dumping source production...\n",
     "Restoring target development...\n",
+    "Removing target-only collections from development...\n",
     "Verifying target development...\n",
     "Checking collection presence...\n",
     "Checking collection counts...\n",
@@ -485,14 +507,14 @@ test("runSync performs dump then restore then cleanup", async () => {
     "Cleaning up sync temp artifacts...\n",
     "Sync production -> development complete. Verified 2 collections.\n"
   ]);
-  assert.deepEqual(calls.listedCollections, ["production"]);
+  assert.deepEqual(calls.listedCollections, ["production", "development"]);
   assert.deepEqual(calls.countedCollections, [
     { env: "production", collections: ["orders", "customers"] }
   ]);
   assert.deepEqual(calls.verifications, ["development"]);
 });
 
-test("runSync filters internal system collections from verification input", async () => {
+test("runSync filters internal system collections from prune and verification input", async () => {
   const { dependencies, calls } = createRunSyncDependencies({
     async listCollections(env): Promise<string[]> {
       calls.listedCollections.push(env.id);
@@ -508,6 +530,9 @@ test("runSync filters internal system collections from verification input", asyn
 
   assert.deepEqual(calls.countedCollections, [
     { env: "production", collections: ["orders", "customers"] }
+  ]);
+  assert.deepEqual(calls.droppedCollections, [
+    { target: "development", collections: [] }
   ]);
 });
 
@@ -528,6 +553,38 @@ test("runSync forces drop semantics even when config default is false", async ()
       sourceDatabaseName: "production"
     }
   ]);
+});
+
+test("runSync drops target-only collections before verify", async () => {
+  const events: string[] = [];
+  const { dependencies, calls } = createRunSyncDependencies();
+  const baseVerifyRestore = dependencies.verifyRestore;
+
+  dependencies.listCollections = async (env): Promise<string[]> => {
+    calls.listedCollections.push(env.id);
+    return env.id === "production"
+      ? ["orders", "customers"]
+      : ["orders", "customers", "stale"];
+  };
+  dependencies.dropCollections = async (env, collections): Promise<void> => {
+    events.push(`prune:${collections.join(",")}`);
+    calls.droppedCollections.push({ target: env.id, collections });
+  };
+  dependencies.verifyRestore = async (env, manifest, options) => {
+    events.push("verify");
+    return baseVerifyRestore(env, manifest, options);
+  };
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development", outputMode: "default" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.droppedCollections, [
+    { target: "development", collections: ["stale"] }
+  ]);
+  assert.deepEqual(events, ["prune:stale", "verify"]);
 });
 
 test("runSync reports source metadata failures with sync phase context", async () => {
@@ -591,7 +648,32 @@ test("runSync attempts cleanup when restore fails", async () => {
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
 });
 
-test("runSync fails when verification finds mismatches", async () => {
+test("runSync reports prune failures as dirty-target failures", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async listCollections(env): Promise<string[]> {
+      calls.listedCollections.push(env.id);
+      return env.id === "production"
+        ? ["orders", "customers"]
+        : ["orders", "customers", "stale"];
+    },
+    async dropCollections(): Promise<void> {
+      throw new Error("prune failed");
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      dependencies
+    ),
+    /Sync failed during removing target-only collections.*Target database may be dirty\..*prune failed/s
+  );
+
+  assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
+});
+
+test("runSync fails when verification finds mismatches or unexpected collections", async () => {
   const { dependencies, calls } = createRunSyncDependencies({
     async verifyRestore(env): Promise<{
       collectionsPresent: string[];
@@ -604,7 +686,7 @@ test("runSync fails when verification finds mismatches", async () => {
     }> {
       calls.verifications.push(env.id);
       return {
-        collectionsPresent: ["orders"],
+        collectionsPresent: ["orders", "legacy"],
         missingCollections: ["customers"],
         countMismatches: [
           {
@@ -623,7 +705,7 @@ test("runSync fails when verification finds mismatches", async () => {
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync failed during verify.*Target database may be dirty\./s
+    /Sync failed during verify.*Target database may be dirty\..*Unexpected collections: legacy/s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);

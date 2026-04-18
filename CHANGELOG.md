@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- changed `sync` to prune target-only collections so successful runs leave the target as an exact copy of the source snapshot for normal user collections, with only internal Mongo namespaces such as `system.*` excluded
+
 ## 0.1.6
 
 - fixed `sync` so source metadata failures are reported with phase-aware sync errors instead of bypassing sync failure handling

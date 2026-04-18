@@ -412,9 +412,9 @@ Output modes for `backup create`:
 
 ## Sync
 
-`sync` is the command for refreshing one non-production database from another environment. In practice, that usually means replacing `development` or `test` with a fresh copy of `production`, or moving data between `development` and `test`.
+`sync` is the command for replacing one non-production database with another environment. In practice, that usually means replacing `development` or `test` with a fresh copy of `production`, or moving data between `development` and `test`.
 
-It is a full-database replacement workflow, not a merge or replication tool. `sync` will copy the source database, restore it into the target with drop enabled, verify the result, and try to clean up temporary artifacts afterward. It never syncs into `production`, it does not support collection-only syncs, and an interrupted restore can still leave the target in a dirty state.
+It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. `sync` never syncs into `production`, it does not support collection-only syncs, and an interrupted restore can still leave the target in a dirty state.
 
 ### Usage
 
@@ -442,7 +442,7 @@ dbh sync --from test --to development --yes
 dbh backup create --from development
 ```
 
-If `sync` is interrupted during `restore` or `verify`, treat the target as dirty. The normal recovery path is to rerun `sync` from a known-good source or restore the target from backup.
+If `sync` is interrupted during `restore`, target-only collection cleanup, or `verify`, treat the target as dirty. The normal recovery path is to rerun `sync` from a known-good source so the target returns to an exact copy of the source snapshot for normal user collections, or restore the target from backup.
 
 ### Sync API
 

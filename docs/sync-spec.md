@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`sync` copies a full Mongo database from one configured environment to another across a small set of explicitly allowed paths.
+`sync` copies a full Mongo database from one configured environment to another across a small set of explicitly allowed paths so the target ends as an exact copy of the source snapshot for normal user collections.
 
 The command exists for operational refresh workflows such as:
 
@@ -54,13 +54,20 @@ Specifically rejected:
 
 ## Data Semantics
 
-`sync` is a full target replacement workflow.
+`sync` is an exact full-target replacement workflow for normal user collections.
 
 Meaning:
 
 - the source database is dumped as a full archive
 - the target database is restored from that archive
+- existing target data is overwritten by the restored source data
 - target collections included in the archive are dropped before restore
+- target collections that do not exist in the source are removed so the final target collection set matches the source
+
+Exception:
+
+- internal Mongo namespaces such as `system.*` are excluded from sync prune and verification
+- no other exceptions to the exact-copy rule are part of this command
 
 This command is destructive to the target environment.
 
@@ -81,12 +88,12 @@ Minimum confirmation text must clearly state:
 
 - source environment
 - target environment
-- that target data will be replaced
+- that the target will be replaced with an exact copy of the source snapshot
 
 Baseline prompt:
 
 ```text
-This will replace <to> with <from>. Continue?
+This will replace <to> with an exact copy of <from>. Continue?
 ```
 
 If `--yes` is provided, the command may proceed without interactive confirmation.
@@ -117,9 +124,9 @@ Future enhancement, not part of this spec:
 
 Required verification behavior:
 
-- verify that the expected collection set exists on the target
+- verify that the target collection set exactly matches the source collection set
 - verify source and target collection counts after restore
-- exclude internal Mongo collections such as `system.*` from sync verification
+- exclude internal Mongo collections such as `system.*` from sync prune and verification
 
 Verification is part of the sync operation. A sync that restores successfully but fails verification must still be treated as a failed sync.
 
@@ -136,7 +143,8 @@ The command must perform sync using an archive-based workflow:
 2. confirm with operator unless `--yes`
 3. create a temporary archive from the source database
 4. restore that archive into the target database with drop enabled
-5. clean up temporary artifacts
+5. remove target-only collections so the target collection set matches the source snapshot exactly
+6. clean up temporary artifacts
 
 The implementation may use:
 

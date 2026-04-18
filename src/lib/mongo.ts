@@ -94,27 +94,36 @@ async function copyToRemote(
   await runCommand("scp", scpArgs, { signal });
 }
 
+async function runMongoShell(
+  env: EnvironmentConfig,
+  script: string,
+  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
+): Promise<string> {
+  const streamOutput = shouldStreamSubprocessOutput(
+    options.outputMode ?? "verbose"
+  );
+
+  if (env.kind === "local") {
+    return runCommand("mongosh", [mongoUri(env), "--quiet", "--eval", script], {
+      streamOutput,
+      signal: options.signal
+    });
+  }
+
+  return runRemote(
+    env,
+    `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
+    streamOutput,
+    options.signal
+  );
+}
+
 export async function listCollections(
   env: EnvironmentConfig,
   options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
 ): Promise<string[]> {
-  const streamOutput = shouldStreamSubprocessOutput(
-    options.outputMode ?? "verbose"
-  );
   const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); print(JSON.stringify(dbx.getCollectionNames().sort()));`;
-  const output =
-    env.kind === "local"
-      ? await runCommand(
-          "mongosh",
-          [mongoUri(env), "--quiet", "--eval", script],
-          { streamOutput, signal: options.signal }
-        )
-      : await runRemote(
-          env,
-          `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
-          streamOutput,
-          options.signal
-        );
+  const output = await runMongoShell(env, script, options);
 
   return JSON.parse(output || "[]") as string[];
 }
@@ -128,27 +137,23 @@ export async function getCollectionCounts(
     return {};
   }
 
-  const streamOutput = shouldStreamSubprocessOutput(
-    options.outputMode ?? "verbose"
-  );
-
   const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const names = ${JSON.stringify(collections)}; const counts = {}; for (const name of names) counts[name] = dbx.getCollection(name).countDocuments({}); print(JSON.stringify(counts));`;
-
-  const output =
-    env.kind === "local"
-      ? await runCommand(
-          "mongosh",
-          [mongoUri(env), "--quiet", "--eval", script],
-          { streamOutput, signal: options.signal }
-        )
-      : await runRemote(
-          env,
-          `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
-          streamOutput,
-          options.signal
-        );
+  const output = await runMongoShell(env, script, options);
 
   return JSON.parse(output || "{}") as Record<string, number>;
+}
+
+export async function dropCollections(
+  env: EnvironmentConfig,
+  collections: string[],
+  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
+): Promise<void> {
+  if (collections.length === 0) {
+    return;
+  }
+
+  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const names = ${JSON.stringify(collections)}; for (const name of names) { const result = dbx.runCommand({ drop: name }); if (result.ok !== 1 && result.code !== 26 && result.codeName !== "NamespaceNotFound") { throw new Error(\`Failed to drop collection \${name}: \${result.errmsg || JSON.stringify(result)}\`); } }`;
+  await runMongoShell(env, script, options);
 }
 
 export async function createArchiveBackup(
@@ -302,14 +307,7 @@ export async function verifyConnectivity(
 
   const script =
     "const result = db.runCommand({ ping: 1 }); if (result.ok !== 1) { throw new Error('Mongo ping failed'); }";
-  if (env.kind === "local") {
-    await runCommand("mongosh", [mongoUri(env), "--quiet", "--eval", script]);
-  } else {
-    await runRemote(
-      env,
-      `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`
-    );
-  }
+  await runMongoShell(env, script);
 }
 
 export async function inspectArchiveCollections(

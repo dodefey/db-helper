@@ -4,6 +4,7 @@ import { AppConfig, BackupManifest, EnvironmentId } from "../config/types.js";
 import {
   createArchiveBackup,
   createLocalTempFile,
+  dropCollections,
   getCollectionCounts,
   listCollections,
   restoreArchiveToEnvironment
@@ -24,6 +25,7 @@ export interface RunSyncDependencies {
   listCollections: typeof listCollections;
   getCollectionCounts: typeof getCollectionCounts;
   restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
+  dropCollections: typeof dropCollections;
   verifyRestore: typeof verifyRestore;
   unlink: (path: string) => Promise<void>;
 }
@@ -91,11 +93,18 @@ const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
   listCollections,
   getCollectionCounts,
   restoreArchiveToEnvironment,
+  dropCollections,
   verifyRestore,
   unlink: removeTempArchiveIfPresent
 };
 
-type SyncPhase = "source_metadata" | "dump" | "restore" | "verify" | "cleanup";
+type SyncPhase =
+  | "source_metadata"
+  | "dump"
+  | "restore"
+  | "prune"
+  | "verify"
+  | "cleanup";
 
 class SyncPhaseError extends Error {
   readonly phase: SyncPhase;
@@ -132,7 +141,11 @@ function formatSyncFailure(input: {
   interrupted?: boolean;
 }): string {
   const phaseLabel =
-    input.phase === "source_metadata" ? "source metadata" : input.phase;
+    input.phase === "source_metadata"
+      ? "source metadata"
+      : input.phase === "prune"
+        ? "removing target-only collections"
+        : input.phase;
   const actionLabel = input.interrupted ? "interrupted" : "failed";
   const targetStatus = input.targetMayBeDirty
     ? `Target database may be dirty. Restore it from a known good backup or rerun sync before trusting it.`
@@ -270,9 +283,6 @@ export async function runSync(
             }
           )
       );
-      dependencies.writeStdout(`Verifying target ${input.to}...\n`);
-      dependencies.writeStdout(`Checking collection presence...\n`);
-      dependencies.writeStdout(`Checking collection counts...\n`);
     } else {
       currentPhase = "restore";
       targetMayBeDirty = true;
@@ -288,7 +298,33 @@ export async function runSync(
         }
       );
     }
+    currentPhase = "prune";
+    const expectedCollections = new Set(collectionList);
+    const targetCollections = filterSyncCollections(
+      await dependencies.listCollections(target, {
+        outputMode: input.outputMode,
+        signal: abortController.signal
+      })
+    );
+    const targetOnlyCollections = targetCollections.filter(
+      (collection) => !expectedCollections.has(collection)
+    );
+    if (printSummary) {
+      dependencies.writeStdout(
+        `Removing target-only collections from ${input.to}...\n`
+      );
+    }
+    await dependencies.dropCollections(target, targetOnlyCollections, {
+      outputMode: input.outputMode,
+      signal: abortController.signal
+    });
+
     currentPhase = "verify";
+    if (printSummary) {
+      dependencies.writeStdout(`Verifying target ${input.to}...\n`);
+      dependencies.writeStdout(`Checking collection presence...\n`);
+      dependencies.writeStdout(`Checking collection counts...\n`);
+    }
     const verification = await dependencies.verifyRestore(
       target,
       verificationManifest,
@@ -313,6 +349,9 @@ export async function runSync(
           : undefined
       }
     );
+    const unexpectedCollections = filterSyncCollections(
+      verification.collectionsPresent
+    ).filter((collection) => !expectedCollections.has(collection));
     if (countProgressActive) {
       dependencies.writeStdout("\n");
       countProgressActive = false;
@@ -320,6 +359,7 @@ export async function runSync(
     }
     if (
       verification.missingCollections.length > 0 ||
+      unexpectedCollections.length > 0 ||
       verification.countMismatches.length > 0
     ) {
       throw new SyncPhaseError({
@@ -335,6 +375,9 @@ export async function runSync(
           details:
             `Missing collections: ${
               verification.missingCollections.join(", ") || "none"
+            }\n` +
+            `Unexpected collections: ${
+              unexpectedCollections.join(", ") || "none"
             }\n` +
             `Count mismatches: ${
               verification.countMismatches
