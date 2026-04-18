@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- tightened release instructions to require `npm login` and `npm whoami` immediately before every publish attempt because npm auth verification can expire quickly
+
 ## 0.1.7
 
 - changed `sync` to prune target-only collections so successful runs leave the target as an exact copy of the source snapshot for normal user collections, with only internal Mongo namespaces such as `system.*` excluded

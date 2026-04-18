@@ -46,6 +46,7 @@
 - Before cutting a release, move shipped work out of `## Unreleased`, update every shipped version reference in `package.json`, `package-lock.json`, and `src/version.ts`, then run the full repo checks.
 - Release tags must be annotated tags named `vX.Y.Z`.
 - Before publishing, have the agent run `npm pack` and inspect the tarball contents. If `~/.npm` is blocked by root-owned files, use `npm pack --cache /tmp/dbh-npm-cache` instead of changing the operator's home directory.
+- Immediately before every publish attempt, require fresh npm authentication with `npm login` followed by `npm whoami`. Do not rely on earlier-session auth checks.
 - Keep `npm publish` manual. The handoff must include the exact publish command, any temporary-cache variant, and the post-publish verification commands.
 - Treat any `npm publish` warning that npm auto-corrected `package.json` as a release blocker. Fix the metadata in repo and cut a new patch release instead of publishing a corrected package from an existing tag.
 - After publishing, verify the published version and do at least one real install/executable smoke test.

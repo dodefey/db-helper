@@ -75,16 +75,22 @@ Validation is still required as part of the release flow.
 7. Commit release prep with the version as the commit subject (for example `0.1.7`).
 8. Create annotated tag `vX.Y.Z` on that commit.
 9. Push commit and tag.
-10. Manually publish from that exact tagged commit.
-11. Verify the published package version and run at least one real install/executable smoke test.
+10. Authenticate to npm immediately before publish:
+    - `npm login`
+    - `npm whoami`
+11. Manually publish from that exact tagged commit.
+12. Verify the published package version and run at least one real install/executable smoke test.
 
 ## Publish And Verification Handoff
 
 Manual publish remains required. Handoff details must include:
 
+- confirmation that `npm login` and `npm whoami` were run immediately before publish
 - exact `npm publish` command used
 - temporary-cache variant when required
 - post-publish verification commands and results
+
+Treat npm authentication checks as short-lived and non-durable. Always re-authenticate immediately before publish, even if prior checks passed earlier in the session.
 
 Treat any `npm publish` warning that npm auto-corrected package metadata as a release blocker. Fix metadata in-repo and cut a new patch release instead of publishing corrected metadata from an existing tag.
 

@@ -83,10 +83,13 @@ When asked to start or run a release:
 9. Commit release prep with exact version as subject (example: `0.1.7`).
 10. Create annotated tag on the release commit.
 11. Push commit and tag.
-12. Keep `npm publish` manual and provide exact command handoff:
+12. Re-authenticate npm immediately before publish:
+    - `npm login`
+    - `npm whoami`
+13. Keep `npm publish` manual and provide exact command handoff:
     - stable: `npm publish`
     - pre-release: `npm publish --tag next`
-13. After user publishes, verify published version and run at least one real install/executable smoke test.
+14. After user publishes, verify published version and run at least one real install/executable smoke test.
 
 ## Staged Commands
 
@@ -123,6 +126,12 @@ npm pack
 ```
 
 ```bash
+# Re-authenticate npm immediately before each publish attempt.
+npm login
+npm whoami
+```
+
+```bash
 # Create release commit and annotated SemVer tag.
 git add package.json package-lock.json src/version.ts CHANGELOG.md
 git commit -m "X.Y.Z"
@@ -141,4 +150,5 @@ git push origin "vX.Y.Z"
   - [docs/release-policy.md](/Users/davidodefey/projects/dbtools/docs/release-policy.md)
   - [AGENTS.md](/Users/davidodefey/projects/dbtools/AGENTS.md)
 - Do not perform manual or scripted `npm publish` unless the user explicitly asks.
+- Treat npm auth verification as short-lived. Always run `npm login` and `npm whoami` immediately before publishing.
 - Do not republish, retag, or rewrite a published version; cut a new patch release instead.
