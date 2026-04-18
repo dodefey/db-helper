@@ -32,6 +32,14 @@
 ## Git And Release Expectations
 
 - Use concise imperative commit subjects for normal development commits, with no trailing period and no tool chatter.
+- Check branch context before starting substantive edits.
+- Branch creation or branch switching requires explicit user approval.
+- `main` is release and hotfix only. Treat any non-hotfix commit on `main` as a policy violation and move that work to an approved branch before continuing.
+- If a `development` branch is in use, keep `development` changes small-scope and low-risk, and run larger feature/refactor work on dedicated branches.
+- Hotfixes may target `main`, but must stay narrowly scoped and must be merged back to any long-lived integration branch immediately after landing.
+- Production release publication must run from `main`. Never publish from `development` or feature branches.
+- Use [docs/release-policy.md](docs/release-policy.md) as the canonical human-facing release and publish policy.
+- For release readiness checks and release execution, use [`.ai/skills/release/SKILL.md`](.ai/skills/release/SKILL.md) as the canonical agent workflow.
 - If release prep needs its own commit, use `Prepare X.Y.Z release`.
 - The version-cut commit should use the exact version as its subject, for example `0.1.5`.
 - Cut releases only from a clean `main` branch, and publish only from the exact tagged release commit.
