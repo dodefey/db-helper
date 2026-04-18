@@ -223,11 +223,11 @@ export async function runSync(
   let currentPhase: SyncPhase = "source_metadata";
   let targetMayBeDirty = false;
   let primaryError: SyncPhaseError | undefined;
-  let collectionList: string[] = [];
+  let verificationCollectionList: string[] = [];
   let tempArchive = "";
 
   try {
-    collectionList = filterSyncCollections(
+    verificationCollectionList = filterSyncCollections(
       await dependencies.listCollections(source, {
         outputMode: input.outputMode,
         signal: abortController.signal
@@ -235,12 +235,12 @@ export async function runSync(
     );
     const collectionCounts = await dependencies.getCollectionCounts(
       source,
-      collectionList,
+      verificationCollectionList,
       { outputMode: input.outputMode, signal: abortController.signal }
     );
     const verificationManifest = buildSyncVerificationManifest(
       input.from,
-      collectionList,
+      verificationCollectionList,
       collectionCounts
     );
     tempArchive = dependencies.createLocalTempFile(appConfig, ".archive.gz");
@@ -299,7 +299,14 @@ export async function runSync(
       );
     }
     currentPhase = "prune";
-    const expectedCollections = new Set(collectionList);
+    const expectedCollections = new Set(
+      filterSyncCollections(
+        await dependencies.listCollections(source, {
+          outputMode: input.outputMode,
+          signal: abortController.signal
+        })
+      )
+    );
     const targetCollections = filterSyncCollections(
       await dependencies.listCollections(target, {
         outputMode: input.outputMode,
@@ -466,7 +473,7 @@ export async function runSync(
   }
   if (printSummary && syncSucceeded) {
     dependencies.writeStdout(
-      `Sync ${input.from} -> ${input.to} complete. Verified ${collectionList.length} collections.\n`
+      `Sync ${input.from} -> ${input.to} complete. Verified ${verificationCollectionList.length} collections.\n`
     );
   }
 }

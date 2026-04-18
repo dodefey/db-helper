@@ -507,7 +507,11 @@ test("runSync performs dump then restore then cleanup", async () => {
     "Cleaning up sync temp artifacts...\n",
     "Sync production -> development complete. Verified 2 collections.\n"
   ]);
-  assert.deepEqual(calls.listedCollections, ["production", "development"]);
+  assert.deepEqual(calls.listedCollections, [
+    "production",
+    "production",
+    "development"
+  ]);
   assert.deepEqual(calls.countedCollections, [
     { env: "production", collections: ["orders", "customers"] }
   ]);
@@ -585,6 +589,32 @@ test("runSync drops target-only collections before verify", async () => {
     { target: "development", collections: ["stale"] }
   ]);
   assert.deepEqual(events, ["prune:stale", "verify"]);
+});
+
+test("runSync does not prune collections that appear in the source during dump", async () => {
+  const { dependencies, calls } = createRunSyncDependencies();
+  let sourceListCalls = 0;
+
+  dependencies.listCollections = async (env): Promise<string[]> => {
+    calls.listedCollections.push(env.id);
+    if (env.id === "production") {
+      sourceListCalls += 1;
+      return sourceListCalls === 1
+        ? ["orders", "customers"]
+        : ["orders", "customers", "during_dump"];
+    }
+    return ["orders", "customers", "during_dump", "stale"];
+  };
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development", outputMode: "default" },
+    dependencies
+  );
+
+  assert.deepEqual(calls.droppedCollections, [
+    { target: "development", collections: ["stale"] }
+  ]);
 });
 
 test("runSync reports source metadata failures with sync phase context", async () => {
