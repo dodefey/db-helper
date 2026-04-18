@@ -6,6 +6,7 @@ import {
   createLocalTempFile,
   dropCollections,
   getCollectionCounts,
+  inspectArchiveCollections,
   listCollections,
   restoreArchiveToEnvironment
 } from "./mongo.js";
@@ -24,6 +25,7 @@ export interface RunSyncDependencies {
   createArchiveBackup: typeof createArchiveBackup;
   listCollections: typeof listCollections;
   getCollectionCounts: typeof getCollectionCounts;
+  inspectArchiveCollections: typeof inspectArchiveCollections;
   restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
   dropCollections: typeof dropCollections;
   verifyRestore: typeof verifyRestore;
@@ -92,6 +94,7 @@ const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
   createArchiveBackup,
   listCollections,
   getCollectionCounts,
+  inspectArchiveCollections,
   restoreArchiveToEnvironment,
   dropCollections,
   verifyRestore,
@@ -301,10 +304,16 @@ export async function runSync(
     currentPhase = "prune";
     const expectedCollections = new Set(
       filterSyncCollections(
-        await dependencies.listCollections(source, {
-          outputMode: input.outputMode,
-          signal: abortController.signal
-        })
+        await dependencies.inspectArchiveCollections(
+          target,
+          appConfig,
+          tempArchive,
+          {
+            sourceDatabaseName: source.databaseName,
+            outputMode: input.outputMode,
+            signal: abortController.signal
+          }
+        )
       )
     );
     const targetCollections = filterSyncCollections(

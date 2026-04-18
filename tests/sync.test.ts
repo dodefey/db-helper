@@ -88,6 +88,11 @@ function createRunSyncDependencies(
     listedCollections: EnvironmentId[];
     countedCollections: Array<{ env: EnvironmentId; collections: string[] }>;
     dumps: Array<{ source: EnvironmentId; destination: string }>;
+    inspectedArchives: Array<{
+      target: EnvironmentId;
+      archive: string;
+      sourceDatabaseName: string;
+    }>;
     restores: Array<{
       target: EnvironmentId;
       archive: string;
@@ -109,6 +114,11 @@ function createRunSyncDependencies(
       collections: string[];
     }>,
     dumps: [] as Array<{ source: EnvironmentId; destination: string }>,
+    inspectedArchives: [] as Array<{
+      target: EnvironmentId;
+      archive: string;
+      sourceDatabaseName: string;
+    }>,
     restores: [] as Array<{
       target: EnvironmentId;
       archive: string;
@@ -162,6 +172,19 @@ function createRunSyncDependencies(
     },
     async createArchiveBackup(env, _appConfig, destinationFile): Promise<void> {
       calls.dumps.push({ source: env.id, destination: destinationFile });
+    },
+    async inspectArchiveCollections(
+      env,
+      _appConfig,
+      archiveFile,
+      options
+    ): Promise<string[]> {
+      calls.inspectedArchives.push({
+        target: env.id,
+        archive: archiveFile,
+        sourceDatabaseName: options.sourceDatabaseName
+      });
+      return ["orders", "customers"];
     },
     async restoreArchiveToEnvironment(
       env,
@@ -507,10 +530,13 @@ test("runSync performs dump then restore then cleanup", async () => {
     "Cleaning up sync temp artifacts...\n",
     "Sync production -> development complete. Verified 2 collections.\n"
   ]);
-  assert.deepEqual(calls.listedCollections, [
-    "production",
-    "production",
-    "development"
+  assert.deepEqual(calls.listedCollections, ["production", "development"]);
+  assert.deepEqual(calls.inspectedArchives, [
+    {
+      target: "development",
+      archive: "/tmp/db-helper/test-sync.archive.gz",
+      sourceDatabaseName: "production"
+    }
   ]);
   assert.deepEqual(calls.countedCollections, [
     { env: "production", collections: ["orders", "customers"] }
@@ -564,6 +590,19 @@ test("runSync drops target-only collections before verify", async () => {
   const { dependencies, calls } = createRunSyncDependencies();
   const baseVerifyRestore = dependencies.verifyRestore;
 
+  dependencies.inspectArchiveCollections = async (
+    env,
+    _appConfig,
+    archiveFile,
+    options
+  ): Promise<string[]> => {
+    calls.inspectedArchives.push({
+      target: env.id,
+      archive: archiveFile,
+      sourceDatabaseName: options.sourceDatabaseName
+    });
+    return ["orders", "customers"];
+  };
   dependencies.listCollections = async (env): Promise<string[]> => {
     calls.listedCollections.push(env.id);
     return env.id === "production"
@@ -593,15 +632,24 @@ test("runSync drops target-only collections before verify", async () => {
 
 test("runSync does not prune collections that appear in the source during dump", async () => {
   const { dependencies, calls } = createRunSyncDependencies();
-  let sourceListCalls = 0;
 
+  dependencies.inspectArchiveCollections = async (
+    env,
+    _appConfig,
+    archiveFile,
+    options
+  ): Promise<string[]> => {
+    calls.inspectedArchives.push({
+      target: env.id,
+      archive: archiveFile,
+      sourceDatabaseName: options.sourceDatabaseName
+    });
+    return ["orders", "customers", "during_dump"];
+  };
   dependencies.listCollections = async (env): Promise<string[]> => {
     calls.listedCollections.push(env.id);
     if (env.id === "production") {
-      sourceListCalls += 1;
-      return sourceListCalls === 1
-        ? ["orders", "customers"]
-        : ["orders", "customers", "during_dump"];
+      return ["orders", "customers"];
     }
     return ["orders", "customers", "during_dump", "stale"];
   };
@@ -680,6 +728,19 @@ test("runSync attempts cleanup when restore fails", async () => {
 
 test("runSync reports prune failures as dirty-target failures", async () => {
   const { dependencies, calls } = createRunSyncDependencies({
+    async inspectArchiveCollections(
+      env,
+      _appConfig,
+      archiveFile,
+      options
+    ): Promise<string[]> {
+      calls.inspectedArchives.push({
+        target: env.id,
+        archive: archiveFile,
+        sourceDatabaseName: options.sourceDatabaseName
+      });
+      return ["orders", "customers"];
+    },
     async listCollections(env): Promise<string[]> {
       calls.listedCollections.push(env.id);
       return env.id === "production"

@@ -1,10 +1,6 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
-import {
-  AppConfig,
-  BackupManifest,
-  EnvironmentConfig
-} from "../config/types.js";
+import { AppConfig, EnvironmentConfig } from "../config/types.js";
 import { OutputMode, shouldStreamSubprocessOutput } from "./output.js";
 import { runCommand } from "./exec.js";
 
@@ -116,6 +112,39 @@ async function runMongoShell(
     streamOutput,
     options.signal
   );
+}
+
+async function runCommandViaShell(
+  command: string,
+  options: { signal?: AbortSignal } = {}
+): Promise<string> {
+  return runCommand("sh", ["-lc", `${command} 2>&1`], {
+    streamOutput: false,
+    signal: options.signal
+  });
+}
+
+function parseArchiveCollections(
+  output: string,
+  databaseName: string
+): string[] {
+  const names = new Set<string>();
+  const patterns = [
+    /^.*archive prelude ([^.]+)\.(.+)$/gm,
+    /^.*reading metadata for ([^.]+)\.(.+?) from archive\b.*$/gm,
+    /^.*restoring (?:to existing collection |to collection |)([^.]+)\.(.+?)(?: from archive\b.*| without dropping\b.*|$)/gm
+  ];
+
+  for (const pattern of patterns) {
+    for (const match of output.matchAll(pattern)) {
+      if (match[1] !== databaseName) {
+        continue;
+      }
+      names.add(match[2]);
+    }
+  }
+
+  return [...names].sort();
 }
 
 export async function listCollections(
@@ -311,9 +340,77 @@ export async function verifyConnectivity(
 }
 
 export async function inspectArchiveCollections(
-  manifest: BackupManifest
+  env: EnvironmentConfig,
+  appConfig: AppConfig,
+  archiveFile: string,
+  options: {
+    sourceDatabaseName: string;
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+  }
 ): Promise<string[]> {
-  return manifest.collectionList;
+  const baseArgs = ["--uri", mongoUri(env), "--gzip", "--dryRun", "--verbose"];
+  if (options.sourceDatabaseName !== env.databaseName) {
+    baseArgs.push("--nsInclude", `${options.sourceDatabaseName}.*`);
+    baseArgs.push("--nsFrom", `${options.sourceDatabaseName}.*`);
+    baseArgs.push("--nsTo", `${env.databaseName}.*`);
+  }
+
+  if (env.kind === "local") {
+    const output = await runCommandViaShell(
+      `mongorestore ${baseArgs
+        .concat(`--archive=${archiveFile}`)
+        .map((arg) => JSON.stringify(arg))
+        .join(" ")}`,
+      { signal: options.signal }
+    );
+    return parseArchiveCollections(output, env.databaseName);
+  }
+
+  const remotePath = remoteArchivePath(appConfig, env);
+  let primaryError: unknown;
+  let cleanupError: unknown;
+  let output = "";
+  try {
+    await runRemote(
+      env,
+      `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
+      false,
+      options.signal
+    );
+    await copyToRemote(env, archiveFile, remotePath, options.signal);
+    const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
+    output = await runRemote(
+      env,
+      `mongorestore ${remoteArgs
+        .map((arg) => JSON.stringify(arg))
+        .join(" ")} 2>&1`,
+      false,
+      options.signal
+    );
+  } catch (error) {
+    primaryError = error;
+  }
+  try {
+    await cleanupRemoteArchive(env, remotePath);
+  } catch (error) {
+    cleanupError = error;
+  }
+
+  if (primaryError && cleanupError) {
+    throw combineWithCleanupFailure(primaryError, cleanupError);
+  }
+  if (primaryError) {
+    throw primaryError;
+  }
+  if (cleanupError) {
+    throw new Error(
+      `Remote temporary archive cleanup failed: ${getErrorDetails(cleanupError)}`,
+      { cause: cleanupError }
+    );
+  }
+
+  return parseArchiveCollections(output, env.databaseName);
 }
 
 export function createLocalTempFile(
