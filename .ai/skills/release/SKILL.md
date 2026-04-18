@@ -34,10 +34,12 @@ Default when no target is provided:
 ## Branch And Safety Rules
 
 - Check branch context before any substantive mutation.
+- `development` is the default branch for non-hotfix work and release preparation.
+- Run feature and refactor work on dedicated work branches based on `development`.
 - Release publication is from `main` only.
-- Never run a release publish flow from `development` or feature branches.
 - Branch creation/switching requires explicit user approval.
 - Treat any non-hotfix commit discovered on `main` as a policy violation and stop for user direction.
+- After release publication, switch local branch context back to `development` and sync it from `main`.
 - Do not assume any specific remote name.
 
 ## Workflow
@@ -47,7 +49,7 @@ Default when no target is provided:
 When asked "are we ready for a release?":
 
 - Check for a clean working tree (`tracked` and `untracked`).
-- Confirm branch context is release-safe (`main` expected for publish flow).
+- Confirm branch context is release-safe (`development` expected for release preparation).
 - Confirm version/changelog readiness:
   - `CHANGELOG.md` has `## Unreleased` entries reconciled for the intended release
   - `package.json`, `package-lock.json`, and `src/version.ts` can be aligned for the target version
@@ -58,7 +60,7 @@ When asked "are we ready for a release?":
 
 When asked to start or run a release:
 
-1. Verify current branch is `main`.
+1. Verify current branch is `development`.
 2. Verify fully clean working tree.
 3. Resolve target SemVer:
    - explicit version if provided
@@ -80,16 +82,18 @@ When asked to start or run a release:
 8. Build and inspect publish artifact:
    - `npm pack`
    - fallback: `npm pack --cache /tmp/dbh-npm-cache` when default npm cache is blocked
-9. Commit release prep with exact version as subject (example: `0.1.7`).
-10. Create annotated tag on the release commit.
-11. Push commit and tag.
-12. Re-authenticate npm immediately before publish:
+9. Commit release prep on `development` with exact version as subject (example: `0.1.7`).
+10. Push `development`.
+11. Merge `development` into `main` with fast-forward-only and push `main`.
+12. Create annotated tag on the `main` release commit and push the tag.
+13. Re-authenticate npm immediately before publish:
     - `npm login`
     - `npm whoami`
-13. Keep `npm publish` manual and provide exact command handoff:
+14. Keep `npm publish` manual and provide exact command handoff:
     - stable: `npm publish`
     - pre-release: `npm publish --tag next`
-14. After user publishes, verify published version and run at least one real install/executable smoke test.
+15. Switch back to `development` and fast-forward sync it from `main`.
+16. After user publishes, verify published version and run at least one real install/executable smoke test.
 
 ## Staged Commands
 
@@ -126,22 +130,34 @@ npm pack
 ```
 
 ```bash
+# Create release commit on development and annotated SemVer tag on main.
+git add package.json package-lock.json src/version.ts CHANGELOG.md
+git commit -m "X.Y.Z"
+git push <remote> development
+```
+
+```bash
+# Promote release into main using fast-forward-only history, then tag.
+git checkout main
+git fetch <remote>
+git merge --ff-only <remote>/main
+git merge --ff-only development
+git push <remote> main
+git tag -a "vX.Y.Z" -m "vX.Y.Z"
+git push <remote> "vX.Y.Z"
+```
+
+```bash
 # Re-authenticate npm immediately before each publish attempt.
 npm login
 npm whoami
 ```
 
 ```bash
-# Create release commit and annotated SemVer tag.
-git add package.json package-lock.json src/version.ts CHANGELOG.md
-git commit -m "X.Y.Z"
-git tag -a "vX.Y.Z" -m "vX.Y.Z"
-```
-
-```bash
-# Push release commit and tag to the selected remote.
-git push
-git push origin "vX.Y.Z"
+# Return local context to development and sync from main.
+git checkout development
+git merge --ff-only main
+git push <remote> development
 ```
 
 ## Guardrails
@@ -151,4 +167,5 @@ git push origin "vX.Y.Z"
   - [AGENTS.md](/Users/davidodefey/projects/dbtools/AGENTS.md)
 - Do not perform manual or scripted `npm publish` unless the user explicitly asks.
 - Treat npm auth verification as short-lived. Always run `npm login` and `npm whoami` immediately before publishing.
+- Do not run release preparation on `main` except for production hotfix scenarios explicitly requested by the user.
 - Do not republish, retag, or rewrite a published version; cut a new patch release instead.

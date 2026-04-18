@@ -30,6 +30,8 @@ Pre-release policy:
 
 ## Branch And Tag Policy
 
+- All non-hotfix work must be performed on `development` or dedicated short-lived work branches that merge back into `development`.
+- `main` is reserved for release publication and narrowly scoped production hotfixes.
 - Release publication must occur from a clean `main` branch.
 - Publish only from the exact commit that is tagged for that release.
 - Do not retag, rewrite, or republish an existing released version.
@@ -60,7 +62,7 @@ Validation is still required as part of the release flow.
 
 ## Canonical Release Flow
 
-1. Prepare the release branch state on `main` (or merge the final release PR into `main`).
+1. Prepare the release branch state on `development` (or merge the final release PR into `development`).
 2. Decide the SemVer bump (`major`, `minor`, or `patch`) using the documented change scope.
 3. Update `package.json`, `package-lock.json`, `src/version.ts`, and `CHANGELOG.md` to the target version.
 4. Run changed-file formatting as needed during normal work.
@@ -72,14 +74,16 @@ Validation is still required as part of the release flow.
 6. Build and inspect the publish artifact:
    - `npm pack`
    - If default npm cache access is blocked, use `npm pack --cache /tmp/dbh-npm-cache`
-7. Commit release prep with the version as the commit subject (for example `0.1.7`).
-8. Create annotated tag `vX.Y.Z` on that commit.
-9. Push commit and tag.
-10. Authenticate to npm immediately before publish:
+7. Commit release prep on `development` with the version as the commit subject (for example `0.1.7`).
+8. Push `development`.
+9. Merge `development` into `main` using fast-forward-only, then push `main`.
+10. Create annotated tag `vX.Y.Z` on the release commit in `main`, then push the tag.
+11. Authenticate to npm immediately before publish:
     - `npm login`
     - `npm whoami`
-11. Manually publish from that exact tagged commit.
-12. Verify the published package version and run at least one real install/executable smoke test.
+12. Manually publish from that exact tagged commit.
+13. Switch local context back to `development` and fast-forward sync `development` from `main`.
+14. Verify the published package version and run at least one real install/executable smoke test.
 
 ## Publish And Verification Handoff
 

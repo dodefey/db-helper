@@ -34,10 +34,13 @@
 - Use concise imperative commit subjects for normal development commits, with no trailing period and no tool chatter.
 - Check branch context before starting substantive edits.
 - Branch creation or branch switching requires explicit user approval.
-- `main` is release and hotfix only. Treat any non-hotfix commit on `main` as a policy violation and move that work to an approved branch before continuing.
-- If a `development` branch is in use, keep `development` changes small-scope and low-risk, and run larger feature/refactor work on dedicated branches.
+- `development` is the default branch for all non-hotfix work.
+- Run feature work and larger refactors on dedicated work branches that branch from `development` and merge back to `development`.
+- `main` is release and hotfix only. Treat any non-hotfix commit on `main` as a policy violation and move that work to `development` or an approved work branch before continuing.
 - Hotfixes may target `main`, but must stay narrowly scoped and must be merged back to any long-lived integration branch immediately after landing.
+- Release preparation starts on `development`, then is promoted to `main` for publication.
 - Production release publication must run from `main`. Never publish from `development` or feature branches.
+- After release publication, switch local branch context back to `development` and fast-forward sync from `main`.
 - Use [docs/release-policy.md](docs/release-policy.md) as the canonical human-facing release and publish policy.
 - For release readiness checks and release execution, use [`.ai/skills/release/SKILL.md`](.ai/skills/release/SKILL.md) as the canonical agent workflow.
 - If release prep needs its own commit, use `Prepare X.Y.Z release`.

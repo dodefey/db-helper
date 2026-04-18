@@ -3,6 +3,7 @@
 ## Unreleased
 
 - tightened release instructions to require `npm login` and `npm whoami` immediately before every publish attempt because npm auth verification can expire quickly
+- changed branch policy to require non-hotfix work on `development` (or branches from it), reserve `main` for release/hotfix, and switch back to `development` automatically after release publication
 
 ## 0.1.7
 
