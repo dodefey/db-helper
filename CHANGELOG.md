@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- added `sync collection` for restoring one named collection between allowed environments without pruning unrelated target collections
 - tightened release instructions to require `npm login` and `npm whoami` immediately before every publish attempt because npm auth verification can expire quickly
 - changed branch policy to require non-hotfix work on `development` (or branches from it), reserve `main` for release/hotfix, and switch back to `development` automatically after release publication
 

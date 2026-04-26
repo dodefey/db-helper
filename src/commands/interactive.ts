@@ -14,6 +14,7 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
     { label: "Sync production to test", value: "sync-prod-test" },
     { label: "Sync development to test", value: "sync-dev-test" },
     { label: "Sync test to development", value: "sync-test-dev" },
+    { label: "Sync one collection", value: "sync-collection" },
     { label: "Restore one collection", value: "restore-collection" },
     { label: "Run doctor checks", value: "doctor" }
   ]);
@@ -60,6 +61,35 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
         outputMode: "default"
       });
       return;
+    case "sync-collection": {
+      const from = await promptChoice<EnvironmentId>("Source environment", [
+        {
+          label: appConfig.environments.production.label,
+          value: "production"
+        },
+        {
+          label: appConfig.environments.development.label,
+          value: "development"
+        },
+        { label: appConfig.environments.test.label, value: "test" }
+      ]);
+      const to = await promptChoice<EnvironmentId>("Target environment", [
+        {
+          label: appConfig.environments.development.label,
+          value: "development"
+        },
+        { label: appConfig.environments.test.label, value: "test" }
+      ]);
+      const collection = await promptText("Collection name");
+      await syncDatabase(appConfig, {
+        from,
+        to,
+        collection,
+        yes: false,
+        outputMode: "default"
+      });
+      return;
+    }
     case "restore-collection": {
       const backup = await promptText("Backup name");
       const collection = await promptText("Collection name");

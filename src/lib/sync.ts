@@ -32,6 +32,12 @@ export interface RunSyncDependencies {
   unlink: (path: string) => Promise<void>;
 }
 
+type SyncInput = {
+  from: EnvironmentId;
+  to: EnvironmentId;
+  collection?: string;
+};
+
 function formatElapsed(milliseconds: number): string {
   const totalSeconds = Math.floor(milliseconds / 1000);
   const minutes = Math.floor(totalSeconds / 60)
@@ -134,9 +140,18 @@ class SyncPhaseError extends Error {
   }
 }
 
+function formatSyncTarget(input: SyncInput): string {
+  if (input.collection) {
+    return `${input.from}.${input.collection} -> ${input.to}.${input.collection}`;
+  }
+
+  return `${input.from} -> ${input.to}`;
+}
+
 function formatSyncFailure(input: {
   from: EnvironmentId;
   to: EnvironmentId;
+  collection?: string;
   phase: SyncPhase;
   targetMayBeDirty: boolean;
   details: string;
@@ -163,7 +178,7 @@ function formatSyncFailure(input: {
     : input.details;
 
   return (
-    `Sync ${actionLabel} during ${phaseLabel} for ${input.from} -> ${input.to}.\n` +
+    `Sync ${actionLabel} during ${phaseLabel} for ${formatSyncTarget(input)}.\n` +
     `${targetStatus}\n` +
     `${cleanupStatus}\n` +
     `${details}`
@@ -208,7 +223,7 @@ function buildSyncVerificationManifest(
 
 export async function runSync(
   appConfig: AppConfig,
-  input: { from: EnvironmentId; to: EnvironmentId; outputMode: OutputMode },
+  input: SyncInput & { outputMode: OutputMode },
   dependencies: RunSyncDependencies = DEFAULT_RUN_SYNC_DEPENDENCIES
 ): Promise<void> {
   const source = appConfig.environments[input.from];
@@ -227,15 +242,27 @@ export async function runSync(
   let targetMayBeDirty = false;
   let primaryError: SyncPhaseError | undefined;
   let verificationCollectionList: string[] = [];
+  let expectedCollections = new Set<string>();
   let tempArchive = "";
 
   try {
-    verificationCollectionList = filterSyncCollections(
+    const sourceCollections = filterSyncCollections(
       await dependencies.listCollections(source, {
         outputMode: input.outputMode,
         signal: abortController.signal
       })
     );
+    if (input.collection) {
+      if (!sourceCollections.includes(input.collection)) {
+        throw new Error(
+          `Collection ${input.collection} was not found in source ${input.from}.`
+        );
+      }
+      verificationCollectionList = [input.collection];
+    } else {
+      verificationCollectionList = sourceCollections;
+    }
+    expectedCollections = new Set(verificationCollectionList);
     const collectionCounts = await dependencies.getCollectionCounts(
       source,
       verificationCollectionList,
@@ -249,12 +276,12 @@ export async function runSync(
     tempArchive = dependencies.createLocalTempFile(appConfig, ".archive.gz");
 
     if (printSummary) {
-      dependencies.writeStdout(`Starting sync ${input.from} -> ${input.to}\n`);
+      dependencies.writeStdout(`Starting sync ${formatSyncTarget(input)}\n`);
     }
     if (printSummary) {
       currentPhase = "dump";
       await dependencies.runWithElapsedStatus(
-        `Dumping source ${input.from}...`,
+        `Dumping source ${input.collection ? `${input.from}.${input.collection}` : input.from}...`,
         () =>
           dependencies.createArchiveBackup(source, appConfig, tempArchive, {
             outputMode: input.outputMode,
@@ -272,7 +299,7 @@ export async function runSync(
       currentPhase = "restore";
       targetMayBeDirty = true;
       await dependencies.runWithElapsedStatus(
-        `Restoring target ${input.to}...`,
+        `Restoring target ${input.collection ? `${input.to}.${input.collection}` : input.to}...`,
         () =>
           dependencies.restoreArchiveToEnvironment(
             target,
@@ -280,6 +307,7 @@ export async function runSync(
             tempArchive,
             {
               sourceDatabaseName: source.databaseName,
+              collection: input.collection,
               drop: true,
               outputMode: input.outputMode,
               signal: abortController.signal
@@ -295,49 +323,54 @@ export async function runSync(
         tempArchive,
         {
           sourceDatabaseName: source.databaseName,
+          collection: input.collection,
           drop: true,
           outputMode: input.outputMode,
           signal: abortController.signal
         }
       );
     }
-    currentPhase = "prune";
-    const expectedCollections = new Set(
-      filterSyncCollections(
-        await dependencies.inspectArchiveCollections(
-          target,
-          appConfig,
-          tempArchive,
-          {
-            sourceDatabaseName: source.databaseName,
-            outputMode: input.outputMode,
-            signal: abortController.signal
-          }
+    if (!input.collection) {
+      currentPhase = "prune";
+      const expectedCollections = new Set(
+        filterSyncCollections(
+          await dependencies.inspectArchiveCollections(
+            target,
+            appConfig,
+            tempArchive,
+            {
+              sourceDatabaseName: source.databaseName,
+              outputMode: input.outputMode,
+              signal: abortController.signal
+            }
+          )
         )
-      )
-    );
-    const targetCollections = filterSyncCollections(
-      await dependencies.listCollections(target, {
+      );
+      const targetCollections = filterSyncCollections(
+        await dependencies.listCollections(target, {
+          outputMode: input.outputMode,
+          signal: abortController.signal
+        })
+      );
+      const targetOnlyCollections = targetCollections.filter(
+        (collection) => !expectedCollections.has(collection)
+      );
+      if (printSummary) {
+        dependencies.writeStdout(
+          `Removing target-only collections from ${input.to}...\n`
+        );
+      }
+      await dependencies.dropCollections(target, targetOnlyCollections, {
         outputMode: input.outputMode,
         signal: abortController.signal
-      })
-    );
-    const targetOnlyCollections = targetCollections.filter(
-      (collection) => !expectedCollections.has(collection)
-    );
-    if (printSummary) {
-      dependencies.writeStdout(
-        `Removing target-only collections from ${input.to}...\n`
-      );
+      });
     }
-    await dependencies.dropCollections(target, targetOnlyCollections, {
-      outputMode: input.outputMode,
-      signal: abortController.signal
-    });
 
     currentPhase = "verify";
     if (printSummary) {
-      dependencies.writeStdout(`Verifying target ${input.to}...\n`);
+      dependencies.writeStdout(
+        `Verifying target ${input.collection ? `${input.to}.${input.collection}` : input.to}...\n`
+      );
       dependencies.writeStdout(`Checking collection presence...\n`);
       dependencies.writeStdout(`Checking collection counts...\n`);
     }
@@ -365,9 +398,11 @@ export async function runSync(
           : undefined
       }
     );
-    const unexpectedCollections = filterSyncCollections(
-      verification.collectionsPresent
-    ).filter((collection) => !expectedCollections.has(collection));
+    const unexpectedCollections = input.collection
+      ? []
+      : filterSyncCollections(verification.collectionsPresent).filter(
+          (collection) => !expectedCollections.has(collection)
+        );
     if (countProgressActive) {
       dependencies.writeStdout("\n");
       countProgressActive = false;
@@ -419,6 +454,7 @@ export async function runSync(
         message: formatSyncFailure({
           from: input.from,
           to: input.to,
+          collection: input.collection,
           phase: currentPhase,
           targetMayBeDirty,
           interrupted: interrupted || isInterruptedError(error),
@@ -450,6 +486,7 @@ export async function runSync(
           message: formatSyncFailure({
             from: input.from,
             to: input.to,
+            collection: input.collection,
             phase: primaryError.phase,
             targetMayBeDirty: primaryError.targetMayBeDirty,
             interrupted: primaryError.interrupted,
@@ -467,6 +504,7 @@ export async function runSync(
           message: formatSyncFailure({
             from: input.from,
             to: input.to,
+            collection: input.collection,
             phase: "cleanup",
             targetMayBeDirty,
             interrupted,
@@ -482,7 +520,7 @@ export async function runSync(
   }
   if (printSummary && syncSucceeded) {
     dependencies.writeStdout(
-      `Sync ${input.from} -> ${input.to} complete. Verified ${verificationCollectionList.length} collections.\n`
+      `Sync ${formatSyncTarget(input)} complete. Verified ${verificationCollectionList.length} collection${verificationCollectionList.length === 1 ? "" : "s"}.\n`
     );
   }
 }

@@ -412,9 +412,9 @@ Output modes for `backup create`:
 
 ## Sync
 
-`sync` is the command for replacing one non-production database with another environment. In practice, that usually means replacing `development` or `test` with a fresh copy of `production`, or moving data between `development` and `test`.
+`sync` is the command for replacing one non-production database with another environment. In practice, that usually means replacing `development` or `test` with a fresh copy of `production`, or moving data between `development` and `test`. It also supports syncing one named collection between allowed environments.
 
-It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. `sync` never syncs into `production`, it does not support collection-only syncs, and an interrupted restore can still leave the target in a dirty state.
+It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. `sync` never syncs into `production`, and an interrupted restore can still leave the target in a dirty state.
 
 ### Usage
 
@@ -438,6 +438,11 @@ dbh sync --from test --to development --yes
 ```
 
 ```bash
+# sync one collection from production into development
+dbh sync collection --from production --to development --collection orders
+```
+
+```bash
 # create a manual backup of the target before syncing
 dbh backup create --from development
 ```
@@ -450,6 +455,7 @@ CLI form:
 
 ```bash
 dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
+dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose]
 ```
 
 Required flags:
@@ -460,6 +466,7 @@ Required flags:
 Optional flags:
 
 - `--yes`
+- `sync collection`: `--collection`
 - `--quiet`
 - `--verbose`
 
@@ -475,6 +482,13 @@ Blocked paths:
 - any sync into `production`
 - self-syncs such as `development -> development`
 - any path not explicitly listed above
+
+Collection sync expectations:
+
+- `sync collection` restores one named collection only
+- the target collection is dropped before restore
+- unrelated target collections are left in place
+- `sync collection` uses the same allowed environment pairs as full sync
 
 Output modes:
 

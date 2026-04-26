@@ -9,6 +9,7 @@ The command exists for operational refresh workflows such as:
 - refresh `development` from `production`
 - refresh `test` from `production`
 - copy one non-production environment into the other
+- refresh one named collection between allowed environments
 
 `sync` is not a generic "copy anything to anywhere" command.
 
@@ -18,6 +19,7 @@ CLI form:
 
 ```bash
 dbh sync --from <environment> --to <environment> [--yes]
+dbh sync collection --from <environment> --to <environment> --collection <name> [--yes]
 ```
 
 Required flags:
@@ -30,6 +32,7 @@ Optional flags:
 - `--yes`
 
 No other sync modes are supported.
+No selective multi-collection sync mode is supported.
 
 ## Allowed Paths
 
@@ -78,7 +81,14 @@ Current behavior:
 - do not support collection-level sync
 - do not support partial namespace filters
 
-Collection-level or selective restore belongs under `restore`, not `sync`.
+`sync collection` is the targeted collection workflow:
+
+- restore one named collection from the source archive into the target
+- drop the target collection before restore
+- do not prune unrelated target collections
+- verify only the requested collection
+
+Collection-level or selective restore belongs under `sync collection` or `restore collection`, not full `sync`.
 
 ## Confirmation Rules
 
@@ -95,6 +105,8 @@ Baseline prompt:
 ```text
 This will replace <to> with an exact copy of <from>. Continue?
 ```
+
+For collection sync, the confirmation must name the source and target collection as well.
 
 If `--yes` is provided, the command may proceed without interactive confirmation.
 

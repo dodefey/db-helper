@@ -100,6 +100,7 @@ Commands:
   backup list [--from <environment>] [--tag <tag>]
   backup inspect --backup <backup-name>
   sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
+  sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose]
   restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
   restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
   recover
@@ -207,6 +208,16 @@ async function main(): Promise<void> {
       }
       break;
     case "sync":
+      if (subcommand === "collection") {
+        await syncDatabase(appConfig, {
+          from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
+          to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+          collection: getFlag(args.flags, "collection", true)!,
+          yes: getBooleanFlag(args.flags, "yes"),
+          outputMode
+        });
+        return;
+      }
       await syncDatabase(appConfig, {
         from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
         to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),

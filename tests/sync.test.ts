@@ -98,6 +98,7 @@ function createRunSyncDependencies(
       archive: string;
       drop: boolean;
       sourceDatabaseName?: string;
+      collection?: string;
     }>;
     droppedCollections: Array<{ target: EnvironmentId; collections: string[] }>;
     verifications: EnvironmentId[];
@@ -124,6 +125,7 @@ function createRunSyncDependencies(
       archive: string;
       drop: boolean;
       sourceDatabaseName?: string;
+      collection?: string;
     }>,
     droppedCollections: [] as Array<{
       target: EnvironmentId;
@@ -192,12 +194,22 @@ function createRunSyncDependencies(
       archiveFile,
       options
     ): Promise<void> {
-      calls.restores.push({
+      const restoreCall: {
+        target: EnvironmentId;
+        archive: string;
+        drop: boolean;
+        sourceDatabaseName?: string;
+        collection?: string;
+      } = {
         target: env.id,
         archive: archiveFile,
         drop: options.drop,
         sourceDatabaseName: options.sourceDatabaseName
-      });
+      };
+      if (options.collection) {
+        restoreCall.collection = options.collection;
+      }
+      calls.restores.push(restoreCall);
     },
     async dropCollections(env, collections): Promise<void> {
       calls.droppedCollections.push({ target: env.id, collections });
@@ -354,6 +366,34 @@ test("syncDatabase delegates execution to runSync", async () => {
 
   assert.deepEqual(calls.runSyncCalls, [
     { from: "production", to: "development", outputMode: "default" }
+  ]);
+});
+
+test("syncDatabase prompts with collection scope when syncing one collection", async () => {
+  const { dependencies, calls } = createDependencies();
+
+  await syncDatabase(
+    buildAppConfig(false),
+    {
+      from: "production",
+      to: "development",
+      collection: "orders",
+      yes: false,
+      outputMode: "default"
+    },
+    dependencies
+  );
+
+  assert.deepEqual(calls.promptMessages, [
+    "This will replace development.orders with an exact copy of production.orders. Continue?"
+  ]);
+  assert.deepEqual(calls.runSyncCalls, [
+    {
+      from: "production",
+      to: "development",
+      collection: "orders",
+      outputMode: "default"
+    }
   ]);
 });
 
@@ -583,6 +623,76 @@ test("runSync forces drop semantics even when config default is false", async ()
       sourceDatabaseName: "production"
     }
   ]);
+});
+
+test("runSync syncs a single collection without pruning target-only collections", async () => {
+  const { dependencies, calls } = createRunSyncDependencies();
+
+  await runSync(
+    buildAppConfig(false),
+    {
+      from: "production",
+      to: "development",
+      collection: "orders",
+      outputMode: "default"
+    },
+    dependencies
+  );
+
+  assert.deepEqual(calls.output, [
+    "Starting sync production.orders -> development.orders\n",
+    "Dumping source production.orders...\n",
+    "Restoring target development.orders...\n",
+    "Verifying target development.orders...\n",
+    "Checking collection presence...\n",
+    "Checking collection counts...\n",
+    "Checked collection counts: 1/1 (orders)\n",
+    "Cleaning up sync temp artifacts...\n",
+    "Sync production.orders -> development.orders complete. Verified 1 collection.\n"
+  ]);
+  assert.deepEqual(calls.listedCollections, ["production"]);
+  assert.deepEqual(calls.countedCollections, [
+    { env: "production", collections: ["orders"] }
+  ]);
+  assert.deepEqual(calls.inspectedArchives, []);
+  assert.deepEqual(calls.droppedCollections, []);
+  assert.deepEqual(calls.restores, [
+    {
+      target: "development",
+      archive: "/tmp/db-helper/test-sync.archive.gz",
+      drop: true,
+      sourceDatabaseName: "production",
+      collection: "orders"
+    }
+  ]);
+  assert.deepEqual(calls.verifications, ["development"]);
+});
+
+test("runSync rejects missing source collections before restore begins", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async listCollections(env): Promise<string[]> {
+      calls.listedCollections.push(env.id);
+      return ["customers"];
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      {
+        from: "production",
+        to: "development",
+        collection: "orders",
+        outputMode: "default"
+      },
+      dependencies
+    ),
+    /Collection orders was not found in source production\./
+  );
+
+  assert.deepEqual(calls.countedCollections, []);
+  assert.deepEqual(calls.restores, []);
+  assert.deepEqual(calls.unlinks, []);
 });
 
 test("runSync drops target-only collections before verify", async () => {
