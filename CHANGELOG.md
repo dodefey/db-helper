@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.2.0
+## 0.1.8
 
 - added `sync collection` for restoring one named collection between allowed environments without pruning unrelated target collections
 - tightened release instructions to require `npm login` and `npm whoami` immediately before every publish attempt because npm auth verification can expire quickly
