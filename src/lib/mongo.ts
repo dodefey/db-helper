@@ -124,23 +124,33 @@ async function runCommandViaShell(
   });
 }
 
-function parseArchiveCollections(
+export function parseArchiveCollections(
   output: string,
   databaseName: string
 ): string[] {
   const names = new Set<string>();
-  const patterns = [
+  const sourceNamespacePatterns = [
     /^.*archive prelude ([^.]+)\.(.+)$/gm,
     /^.*reading metadata for ([^.]+)\.(.+?) from archive\b.*$/gm,
     /^.*restoring (?:to existing collection |to collection |)([^.]+)\.(.+?)(?: from archive\b.*| without dropping\b.*|$)/gm
   ];
+  const targetNamespacePatterns = [
+    /^.*found collection (?:metadata from )?([^.]+)\.(.+?)(?: bson)? to restore to ([^.]+)\.(.+)$/gm
+  ];
 
-  for (const pattern of patterns) {
+  for (const pattern of sourceNamespacePatterns) {
     for (const match of output.matchAll(pattern)) {
-      if (match[1] !== databaseName) {
-        continue;
+      if (match[1] === databaseName) {
+        names.add(match[2]);
       }
-      names.add(match[2]);
+    }
+  }
+
+  for (const pattern of targetNamespacePatterns) {
+    for (const match of output.matchAll(pattern)) {
+      if (match[3] === databaseName) {
+        names.add(match[4]);
+      }
     }
   }
 
