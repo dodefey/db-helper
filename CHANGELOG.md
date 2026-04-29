@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.9
+
+- fixed full `sync` archive inspection so current `mongorestore --dryRun --verbose` output is parsed correctly and restored collections are not pruned away after restore
+
 ## 0.1.8
 
 - added `sync collection` for restoring one named collection between allowed environments without pruning unrelated target collections
