@@ -129,6 +129,7 @@ export function parseArchiveCollections(
   sourceDatabaseName: string,
   targetDatabaseName: string
 ): string[] {
+  const normalizedOutput = output.replace(/`/g, "");
   const names = new Set<string>();
   const sourceNamespacePatterns = [
     /^.*archive prelude ([^.]+)\.(.+)$/gm,
@@ -140,7 +141,7 @@ export function parseArchiveCollections(
   ];
 
   for (const pattern of sourceNamespacePatterns) {
-    for (const match of output.matchAll(pattern)) {
+    for (const match of normalizedOutput.matchAll(pattern)) {
       if (match[1] === sourceDatabaseName || match[1] === targetDatabaseName) {
         names.add(match[2]);
       }
@@ -148,7 +149,7 @@ export function parseArchiveCollections(
   }
 
   for (const pattern of targetNamespacePatterns) {
-    for (const match of output.matchAll(pattern)) {
+    for (const match of normalizedOutput.matchAll(pattern)) {
       if (match[3] === targetDatabaseName || match[3] === sourceDatabaseName) {
         names.add(match[4]);
       }

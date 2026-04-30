@@ -775,6 +775,41 @@ test("runSync does not prune collections that appear in the source during dump",
   ]);
 });
 
+test("runSync refuses to prune when archive inspection finds no collections", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async inspectArchiveCollections(
+      env,
+      _appConfig,
+      archiveFile,
+      options
+    ): Promise<string[]> {
+      calls.inspectedArchives.push({
+        target: env.id,
+        archive: archiveFile,
+        sourceDatabaseName: options.sourceDatabaseName
+      });
+      return [];
+    },
+    async listCollections(env): Promise<string[]> {
+      calls.listedCollections.push(env.id);
+      return env.id === "production"
+        ? ["orders", "customers"]
+        : ["orders", "customers", "stale"];
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      dependencies
+    ),
+    /Archive inspection found no restorable collections; refusing to prune development\./
+  );
+
+  assert.deepEqual(calls.droppedCollections, []);
+});
+
 test("runSync reports source metadata failures with sync phase context", async () => {
   const { dependencies, calls } = createRunSyncDependencies({
     async listCollections(): Promise<string[]> {

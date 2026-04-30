@@ -332,20 +332,27 @@ export async function runSync(
     }
     if (!input.collection) {
       currentPhase = "prune";
-      const expectedCollections = new Set(
-        filterSyncCollections(
-          await dependencies.inspectArchiveCollections(
-            target,
-            appConfig,
-            tempArchive,
-            {
-              sourceDatabaseName: source.databaseName,
-              outputMode: input.outputMode,
-              signal: abortController.signal
-            }
-          )
+      const inspectedArchiveCollections = filterSyncCollections(
+        await dependencies.inspectArchiveCollections(
+          target,
+          appConfig,
+          tempArchive,
+          {
+            sourceDatabaseName: source.databaseName,
+            outputMode: input.outputMode,
+            signal: abortController.signal
+          }
         )
       );
+      const expectedCollections = new Set(inspectedArchiveCollections);
+      if (
+        verificationCollectionList.length > 0 &&
+        inspectedArchiveCollections.length === 0
+      ) {
+        throw new Error(
+          `Archive inspection found no restorable collections; refusing to prune ${input.to}.`
+        );
+      }
       const targetCollections = filterSyncCollections(
         await dependencies.listCollections(target, {
           outputMode: input.outputMode,

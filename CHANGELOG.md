@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.11
+
+- fixed full `sync` archive inspection for backtick-quoted `mongorestore --dryRun --verbose` namespaces and added a guard that refuses target pruning when archive inspection finds no restorable collections
+
 ## 0.1.10
 
 - fixed full `sync` archive inspection so current `mongorestore --dryRun --verbose` output is parsed correctly and restored collections are not pruned away after restore

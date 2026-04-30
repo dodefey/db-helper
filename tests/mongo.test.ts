@@ -33,6 +33,19 @@ test("parseArchiveCollections recognizes source-namespace-only dry-run output", 
   ]);
 });
 
+test("parseArchiveCollections recognizes backtick-quoted dry-run namespaces", () => {
+  const output = [
+    "2026-04-30T16:49:30.637-0500\tarchive prelude `production.newsletters`",
+    "2026-04-30T16:49:30.638-0500\tfound collection `production.newsletters` bson to restore to `development.newsletters`",
+    "2026-04-30T16:49:30.638-0500\tfound collection metadata from `production.newsletters` to restore to `development.newsletters`"
+  ].join("\n");
+
+  assert.deepEqual(
+    parseArchiveCollections(output, "production", "development"),
+    ["newsletters"]
+  );
+});
+
 test("parseArchiveCollections still supports direct target namespace matches", () => {
   const output = [
     "2026-04-28T21:31:04.842-0500\treading metadata for target_db.orders from archive",
