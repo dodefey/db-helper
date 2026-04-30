@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.10
+
+- fixed full `sync` archive inspection so current `mongorestore --dryRun --verbose` output is parsed correctly and restored collections are not pruned away after restore
+
 ## 0.1.9
 
 - fixed full `sync` archive inspection so current `mongorestore --dryRun --verbose` output is parsed correctly and restored collections are not pruned away after restore
