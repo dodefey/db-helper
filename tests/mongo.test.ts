@@ -13,7 +13,21 @@ test("parseArchiveCollections recognizes mongorestore dry-run restore targets", 
     "2026-04-28T21:31:04.842-0500\tfound collection metadata from source_db.beta to restore to target_db.beta"
   ].join("\n");
 
-  assert.deepEqual(parseArchiveCollections(output, "target_db"), [
+  assert.deepEqual(parseArchiveCollections(output, "source_db", "target_db"), [
+    "alpha",
+    "beta"
+  ]);
+});
+
+test("parseArchiveCollections recognizes source-namespace-only dry-run output", () => {
+  const output = [
+    "2026-04-28T21:31:04.842-0500\treading metadata for source_db.alpha from archive",
+    "2026-04-28T21:31:04.842-0500\treading metadata for source_db.beta from archive",
+    "2026-04-28T21:31:04.842-0500\trestoring to existing collection source_db.alpha without dropping",
+    "2026-04-28T21:31:04.842-0500\trestoring source_db.beta from archive"
+  ].join("\n");
+
+  assert.deepEqual(parseArchiveCollections(output, "source_db", "target_db"), [
     "alpha",
     "beta"
   ]);
@@ -25,7 +39,7 @@ test("parseArchiveCollections still supports direct target namespace matches", (
     "2026-04-28T21:31:04.842-0500\trestoring to collection target_db.customers without dropping"
   ].join("\n");
 
-  assert.deepEqual(parseArchiveCollections(output, "target_db"), [
+  assert.deepEqual(parseArchiveCollections(output, "source_db", "target_db"), [
     "customers",
     "orders"
   ]);

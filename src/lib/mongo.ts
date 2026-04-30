@@ -126,7 +126,8 @@ async function runCommandViaShell(
 
 export function parseArchiveCollections(
   output: string,
-  databaseName: string
+  sourceDatabaseName: string,
+  targetDatabaseName: string
 ): string[] {
   const names = new Set<string>();
   const sourceNamespacePatterns = [
@@ -140,7 +141,7 @@ export function parseArchiveCollections(
 
   for (const pattern of sourceNamespacePatterns) {
     for (const match of output.matchAll(pattern)) {
-      if (match[1] === databaseName) {
+      if (match[1] === sourceDatabaseName || match[1] === targetDatabaseName) {
         names.add(match[2]);
       }
     }
@@ -148,7 +149,7 @@ export function parseArchiveCollections(
 
   for (const pattern of targetNamespacePatterns) {
     for (const match of output.matchAll(pattern)) {
-      if (match[3] === databaseName) {
+      if (match[3] === targetDatabaseName || match[3] === sourceDatabaseName) {
         names.add(match[4]);
       }
     }
@@ -374,7 +375,11 @@ export async function inspectArchiveCollections(
         .join(" ")}`,
       { signal: options.signal }
     );
-    return parseArchiveCollections(output, env.databaseName);
+    return parseArchiveCollections(
+      output,
+      options.sourceDatabaseName,
+      env.databaseName
+    );
   }
 
   const remotePath = remoteArchivePath(appConfig, env);
@@ -420,7 +425,11 @@ export async function inspectArchiveCollections(
     );
   }
 
-  return parseArchiveCollections(output, env.databaseName);
+  return parseArchiveCollections(
+    output,
+    options.sourceDatabaseName,
+    env.databaseName
+  );
 }
 
 export function createLocalTempFile(
