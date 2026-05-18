@@ -12,6 +12,7 @@ import {
 } from "../src/commands/sync.js";
 import { parseOutputMode } from "../src/lib/output.js";
 import { runSync, RunSyncDependencies } from "../src/lib/sync.js";
+import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
   return {
@@ -1005,4 +1006,34 @@ test("runSync reports interrupt state and cleanup attempt on ctrl-c during resto
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);
+});
+
+test("runSync writes success and failure events to the run log", async () => {
+  const successRun = createRunSyncDependencies();
+  const success = await withTestRunLogger("sync", async () => {
+    await runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      successRun.dependencies
+    );
+  });
+  assert.match(success.logContent, /\[sync\] Sync workflow started/);
+  assert.match(success.logContent, /\[sync\] Sync workflow completed/);
+
+  const failureRun = createRunSyncDependencies({
+    async createArchiveBackup(): Promise<void> {
+      throw new Error("dump failed");
+    }
+  });
+  const failure = await withTestRunLogger("sync", async () => {
+    await assert.rejects(
+      runSync(
+        buildAppConfig(false),
+        { from: "production", to: "development", outputMode: "default" },
+        failureRun.dependencies
+      )
+    );
+  });
+  assert.match(failure.logContent, /\[sync\] Sync workflow failed/);
+  assert.match(failure.logContent, /dump failed/);
 });

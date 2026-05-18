@@ -13,6 +13,7 @@ import { restoreArchiveToEnvironment } from "./mongo.js";
 import { verifyRestore } from "./verify.js";
 import { backupCreate } from "../commands/backup.js";
 import { OutputMode } from "./output.js";
+import { getRunLogger } from "./runLog.js";
 
 export interface RunRestoreDependencies {
   ensureBackupArtifacts: typeof ensureBackupArtifacts;
@@ -156,6 +157,7 @@ export async function runRestoreFull(
   },
   dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES
 ): Promise<void> {
+  const runLogger = getRunLogger();
   const abortController = new AbortController();
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
@@ -166,6 +168,12 @@ export async function runRestoreFull(
   });
 
   try {
+    runLogger.info("restore", "Restore full workflow started", {
+      backup: input.backup,
+      to: input.to,
+      skipPreBackup: input.skipPreBackup,
+      outputMode: input.outputMode
+    });
     if (printSummary) {
       dependencies.writeStdout(
         `Starting restore ${input.backup} -> ${input.to}\n`
@@ -182,6 +190,10 @@ export async function runRestoreFull(
 
     if (target.isProduction && !input.skipPreBackup) {
       currentPhase = "pre_restore_backup";
+      runLogger.info("restore", "Creating pre-restore backup", {
+        backup: input.backup,
+        to: input.to
+      });
       if (printSummary) {
         dependencies.writeStdout("Creating pre-restore backup...\n");
       }
@@ -195,6 +207,10 @@ export async function runRestoreFull(
 
     currentPhase = "restore";
     targetMayBeDirty = true;
+    runLogger.info("restore", "Restoring target database", {
+      backup: input.backup,
+      to: input.to
+    });
     if (printSummary) {
       dependencies.writeStdout(`Restoring target ${input.to}...\n`);
     }
@@ -211,6 +227,10 @@ export async function runRestoreFull(
     );
 
     currentPhase = "verify";
+    runLogger.info("restore", "Verifying restored target", {
+      backup: input.backup,
+      to: input.to
+    });
     if (printSummary) {
       dependencies.writeStdout(`Verifying target ${input.to}...\n`);
     }
@@ -235,7 +255,18 @@ export async function runRestoreFull(
         `Restore complete: ${input.backup} -> ${input.to}\n`
       );
     }
+    runLogger.info("restore", "Restore full workflow completed", {
+      backup: input.backup,
+      to: input.to
+    });
   } catch (error) {
+    runLogger.error("restore", "Restore full workflow failed", {
+      backup: input.backup,
+      to: input.to,
+      phase: currentPhase,
+      interrupted: isInterruptedError(error),
+      error: getErrorDetails(error)
+    });
     throw new Error(
       formatRestoreFailure({
         backup: input.backup,
@@ -249,6 +280,10 @@ export async function runRestoreFull(
       { cause: error }
     );
   } finally {
+    runLogger.debug("restore", "Removing restore interrupt handler", {
+      backup: input.backup,
+      to: input.to
+    });
     removeInterruptHandler();
   }
 }
@@ -263,6 +298,7 @@ export async function runRestoreCollection(
   },
   dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES
 ): Promise<void> {
+  const runLogger = getRunLogger();
   const abortController = new AbortController();
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
@@ -273,6 +309,12 @@ export async function runRestoreCollection(
   });
 
   try {
+    runLogger.info("restore", "Restore collection workflow started", {
+      backup: input.backup,
+      collection: input.collection,
+      to: input.to,
+      outputMode: input.outputMode
+    });
     if (printSummary) {
       dependencies.writeStdout(
         `Starting restore ${input.backup}:${input.collection} -> ${input.to}\n`
@@ -294,6 +336,11 @@ export async function runRestoreCollection(
 
     currentPhase = "restore";
     targetMayBeDirty = true;
+    runLogger.info("restore", "Restoring collection into target", {
+      backup: input.backup,
+      collection: input.collection,
+      to: input.to
+    });
     if (printSummary) {
       dependencies.writeStdout(
         `Restoring collection ${input.collection} into ${input.to}...\n`
@@ -316,7 +363,20 @@ export async function runRestoreCollection(
         `Restore complete: ${input.backup}:${input.collection} -> ${input.to}\n`
       );
     }
+    runLogger.info("restore", "Restore collection workflow completed", {
+      backup: input.backup,
+      collection: input.collection,
+      to: input.to
+    });
   } catch (error) {
+    runLogger.error("restore", "Restore collection workflow failed", {
+      backup: input.backup,
+      collection: input.collection,
+      to: input.to,
+      phase: currentPhase,
+      interrupted: isInterruptedError(error),
+      error: getErrorDetails(error)
+    });
     throw new Error(
       formatRestoreFailure({
         backup: input.backup,
@@ -330,6 +390,11 @@ export async function runRestoreCollection(
       { cause: error }
     );
   } finally {
+    runLogger.debug("restore", "Removing restore interrupt handler", {
+      backup: input.backup,
+      collection: input.collection,
+      to: input.to
+    });
     removeInterruptHandler();
   }
 }

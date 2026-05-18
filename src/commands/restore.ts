@@ -3,6 +3,7 @@ import { readBackup } from "../lib/backups.js";
 import { promptConfirm, promptText } from "../lib/prompts.js";
 import { runRestoreCollection, runRestoreFull } from "../lib/restore.js";
 import { OutputMode } from "../lib/output.js";
+import { getRunLogger } from "../lib/runLog.js";
 
 export interface RestoreDependencies {
   promptConfirm: typeof promptConfirm;
@@ -71,6 +72,7 @@ export async function restoreFull(
   },
   dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
+  const runLogger = getRunLogger();
   const backup = await dependencies.readBackup(
     appConfig.backupRoot,
     input.backup
@@ -78,6 +80,11 @@ export async function restoreFull(
   const target = appConfig.environments[input.to];
 
   await confirmRestore(input.to, input.yes, dependencies);
+  runLogger.info("restore.command", "Restore target confirmed", {
+    backup: input.backup,
+    to: input.to,
+    kind: "full"
+  });
 
   if (target.isProduction) {
     await confirmProductionRestore(
@@ -88,6 +95,12 @@ export async function restoreFull(
     );
   }
 
+  runLogger.info("restore.command", "Starting restore full execution", {
+    backup: input.backup,
+    to: input.to,
+    skipPreBackup: input.skipPreBackup,
+    outputMode: input.outputMode
+  });
   await dependencies.runRestoreFull(appConfig, {
     backup: input.backup,
     to: input.to,
@@ -108,6 +121,7 @@ export async function restoreCollection(
   },
   dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
 ): Promise<void> {
+  const runLogger = getRunLogger();
   const backup = await dependencies.readBackup(
     appConfig.backupRoot,
     input.backup
@@ -115,6 +129,12 @@ export async function restoreCollection(
   const target = appConfig.environments[input.to];
 
   await confirmRestore(input.to, input.yes, dependencies);
+  runLogger.info("restore.command", "Restore target confirmed", {
+    backup: input.backup,
+    to: input.to,
+    collection: input.collection,
+    kind: "collection"
+  });
 
   if (target.isProduction) {
     await confirmProductionRestore(
@@ -125,6 +145,12 @@ export async function restoreCollection(
     );
   }
 
+  runLogger.info("restore.command", "Starting restore collection execution", {
+    backup: input.backup,
+    collection: input.collection,
+    to: input.to,
+    outputMode: input.outputMode
+  });
   await dependencies.runRestoreCollection(appConfig, {
     backup: input.backup,
     collection: input.collection,

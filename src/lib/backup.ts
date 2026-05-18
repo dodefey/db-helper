@@ -20,6 +20,7 @@ import {
   listCollections
 } from "./mongo.js";
 import { OutputMode } from "./output.js";
+import { getRunLogger } from "./runLog.js";
 import { TOOL_VERSION } from "../version.js";
 
 export interface RunBackupCreateDependencies {
@@ -171,6 +172,7 @@ export async function runBackupCreate(
   },
   dependencies: RunBackupCreateDependencies = DEFAULT_RUN_BACKUP_CREATE_DEPENDENCIES
 ): Promise<BackupRecord> {
+  const runLogger = getRunLogger();
   const env = appConfig.environments[input.from];
   const backupName = input.backupName ?? dependencies.buildBackupName(env);
   const archiveFile = dependencies.archivePathForBackup(
@@ -189,6 +191,11 @@ export async function runBackupCreate(
   let cleanupFailed = false;
 
   try {
+    runLogger.info("backup", "Backup workflow started", {
+      from: input.from,
+      backupName,
+      outputMode: input.outputMode
+    });
     if (printSummary) {
       dependencies.writeStdout(`Starting backup from ${input.from}\n`);
     }
@@ -240,8 +247,13 @@ export async function runBackupCreate(
           return { collectionList, collectionCounts };
         })();
     const { collectionList, collectionCounts } = metadataResult;
+    runLogger.debug("backup", "Collected backup metadata", {
+      backupName,
+      collectionCount: collectionList.length
+    });
 
     currentPhase = "archive";
+    runLogger.info("backup", "Creating backup archive", { backupName });
     if (useElapsedStatus) {
       await dependencies.runWithElapsedStatus("Creating archive...", () =>
         dependencies.createArchiveBackup(env, appConfig, archiveFile, {
@@ -273,12 +285,14 @@ export async function runBackupCreate(
     };
 
     currentPhase = "manifest";
+    runLogger.info("backup", "Writing backup manifest", { backupName });
     if (printSummary) {
       dependencies.writeStdout(`Writing manifest...\n`);
     }
     await dependencies.writeBackupManifest(appConfig.backupRoot, manifest);
 
     currentPhase = "validation";
+    runLogger.info("backup", "Validating backup artifacts", { backupName });
     if (printSummary) {
       dependencies.writeStdout(`Validating backup...\n`);
     }
@@ -292,9 +306,20 @@ export async function runBackupCreate(
       dependencies.writeStdout(`Backup complete: ${record.name}\n`);
       dependencies.writeStdout(`Path: ${record.path}\n`);
     }
+    runLogger.info("backup", "Backup workflow completed", {
+      backupName: record.name,
+      path: record.path
+    });
     return record;
   } catch (error) {
     const interruptedFailure = interrupted || isInterruptedError(error);
+    runLogger.error("backup", "Backup workflow failed", {
+      from: input.from,
+      backupName,
+      phase: currentPhase,
+      interrupted: interruptedFailure,
+      error: getErrorDetails(error)
+    });
 
     try {
       await dependencies.removeBackupArtifacts(
@@ -317,6 +342,9 @@ export async function runBackupCreate(
       { cause: error }
     );
   } finally {
+    runLogger.debug("backup", "Removing backup interrupt handler", {
+      backupName
+    });
     removeInterruptHandler();
   }
 }

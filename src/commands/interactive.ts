@@ -5,8 +5,10 @@ import { runDoctor } from "./doctor.js";
 import { recoverDatabase } from "./recover.js";
 import { restoreCollection } from "./restore.js";
 import { syncDatabase } from "./sync.js";
+import { getRunLogger } from "../lib/runLog.js";
 
 export async function runInteractive(appConfig: AppConfig): Promise<void> {
+  const runLogger = getRunLogger();
   const action = await promptChoice("Select a workflow", [
     { label: "Restore known clean backup", value: "recover" },
     { label: "Back up production", value: "backup-production" },
@@ -18,6 +20,7 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
     { label: "Restore one collection", value: "restore-collection" },
     { label: "Run doctor checks", value: "doctor" }
   ]);
+  runLogger.info("interactive", "Selected interactive workflow", { action });
 
   switch (action) {
     case "recover":

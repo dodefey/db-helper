@@ -6,6 +6,7 @@ import {
 } from "../lib/backups.js";
 import { runBackupCreate } from "../lib/backup.js";
 import { OutputMode } from "../lib/output.js";
+import { getRunLogger } from "../lib/runLog.js";
 
 export interface BackupCommandDependencies {
   runBackupCreate: typeof runBackupCreate;
@@ -32,6 +33,12 @@ export async function backupCreate(
   },
   dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES
 ): Promise<BackupRecord> {
+  getRunLogger().info("backup.command", "Starting backup create", {
+    from: input.from,
+    outputMode: input.outputMode,
+    tagCount: input.tags?.length ?? 0,
+    hasNote: Boolean(input.note)
+  });
   return dependencies.runBackupCreate(appConfig, input);
 }
 
@@ -40,6 +47,7 @@ export async function backupList(
   filters: { from?: EnvironmentId; tag?: string },
   dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES
 ): Promise<BackupRecord[]> {
+  getRunLogger().info("backup.command", "Listing backups", filters);
   let backups = await dependencies.listBackups(appConfig.backupRoot);
   if (filters.from) {
     backups = backups.filter(
@@ -59,6 +67,7 @@ export async function backupInspect(
   backupName: string,
   dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES
 ): Promise<BackupRecord> {
+  getRunLogger().info("backup.command", "Inspecting backup", { backupName });
   await dependencies.ensureBackupArtifacts(appConfig.backupRoot, backupName);
   return dependencies.readBackup(appConfig.backupRoot, backupName);
 }

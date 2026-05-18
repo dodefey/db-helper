@@ -16,6 +16,7 @@ import {
   runRestoreFull,
   RunRestoreDependencies
 } from "../src/lib/restore.js";
+import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
   return {
@@ -758,4 +759,47 @@ test("runRestoreFull forces drop semantics even when config default is false", a
       outputMode: "default"
     }
   ]);
+});
+
+test("runRestoreFull writes success and failure events to the run log", async () => {
+  const successRun = createRunRestoreDependencies();
+  const success = await withTestRunLogger("restore", async () => {
+    await runRestoreFull(
+      buildAppConfig(),
+      {
+        backup: "backup-name",
+        to: "development",
+        skipPreBackup: true,
+        outputMode: "default"
+      },
+      successRun.dependencies
+    );
+  });
+  assert.match(success.logContent, /\[restore\] Restore full workflow started/);
+  assert.match(
+    success.logContent,
+    /\[restore\] Restore full workflow completed/
+  );
+
+  const failureRun = createRunRestoreDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new Error("restore failed");
+    }
+  });
+  const failure = await withTestRunLogger("restore", async () => {
+    await assert.rejects(
+      runRestoreFull(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          to: "development",
+          skipPreBackup: true,
+          outputMode: "default"
+        },
+        failureRun.dependencies
+      )
+    );
+  });
+  assert.match(failure.logContent, /\[restore\] Restore full workflow failed/);
+  assert.match(failure.logContent, /restore failed/);
 });

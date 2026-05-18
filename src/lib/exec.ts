@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { getRunLogger, redactText } from "./runLog.js";
 
 export interface RunCommandOptions {
   cwd?: string;
@@ -22,6 +23,14 @@ export async function runCommand(
   options: RunCommandOptions = {}
 ): Promise<string> {
   const rendered = formatCommand(command, args);
+  const runLogger = getRunLogger();
+  const startedAt = Date.now();
+  runLogger.debug("exec", "Starting subprocess", {
+    command,
+    args,
+    rendered,
+    cwd: options.cwd
+  });
 
   return new Promise((resolve, reject) => {
     let settled = false;
@@ -35,6 +44,10 @@ export async function runCommand(
     let stderr = "";
 
     const abortListener = (): void => {
+      runLogger.warn("exec", "Interrupting subprocess", {
+        rendered,
+        durationMs: Date.now() - startedAt
+      });
       child.kill("SIGINT");
       rejectOnce(new Error(`Command interrupted: ${rendered}`));
     };
@@ -80,6 +93,11 @@ export async function runCommand(
     });
 
     child.on("error", (error) => {
+      runLogger.error("exec", "Subprocess spawn failed", {
+        rendered,
+        durationMs: Date.now() - startedAt,
+        error: error.message
+      });
       rejectOnce(
         new Error(`Failed to run command: ${rendered}\n${error.message}`)
       );
@@ -87,10 +105,24 @@ export async function runCommand(
 
     child.on("close", (code) => {
       if (code === 0) {
+        runLogger.debug("exec", "Subprocess completed", {
+          rendered,
+          durationMs: Date.now() - startedAt,
+          exitCode: code,
+          stdout: redactText(stdout),
+          stderr: redactText(stderr)
+        });
         resolveOnce(stdout.trim());
         return;
       }
 
+      runLogger.error("exec", "Subprocess failed", {
+        rendered,
+        durationMs: Date.now() - startedAt,
+        exitCode: code,
+        stdout: redactText(stdout),
+        stderr: redactText(stderr)
+      });
       rejectOnce(
         new Error(`Command failed (${code}): ${rendered}\n${stderr.trim()}`)
       );

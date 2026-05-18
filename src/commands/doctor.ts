@@ -8,6 +8,7 @@ import {
 import { assertWritable } from "../lib/fs.js";
 import { verifyConnectivity } from "../lib/mongo.js";
 import { runCommand } from "../lib/exec.js";
+import { getRunLogger } from "../lib/runLog.js";
 
 const REQUIRED_BINARIES = [
   "mongodump",
@@ -98,8 +99,10 @@ export async function runDoctor(
   appConfig: AppConfig,
   dependencies: DoctorDependencies = DEFAULT_DOCTOR_DEPENDENCIES
 ): Promise<void> {
+  const runLogger = getRunLogger();
   const results: DoctorCheckResult[] = [];
 
+  runLogger.info("doctor", "Starting doctor checks");
   dependencies.writeStdout("Running doctor checks...\n");
 
   for (const binary of REQUIRED_BINARIES) {
@@ -145,6 +148,14 @@ export async function runDoctor(
 
   const failures = results.filter((result) => result.status === "fail");
   if (failures.length > 0) {
+    runLogger.warn("doctor", "Doctor checks completed with failures", {
+      failureCount: failures.length,
+      failedChecks: failures.map((failure) => ({
+        check: failure.check,
+        scope: failure.scope,
+        message: failure.message
+      }))
+    });
     dependencies.writeStdout(
       `Doctor checks failed: ${failures.length} issue(s).\n`
     );
@@ -153,5 +164,6 @@ export async function runDoctor(
     );
   }
 
+  runLogger.info("doctor", "Doctor checks passed");
   dependencies.writeStdout("Doctor checks passed.\n");
 }

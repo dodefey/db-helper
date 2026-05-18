@@ -16,6 +16,7 @@ import {
   runBackupCreate,
   RunBackupCreateDependencies
 } from "../src/lib/backup.js";
+import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
   return {
@@ -557,4 +558,19 @@ test("backupInspect validates artifacts before reading the backup", async () => 
   assert.deepEqual(calls.ensured, [[appConfig.backupRoot, "backup-name"]]);
   assert.deepEqual(calls.read, [[appConfig.backupRoot, "backup-name"]]);
   assert.deepEqual(result, expectedRecord);
+});
+
+test("runBackupCreate writes workflow events to the run log", async () => {
+  const { dependencies } = createBackupDependencies();
+
+  const { logContent } = await withTestRunLogger("backup", async () => {
+    await runBackupCreate(
+      buildAppConfig(),
+      { from: "development", outputMode: "default" },
+      dependencies
+    );
+  });
+
+  assert.match(logContent, /\[backup\] Backup workflow started/);
+  assert.match(logContent, /\[backup\] Backup workflow completed/);
 });

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- added run-scoped debug logs for `dbh` commands: a temp log is created for every run, kept automatically on failure, and kept on success when `--log` is passed
+- added retained-log reporting to CLI failures and `--log` success paths without changing the existing `default`, `quiet`, and `verbose` terminal output contract
+
 ## 0.1.11
 
 - fixed full `sync` archive inspection for backtick-quoted `mongorestore --dryRun --verbose` namespaces and added a guard that refuses target pruning when archive inspection finds no restorable collections

@@ -10,6 +10,7 @@ import {
   DoctorDependencies,
   runDoctor
 } from "../src/commands/doctor.js";
+import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(
   id: EnvironmentId,
@@ -303,4 +304,15 @@ test("runDoctor throws an already-reported doctor error on failure", async () =>
     (error: unknown) =>
       error instanceof DoctorCommandError && error.alreadyReported === true
   );
+});
+
+test("runDoctor writes workflow events to the run log", async () => {
+  const { dependencies } = createDoctorDependencies();
+
+  const { logContent } = await withTestRunLogger("doctor", async () => {
+    await runDoctor(buildAppConfig(), dependencies);
+  });
+
+  assert.match(logContent, /\[doctor\] Starting doctor checks/);
+  assert.match(logContent, /\[doctor\] Doctor checks passed/);
 });

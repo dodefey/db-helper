@@ -1,6 +1,7 @@
 import { AppConfig, EnvironmentId } from "../config/types.js";
 import { promptConfirm } from "../lib/prompts.js";
 import { OutputMode } from "../lib/output.js";
+import { getRunLogger } from "../lib/runLog.js";
 import { runSync } from "../lib/sync.js";
 
 const ALLOWED_SYNC_PATHS = new Set([
@@ -41,6 +42,7 @@ export async function syncDatabase(
   },
   dependencies: SyncDependencies = DEFAULT_SYNC_DEPENDENCIES
 ): Promise<void> {
+  const runLogger = getRunLogger();
   assertAllowedSyncPath(input.from, input.to);
 
   const source = input.collection
@@ -51,14 +53,30 @@ export async function syncDatabase(
     : input.to;
 
   if (!input.yes) {
+    runLogger.info("sync.command", "Prompting for sync confirmation", {
+      from: input.from,
+      to: input.to,
+      collection: input.collection
+    });
     const approved = await dependencies.promptConfirm(
       `This will replace ${target} with an exact copy of ${source}. Continue?`
     );
     if (!approved) {
+      runLogger.warn("sync.command", "Sync confirmation declined", {
+        from: input.from,
+        to: input.to,
+        collection: input.collection
+      });
       throw new Error("Sync cancelled.");
     }
   }
 
+  runLogger.info("sync.command", "Starting sync execution", {
+    from: input.from,
+    to: input.to,
+    collection: input.collection,
+    outputMode: input.outputMode
+  });
   await dependencies.runSync(appConfig, {
     from: input.from,
     to: input.to,

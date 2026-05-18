@@ -125,6 +125,15 @@ Rules:
 - if neither is provided, use default mode
 - interactive prompts still appear in quiet mode when needed
 
+## Debug Log Retention
+
+Persisted debug logs are separate from terminal output modes.
+
+- a command run may capture a debug log even when terminal output stays in `default`, `quiet`, or `verbose`
+- `--log` should retain the run log on success and print its saved path once
+- failures should retain the run log automatically and report its saved path
+- persisted run logs should not be treated as a substitute for the terminal output contract
+
 ## Current Priority
 
 When touching command output next, prioritize:

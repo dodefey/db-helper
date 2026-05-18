@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import path from "node:path";
 import {
   getRecommendedUserConfigPath,
   loadConfig
@@ -18,6 +19,7 @@ import { recoverDatabase } from "./commands/recover.js";
 import { restoreCollection, restoreFull } from "./commands/restore.js";
 import { syncDatabase } from "./commands/sync.js";
 import { parseOutputMode } from "./lib/output.js";
+import { createRunLogger, getRunLogger, setRunLogger } from "./lib/runLog.js";
 
 type ParsedArgs = {
   positional: string[];
@@ -85,6 +87,7 @@ function printHelp(): void {
 
 Global flags:
   --config <path>
+  --log
 
 Default config search:
   ./config.json
@@ -96,13 +99,13 @@ Commands:
   config path
   config show --redacted
   interactive
-  backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
+  backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   backup list [--from <environment>] [--tag <tag>]
   backup inspect --backup <backup-name>
-  sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
-  sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose]
-  restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
-  restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
+  sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
+  sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
+  restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose] [--log]
+  restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
   recover
   doctor
 `);
@@ -111,9 +114,28 @@ Commands:
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const [command, subcommand, third] = args.positional;
+  const keepDebugLog = getBooleanFlag(args.flags, "log");
+  const commandName = command || "help";
+  const runLogger = await createRunLogger({ commandName });
+  setRunLogger(runLogger);
+  runLogger.info("cli", "CLI invocation started", {
+    command,
+    subcommand,
+    third,
+    flags: args.flags
+  });
+  const finishSuccess = async (): Promise<void> => {
+    await runLogger.finalizeSuccess({ keep: keepDebugLog });
+    if (keepDebugLog) {
+      process.stdout.write(`Debug log saved: ${runLogger.logPath}\n`);
+    }
+    setRunLogger();
+  };
 
   if (!command || command === "--help" || command === "help") {
+    runLogger.info("cli", "Printing help");
     printHelp();
+    await finishSuccess();
     return;
   }
 
@@ -125,25 +147,33 @@ async function main(): Promise<void> {
   switch (command) {
     case "init":
       if (getFlag(args.flags, "from-env-file")) {
+        runLogger.info("cli", "Running init from env file");
         await runInitFromEnvFile({
           fromEnvFile: getFlag(args.flags, "from-env-file", true)!,
           configPath: getFlag(args.flags, "config"),
           force: getBooleanFlag(args.flags, "force")
         });
+        await finishSuccess();
         return;
       }
+      runLogger.info("cli", "Running interactive init");
       await runInteractiveInit({
         configPath: getFlag(args.flags, "config"),
         force: getBooleanFlag(args.flags, "force")
       });
+      await finishSuccess();
       return;
     case "config":
       if (subcommand === "validate") {
+        runLogger.info("cli", "Running config validate");
         await runConfigValidate(getFlag(args.flags, "config"));
+        await finishSuccess();
         return;
       }
       if (subcommand === "path") {
+        runLogger.info("cli", "Running config path");
         await runConfigPath(getFlag(args.flags, "config"));
+        await finishSuccess();
         return;
       }
       if (subcommand === "show") {
@@ -152,7 +182,9 @@ async function main(): Promise<void> {
             "Config show requires --redacted. Refusing to print secrets."
           );
         }
+        runLogger.info("cli", "Running config show redacted");
         await runConfigShowRedacted(getFlag(args.flags, "config"));
+        await finishSuccess();
         return;
       }
       break;
@@ -169,22 +201,31 @@ async function main(): Promise<void> {
   }
 
   const appConfig = await loadConfig(getFlag(args.flags, "config"));
+  await runLogger.relocate(path.join(appConfig.tempRoot, "logs"));
+  runLogger.info("cli", "Loaded config and relocated run log", {
+    tempRoot: appConfig.tempRoot
+  });
 
   switch (command) {
     case "interactive":
+      runLogger.info("cli", "Running interactive command");
       await runInteractive(appConfig);
+      await finishSuccess();
       return;
     case "backup":
       if (subcommand === "create") {
+        runLogger.info("cli", "Running backup create");
         await backupCreate(appConfig, {
           from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
           note: getFlag(args.flags, "note"),
           tags: getFlag(args.flags, "tag") ? [getFlag(args.flags, "tag")!] : [],
           outputMode
         });
+        await finishSuccess();
         return;
       }
       if (subcommand === "list") {
+        runLogger.info("cli", "Running backup list");
         const records = await backupList(appConfig, {
           from: getFlag(args.flags, "from")
             ? parseEnvironment(getFlag(args.flags, "from"), "--from")
@@ -196,19 +237,23 @@ async function main(): Promise<void> {
             `${record.name}\t${record.manifest.sourceEnvironment}\t${record.manifest.createdAt}\t${record.manifest.tags.join(",") || "-"}\n`
           );
         }
+        await finishSuccess();
         return;
       }
       if (subcommand === "inspect") {
+        runLogger.info("cli", "Running backup inspect");
         const record = await backupInspect(
           appConfig,
           getFlag(args.flags, "backup", true)!
         );
         process.stdout.write(`${JSON.stringify(record.manifest, null, 2)}\n`);
+        await finishSuccess();
         return;
       }
       break;
     case "sync":
       if (subcommand === "collection") {
+        runLogger.info("cli", "Running sync collection");
         await syncDatabase(appConfig, {
           from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
           to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
@@ -216,17 +261,21 @@ async function main(): Promise<void> {
           yes: getBooleanFlag(args.flags, "yes"),
           outputMode
         });
+        await finishSuccess();
         return;
       }
+      runLogger.info("cli", "Running sync");
       await syncDatabase(appConfig, {
         from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
         to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
         yes: getBooleanFlag(args.flags, "yes"),
         outputMode
       });
+      await finishSuccess();
       return;
     case "restore":
       if (subcommand === "full") {
+        runLogger.info("cli", "Running restore full");
         await restoreFull(appConfig, {
           backup: getFlag(args.flags, "backup", true)!,
           to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
@@ -238,9 +287,11 @@ async function main(): Promise<void> {
           ),
           outputMode
         });
+        await finishSuccess();
         return;
       }
       if (subcommand === "collection") {
+        runLogger.info("cli", "Running restore collection");
         await restoreCollection(appConfig, {
           backup: getFlag(args.flags, "backup", true)!,
           collection: getFlag(args.flags, "collection", true)!,
@@ -252,14 +303,19 @@ async function main(): Promise<void> {
           ),
           outputMode
         });
+        await finishSuccess();
         return;
       }
       break;
     case "recover":
+      runLogger.info("cli", "Running recover");
       await recoverDatabase(appConfig);
+      await finishSuccess();
       return;
     case "doctor":
+      runLogger.info("cli", "Running doctor");
       await runDoctor(appConfig);
+      await finishSuccess();
       return;
   }
 
@@ -269,15 +325,27 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
+  const runLogger = getRunLogger();
+  runLogger.error("cli", "CLI invocation failed", {
+    message: error instanceof Error ? error.message : String(error),
+    stack: error instanceof Error ? error.stack : undefined
+  });
   const shouldPrint =
     !(error instanceof Error) ||
     !("alreadyReported" in error) ||
     error.alreadyReported !== true;
 
-  if (shouldPrint) {
-    process.stderr.write(
-      `${error instanceof Error ? error.message : String(error)}\n`
-    );
-  }
-  process.exitCode = 1;
+  void (async () => {
+    await runLogger.finalizeFailure();
+    if (shouldPrint) {
+      process.stderr.write(
+        `${error instanceof Error ? error.message : String(error)}\n`
+      );
+    }
+    if (runLogger.logPath) {
+      process.stderr.write(`Debug log saved: ${runLogger.logPath}\n`);
+    }
+    setRunLogger();
+    process.exitCode = 1;
+  })();
 });

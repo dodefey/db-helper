@@ -1,11 +1,14 @@
 import { AppConfig, EnvironmentId } from "../config/types.js";
 import { backupList } from "./backup.js";
 import { promptChoice, promptConfirm } from "../lib/prompts.js";
+import { getRunLogger } from "../lib/runLog.js";
 import { restoreFull } from "./restore.js";
 
 export async function recoverDatabase(appConfig: AppConfig): Promise<void> {
+  const runLogger = getRunLogger();
   const backups = await backupList(appConfig, {});
   if (backups.length === 0) {
+    runLogger.warn("recover", "No backups available for recovery");
     throw new Error("No backups available.");
   }
 
@@ -40,9 +43,17 @@ export async function recoverDatabase(appConfig: AppConfig): Promise<void> {
 
   const approved = await promptConfirm(`Restore ${backup} into ${target}?`);
   if (!approved) {
+    runLogger.warn("recover", "Recovery confirmation declined", {
+      backup,
+      target
+    });
     throw new Error("Recovery cancelled.");
   }
 
+  runLogger.info("recover", "Starting recovery restore", {
+    backup,
+    target
+  });
   await restoreFull(appConfig, {
     backup,
     to: target,

@@ -390,7 +390,7 @@ If `backup create` is interrupted during archive creation, manifest write, or va
 CLI forms:
 
 ```bash
-dbh backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
+dbh backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
 dbh backup list [--from <environment>] [--tag <tag>]
 dbh backup inspect --backup <backup-name>
 ```
@@ -402,13 +402,19 @@ Required flags:
 
 Optional flags:
 
-- `backup create`: `--note`, `--tag`, `--quiet`, `--verbose`
+- `backup create`: `--note`, `--tag`, `--quiet`, `--verbose`, `--log`
 - `backup list`: `--from`, `--tag`
 
 Output modes for `backup create`:
 
 - `--quiet` reduces normal operator output
 - `--verbose` allows raw subprocess output
+
+Debug log retention:
+
+- every `dbh` run captures a temp debug log
+- failed runs keep the log automatically and print its saved path
+- `--log` keeps the log on success and prints its saved path
 
 ## Sync
 
@@ -454,8 +460,8 @@ If `sync` is interrupted during `restore`, target-only collection cleanup, or `v
 CLI form:
 
 ```bash
-dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
-dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose]
+dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
+dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
 ```
 
 Required flags:
@@ -469,6 +475,7 @@ Optional flags:
 - `sync collection`: `--collection`
 - `--quiet`
 - `--verbose`
+- `--log`
 
 Allowed paths:
 
@@ -541,8 +548,8 @@ If `restore` is interrupted during `restore` or `verify`, treat the target as di
 CLI forms:
 
 ```bash
-dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
-dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
+dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose] [--log]
+dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
 ```
 
 Required flags:
@@ -552,8 +559,8 @@ Required flags:
 
 Optional flags:
 
-- `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`, `--quiet`, `--verbose`
-- `restore collection`: `--yes`, `--force-production-restore`, `--quiet`, `--verbose`
+- `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`, `--quiet`, `--verbose`, `--log`
+- `restore collection`: `--yes`, `--force-production-restore`, `--quiet`, `--verbose`, `--log`
 
 Production restore expectations:
 

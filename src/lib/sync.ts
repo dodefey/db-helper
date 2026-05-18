@@ -11,6 +11,7 @@ import {
   restoreArchiveToEnvironment
 } from "./mongo.js";
 import { OutputMode, shouldPrintCommandSummary } from "./output.js";
+import { getRunLogger } from "./runLog.js";
 import { verifyRestore } from "./verify.js";
 
 export interface RunSyncDependencies {
@@ -226,6 +227,7 @@ export async function runSync(
   input: SyncInput & { outputMode: OutputMode },
   dependencies: RunSyncDependencies = DEFAULT_RUN_SYNC_DEPENDENCIES
 ): Promise<void> {
+  const runLogger = getRunLogger();
   const source = appConfig.environments[input.from];
   const target = appConfig.environments[input.to];
   const printSummary = shouldPrintCommandSummary(input.outputMode);
@@ -246,6 +248,12 @@ export async function runSync(
   let tempArchive = "";
 
   try {
+    runLogger.info("sync", "Sync workflow started", {
+      from: input.from,
+      to: input.to,
+      collection: input.collection,
+      outputMode: input.outputMode
+    });
     const sourceCollections = filterSyncCollections(
       await dependencies.listCollections(source, {
         outputMode: input.outputMode,
@@ -274,12 +282,20 @@ export async function runSync(
       collectionCounts
     );
     tempArchive = dependencies.createLocalTempFile(appConfig, ".archive.gz");
+    runLogger.debug("sync", "Prepared sync temp archive", {
+      tempArchive,
+      collectionCount: verificationCollectionList.length
+    });
 
     if (printSummary) {
       dependencies.writeStdout(`Starting sync ${formatSyncTarget(input)}\n`);
     }
     if (printSummary) {
       currentPhase = "dump";
+      runLogger.info("sync", "Dumping source environment", {
+        from: input.from,
+        collection: input.collection
+      });
       await dependencies.runWithElapsedStatus(
         `Dumping source ${input.collection ? `${input.from}.${input.collection}` : input.from}...`,
         () =>
@@ -290,6 +306,10 @@ export async function runSync(
       );
     } else {
       currentPhase = "dump";
+      runLogger.info("sync", "Dumping source environment", {
+        from: input.from,
+        collection: input.collection
+      });
       await dependencies.createArchiveBackup(source, appConfig, tempArchive, {
         outputMode: input.outputMode,
         signal: abortController.signal
@@ -298,6 +318,10 @@ export async function runSync(
     if (printSummary) {
       currentPhase = "restore";
       targetMayBeDirty = true;
+      runLogger.info("sync", "Restoring target environment", {
+        to: input.to,
+        collection: input.collection
+      });
       await dependencies.runWithElapsedStatus(
         `Restoring target ${input.collection ? `${input.to}.${input.collection}` : input.to}...`,
         () =>
@@ -317,6 +341,10 @@ export async function runSync(
     } else {
       currentPhase = "restore";
       targetMayBeDirty = true;
+      runLogger.info("sync", "Restoring target environment", {
+        to: input.to,
+        collection: input.collection
+      });
       await dependencies.restoreArchiveToEnvironment(
         target,
         appConfig,
@@ -332,6 +360,9 @@ export async function runSync(
     }
     if (!input.collection) {
       currentPhase = "prune";
+      runLogger.info("sync", "Inspecting archive before prune", {
+        to: input.to
+      });
       const inspectedArchiveCollections = filterSyncCollections(
         await dependencies.inspectArchiveCollections(
           target,
@@ -362,6 +393,10 @@ export async function runSync(
       const targetOnlyCollections = targetCollections.filter(
         (collection) => !expectedCollections.has(collection)
       );
+      runLogger.debug("sync", "Computed target-only collections", {
+        to: input.to,
+        targetOnlyCollections
+      });
       if (printSummary) {
         dependencies.writeStdout(
           `Removing target-only collections from ${input.to}...\n`
@@ -374,6 +409,10 @@ export async function runSync(
     }
 
     currentPhase = "verify";
+    runLogger.info("sync", "Verifying sync target", {
+      to: input.to,
+      collection: input.collection
+    });
     if (printSummary) {
       dependencies.writeStdout(
         `Verifying target ${input.collection ? `${input.to}.${input.collection}` : input.to}...\n`
@@ -449,7 +488,19 @@ export async function runSync(
       });
     }
     syncSucceeded = true;
+    runLogger.info("sync", "Sync verification succeeded", {
+      to: input.to,
+      verifiedCollectionCount: verificationCollectionList.length
+    });
   } catch (error) {
+    runLogger.error("sync", "Sync workflow failed", {
+      from: input.from,
+      to: input.to,
+      collection: input.collection,
+      phase: currentPhase,
+      interrupted: interrupted || isInterruptedError(error),
+      error: getErrorDetails(error)
+    });
     if (error instanceof SyncPhaseError) {
       primaryError = error;
     } else {
@@ -480,9 +531,16 @@ export async function runSync(
     dependencies.writeStdout(`Cleaning up sync temp artifacts...\n`);
   }
   if (tempArchive) {
+    runLogger.info("sync", "Cleaning up local sync temp archive", {
+      tempArchive
+    });
     try {
       await dependencies.unlink(tempArchive);
     } catch (error) {
+      runLogger.warn("sync", "Failed to clean up local sync temp archive", {
+        tempArchive,
+        error: getErrorDetails(error)
+      });
       if (primaryError) {
         primaryError = new SyncPhaseError({
           phase: primaryError.phase,
@@ -530,4 +588,10 @@ export async function runSync(
       `Sync ${formatSyncTarget(input)} complete. Verified ${verificationCollectionList.length} collection${verificationCollectionList.length === 1 ? "" : "s"}.\n`
     );
   }
+  runLogger.info("sync", "Sync workflow completed", {
+    from: input.from,
+    to: input.to,
+    collection: input.collection,
+    verifiedCollectionCount: verificationCollectionList.length
+  });
 }
