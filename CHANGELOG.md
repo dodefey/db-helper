@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.12
+
 - added run-scoped debug logs for `dbh` commands: a temp log is created for every run, kept automatically on failure, and kept on success when `--log` is passed
 - added retained-log reporting to CLI failures and `--log` success paths without changing the existing `default`, `quiet`, and `verbose` terminal output contract
 
