@@ -1,8 +1,14 @@
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AppConfig, EnvironmentConfig } from "../config/types.js";
+import { CommandInvocationContext } from "./invocationContext.js";
 import { OutputMode, shouldStreamSubprocessOutput } from "./output.js";
 import { runCommand } from "./exec.js";
+import { ensureRemotePreflight } from "./remotePreflight.js";
+
+type RemoteInvocationOptions = {
+  remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+};
 
 function mongoUri(env: EnvironmentConfig): string {
   const host = env.mongoHost || env.host;
@@ -22,9 +28,16 @@ function remoteArchivePath(
 
 async function cleanupRemoteArchive(
   env: EnvironmentConfig,
-  remotePath: string
+  remotePath: string,
+  invocation?: RemoteInvocationOptions
 ): Promise<void> {
-  await runRemote(env, `rm -f ${JSON.stringify(remotePath)}`, true);
+  await runRemote(
+    env,
+    `rm -f ${JSON.stringify(remotePath)}`,
+    true,
+    undefined,
+    invocation
+  );
 }
 
 function getErrorDetails(error: unknown): string {
@@ -54,8 +67,14 @@ async function runRemote(
   env: EnvironmentConfig,
   remoteCommand: string,
   streamOutput = true,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  invocation?: RemoteInvocationOptions
 ): Promise<string> {
+  if (env.kind === "remote" && invocation?.remotePreflightSession) {
+    await ensureRemotePreflight(invocation.remotePreflightSession, env, [
+      "hostKeyAccess"
+    ]);
+  }
   const target = env.sshUser ? `${env.sshUser}@${env.host}` : env.host;
   const sshArgs = env.sshKeyPath
     ? ["-i", env.sshKeyPath, target, remoteCommand]
@@ -68,8 +87,14 @@ async function copyFromRemote(
   env: EnvironmentConfig,
   remotePath: string,
   localPath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  invocation?: RemoteInvocationOptions
 ): Promise<void> {
+  if (env.kind === "remote" && invocation?.remotePreflightSession) {
+    await ensureRemotePreflight(invocation.remotePreflightSession, env, [
+      "hostKeyAccess"
+    ]);
+  }
   const sourceTarget = `${env.sshUser ? `${env.sshUser}@` : ""}${env.host}:${remotePath}`;
   const scpArgs = env.sshKeyPath
     ? ["-i", env.sshKeyPath, sourceTarget, localPath]
@@ -81,8 +106,14 @@ async function copyToRemote(
   env: EnvironmentConfig,
   localPath: string,
   remotePath: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  invocation?: RemoteInvocationOptions
 ): Promise<void> {
+  if (env.kind === "remote" && invocation?.remotePreflightSession) {
+    await ensureRemotePreflight(invocation.remotePreflightSession, env, [
+      "hostKeyAccess"
+    ]);
+  }
   const destinationTarget = `${env.sshUser ? `${env.sshUser}@` : ""}${env.host}:${remotePath}`;
   const scpArgs = env.sshKeyPath
     ? ["-i", env.sshKeyPath, localPath, destinationTarget]
@@ -93,7 +124,11 @@ async function copyToRemote(
 async function runMongoShell(
   env: EnvironmentConfig,
   script: string,
-  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
+  options: {
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+  } = {}
 ): Promise<string> {
   const streamOutput = shouldStreamSubprocessOutput(
     options.outputMode ?? "verbose"
@@ -110,7 +145,8 @@ async function runMongoShell(
     env,
     `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
     streamOutput,
-    options.signal
+    options.signal,
+    options
   );
 }
 
@@ -161,7 +197,11 @@ export function parseArchiveCollections(
 
 export async function listCollections(
   env: EnvironmentConfig,
-  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
+  options: {
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+  } = {}
 ): Promise<string[]> {
   const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); print(JSON.stringify(dbx.getCollectionNames().sort()));`;
   const output = await runMongoShell(env, script, options);
@@ -172,7 +212,11 @@ export async function listCollections(
 export async function getCollectionCounts(
   env: EnvironmentConfig,
   collections: string[],
-  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
+  options: {
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+  } = {}
 ): Promise<Record<string, number>> {
   if (collections.length === 0) {
     return {};
@@ -187,7 +231,11 @@ export async function getCollectionCounts(
 export async function dropCollections(
   env: EnvironmentConfig,
   collections: string[],
-  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
+  options: {
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+  } = {}
 ): Promise<void> {
   if (collections.length === 0) {
     return;
@@ -201,7 +249,11 @@ export async function createArchiveBackup(
   env: EnvironmentConfig,
   appConfig: AppConfig,
   destinationFile: string,
-  options: { outputMode?: OutputMode; signal?: AbortSignal } = {}
+  options: {
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+  } = {}
 ): Promise<void> {
   const streamOutput = shouldStreamSubprocessOutput(
     options.outputMode ?? "verbose"
@@ -224,14 +276,21 @@ export async function createArchiveBackup(
       env,
       `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`,
       streamOutput,
-      options.signal
+      options.signal,
+      options
     );
-    await copyFromRemote(env, remotePath, destinationFile, options.signal);
+    await copyFromRemote(
+      env,
+      remotePath,
+      destinationFile,
+      options.signal,
+      options
+    );
   } catch (error) {
     primaryError = error;
   }
   try {
-    await cleanupRemoteArchive(env, remotePath);
+    await cleanupRemoteArchive(env, remotePath, options);
   } catch (error) {
     cleanupError = error;
   }
@@ -260,6 +319,7 @@ export async function restoreArchiveToEnvironment(
     drop: boolean;
     outputMode?: OutputMode;
     signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
   }
 ): Promise<void> {
   const streamOutput = shouldStreamSubprocessOutput(
@@ -306,21 +366,23 @@ export async function restoreArchiveToEnvironment(
       env,
       `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
       streamOutput,
-      options.signal
+      options.signal,
+      options
     );
-    await copyToRemote(env, archiveFile, remotePath, options.signal);
+    await copyToRemote(env, archiveFile, remotePath, options.signal, options);
     const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
     await runRemote(
       env,
       `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
       streamOutput,
-      options.signal
+      options.signal,
+      options
     );
   } catch (error) {
     primaryError = error;
   }
   try {
-    await cleanupRemoteArchive(env, remotePath);
+    await cleanupRemoteArchive(env, remotePath, options);
   } catch (error) {
     cleanupError = error;
   }
@@ -340,10 +402,11 @@ export async function restoreArchiveToEnvironment(
 }
 
 export async function verifyConnectivity(
-  env: EnvironmentConfig
+  env: EnvironmentConfig,
+  options: RemoteInvocationOptions = {}
 ): Promise<void> {
   if (env.kind === "remote") {
-    await runRemote(env, "true");
+    await runRemote(env, "true", true, undefined, options);
   }
 
   const script =
@@ -359,6 +422,7 @@ export async function inspectArchiveCollections(
     sourceDatabaseName: string;
     outputMode?: OutputMode;
     signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
   }
 ): Promise<string[]> {
   const baseArgs = ["--uri", mongoUri(env), "--gzip", "--dryRun", "--verbose"];
@@ -392,9 +456,10 @@ export async function inspectArchiveCollections(
       env,
       `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
       false,
-      options.signal
+      options.signal,
+      options
     );
-    await copyToRemote(env, archiveFile, remotePath, options.signal);
+    await copyToRemote(env, archiveFile, remotePath, options.signal, options);
     const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
     output = await runRemote(
       env,
@@ -402,13 +467,14 @@ export async function inspectArchiveCollections(
         .map((arg) => JSON.stringify(arg))
         .join(" ")} 2>&1`,
       false,
-      options.signal
+      options.signal,
+      options
     );
   } catch (error) {
     primaryError = error;
   }
   try {
-    await cleanupRemoteArchive(env, remotePath);
+    await cleanupRemoteArchive(env, remotePath, options);
   } catch (error) {
     cleanupError = error;
   }

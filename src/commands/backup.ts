@@ -5,6 +5,10 @@ import {
   readBackup
 } from "../lib/backups.js";
 import { runBackupCreate } from "../lib/backup.js";
+import {
+  CommandInvocationContext,
+  createCommandInvocationContext
+} from "../lib/invocationContext.js";
 import { OutputMode } from "../lib/output.js";
 import { getRunLogger } from "../lib/runLog.js";
 
@@ -31,7 +35,8 @@ export async function backupCreate(
     backupName?: string;
     outputMode: OutputMode;
   },
-  dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES
+  dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<BackupRecord> {
   getRunLogger().info("backup.command", "Starting backup create", {
     from: input.from,
@@ -39,7 +44,7 @@ export async function backupCreate(
     tagCount: input.tags?.length ?? 0,
     hasNote: Boolean(input.note)
   });
-  return dependencies.runBackupCreate(appConfig, input);
+  return dependencies.runBackupCreate(appConfig, input, undefined, context);
 }
 
 export async function backupList(

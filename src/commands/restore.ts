@@ -1,5 +1,9 @@
 import { AppConfig, BackupRecord, EnvironmentId } from "../config/types.js";
 import { readBackup } from "../lib/backups.js";
+import {
+  CommandInvocationContext,
+  createCommandInvocationContext
+} from "../lib/invocationContext.js";
 import { promptConfirm, promptText } from "../lib/prompts.js";
 import { runRestoreCollection, runRestoreFull } from "../lib/restore.js";
 import { OutputMode } from "../lib/output.js";
@@ -70,7 +74,8 @@ export async function restoreFull(
     forceProductionRestore: boolean;
     outputMode: OutputMode;
   },
-  dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
+  dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
   const backup = await dependencies.readBackup(
@@ -101,12 +106,17 @@ export async function restoreFull(
     skipPreBackup: input.skipPreBackup,
     outputMode: input.outputMode
   });
-  await dependencies.runRestoreFull(appConfig, {
-    backup: input.backup,
-    to: input.to,
-    skipPreBackup: input.skipPreBackup,
-    outputMode: input.outputMode
-  });
+  await dependencies.runRestoreFull(
+    appConfig,
+    {
+      backup: input.backup,
+      to: input.to,
+      skipPreBackup: input.skipPreBackup,
+      outputMode: input.outputMode
+    },
+    undefined,
+    context
+  );
 }
 
 export async function restoreCollection(
@@ -119,7 +129,8 @@ export async function restoreCollection(
     forceProductionRestore: boolean;
     outputMode: OutputMode;
   },
-  dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES
+  dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
   const backup = await dependencies.readBackup(
@@ -151,10 +162,15 @@ export async function restoreCollection(
     to: input.to,
     outputMode: input.outputMode
   });
-  await dependencies.runRestoreCollection(appConfig, {
-    backup: input.backup,
-    collection: input.collection,
-    to: input.to,
-    outputMode: input.outputMode
-  });
+  await dependencies.runRestoreCollection(
+    appConfig,
+    {
+      backup: input.backup,
+      collection: input.collection,
+      to: input.to,
+      outputMode: input.outputMode
+    },
+    undefined,
+    context
+  );
 }

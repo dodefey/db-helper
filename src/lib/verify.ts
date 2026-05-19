@@ -3,6 +3,7 @@ import {
   EnvironmentConfig,
   VerifyRestoreResult
 } from "../config/types.js";
+import { CommandInvocationContext } from "./invocationContext.js";
 import { OutputMode } from "./output.js";
 import { getCollectionCounts, listCollections } from "./mongo.js";
 
@@ -12,6 +13,7 @@ export async function verifyRestore(
   options: {
     outputMode?: OutputMode;
     signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
     onCountedCollection?: (progress: {
       completed: number;
       total: number;

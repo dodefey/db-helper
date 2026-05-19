@@ -1,4 +1,8 @@
 import { AppConfig, EnvironmentId } from "../config/types.js";
+import {
+  CommandInvocationContext,
+  createCommandInvocationContext
+} from "../lib/invocationContext.js";
 import { promptConfirm } from "../lib/prompts.js";
 import { OutputMode } from "../lib/output.js";
 import { getRunLogger } from "../lib/runLog.js";
@@ -40,7 +44,8 @@ export async function syncDatabase(
     collection?: string;
     outputMode: OutputMode;
   },
-  dependencies: SyncDependencies = DEFAULT_SYNC_DEPENDENCIES
+  dependencies: SyncDependencies = DEFAULT_SYNC_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
   assertAllowedSyncPath(input.from, input.to);
@@ -77,10 +82,15 @@ export async function syncDatabase(
     collection: input.collection,
     outputMode: input.outputMode
   });
-  await dependencies.runSync(appConfig, {
-    from: input.from,
-    to: input.to,
-    ...(input.collection ? { collection: input.collection } : {}),
-    outputMode: input.outputMode
-  });
+  await dependencies.runSync(
+    appConfig,
+    {
+      from: input.from,
+      to: input.to,
+      ...(input.collection ? { collection: input.collection } : {}),
+      outputMode: input.outputMode
+    },
+    undefined,
+    context
+  );
 }

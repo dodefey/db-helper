@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- added session-scoped SSH host-key preflight across remote `backup`, `sync`, `restore`, and `doctor` so repeated SSH/SCP steps fail early and consistently when host trust or `known_hosts` access is broken
+
 ## 0.1.12
 
 - added run-scoped debug logs for `dbh` commands: a temp log is created for every run, kept automatically on failure, and kept on success when `--log` is passed

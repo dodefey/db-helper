@@ -18,6 +18,7 @@ import { runInteractive } from "./commands/interactive.js";
 import { recoverDatabase } from "./commands/recover.js";
 import { restoreCollection, restoreFull } from "./commands/restore.js";
 import { syncDatabase } from "./commands/sync.js";
+import { createCommandInvocationContext } from "./lib/invocationContext.js";
 import { parseOutputMode } from "./lib/output.js";
 import { createRunLogger, getRunLogger, setRunLogger } from "./lib/runLog.js";
 
@@ -143,6 +144,7 @@ async function main(): Promise<void> {
     quiet: getBooleanFlag(args.flags, "quiet"),
     verbose: getBooleanFlag(args.flags, "verbose")
   });
+  const invocationContext = createCommandInvocationContext();
 
   switch (command) {
     case "init":
@@ -215,12 +217,19 @@ async function main(): Promise<void> {
     case "backup":
       if (subcommand === "create") {
         runLogger.info("cli", "Running backup create");
-        await backupCreate(appConfig, {
-          from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
-          note: getFlag(args.flags, "note"),
-          tags: getFlag(args.flags, "tag") ? [getFlag(args.flags, "tag")!] : [],
-          outputMode
-        });
+        await backupCreate(
+          appConfig,
+          {
+            from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
+            note: getFlag(args.flags, "note"),
+            tags: getFlag(args.flags, "tag")
+              ? [getFlag(args.flags, "tag")!]
+              : [],
+            outputMode
+          },
+          undefined,
+          invocationContext
+        );
         await finishSuccess();
         return;
       }
@@ -254,55 +263,75 @@ async function main(): Promise<void> {
     case "sync":
       if (subcommand === "collection") {
         runLogger.info("cli", "Running sync collection");
-        await syncDatabase(appConfig, {
-          from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
-          to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
-          collection: getFlag(args.flags, "collection", true)!,
-          yes: getBooleanFlag(args.flags, "yes"),
-          outputMode
-        });
+        await syncDatabase(
+          appConfig,
+          {
+            from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
+            to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+            collection: getFlag(args.flags, "collection", true)!,
+            yes: getBooleanFlag(args.flags, "yes"),
+            outputMode
+          },
+          undefined,
+          invocationContext
+        );
         await finishSuccess();
         return;
       }
       runLogger.info("cli", "Running sync");
-      await syncDatabase(appConfig, {
-        from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
-        to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
-        yes: getBooleanFlag(args.flags, "yes"),
-        outputMode
-      });
+      await syncDatabase(
+        appConfig,
+        {
+          from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
+          to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+          yes: getBooleanFlag(args.flags, "yes"),
+          outputMode
+        },
+        undefined,
+        invocationContext
+      );
       await finishSuccess();
       return;
     case "restore":
       if (subcommand === "full") {
         runLogger.info("cli", "Running restore full");
-        await restoreFull(appConfig, {
-          backup: getFlag(args.flags, "backup", true)!,
-          to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
-          yes: getBooleanFlag(args.flags, "yes"),
-          skipPreBackup: getBooleanFlag(args.flags, "skip-pre-backup"),
-          forceProductionRestore: getBooleanFlag(
-            args.flags,
-            "force-production-restore"
-          ),
-          outputMode
-        });
+        await restoreFull(
+          appConfig,
+          {
+            backup: getFlag(args.flags, "backup", true)!,
+            to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+            yes: getBooleanFlag(args.flags, "yes"),
+            skipPreBackup: getBooleanFlag(args.flags, "skip-pre-backup"),
+            forceProductionRestore: getBooleanFlag(
+              args.flags,
+              "force-production-restore"
+            ),
+            outputMode
+          },
+          undefined,
+          invocationContext
+        );
         await finishSuccess();
         return;
       }
       if (subcommand === "collection") {
         runLogger.info("cli", "Running restore collection");
-        await restoreCollection(appConfig, {
-          backup: getFlag(args.flags, "backup", true)!,
-          collection: getFlag(args.flags, "collection", true)!,
-          to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
-          yes: getBooleanFlag(args.flags, "yes"),
-          forceProductionRestore: getBooleanFlag(
-            args.flags,
-            "force-production-restore"
-          ),
-          outputMode
-        });
+        await restoreCollection(
+          appConfig,
+          {
+            backup: getFlag(args.flags, "backup", true)!,
+            collection: getFlag(args.flags, "collection", true)!,
+            to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+            yes: getBooleanFlag(args.flags, "yes"),
+            forceProductionRestore: getBooleanFlag(
+              args.flags,
+              "force-production-restore"
+            ),
+            outputMode
+          },
+          undefined,
+          invocationContext
+        );
         await finishSuccess();
         return;
       }
@@ -314,7 +343,7 @@ async function main(): Promise<void> {
       return;
     case "doctor":
       runLogger.info("cli", "Running doctor");
-      await runDoctor(appConfig);
+      await runDoctor(appConfig, undefined, invocationContext);
       await finishSuccess();
       return;
   }

@@ -12,6 +12,7 @@ import {
 } from "../src/commands/sync.js";
 import { parseOutputMode } from "../src/lib/output.js";
 import { runSync, RunSyncDependencies } from "../src/lib/sync.js";
+import { createCommandInvocationContext } from "../src/lib/invocationContext.js";
 import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
@@ -88,6 +89,7 @@ function createRunSyncDependencies(
     tempFiles: string[];
     listedCollections: EnvironmentId[];
     countedCollections: Array<{ env: EnvironmentId; collections: string[] }>;
+    sessions: unknown[];
     dumps: Array<{ source: EnvironmentId; destination: string }>;
     inspectedArchives: Array<{
       target: EnvironmentId;
@@ -115,6 +117,7 @@ function createRunSyncDependencies(
       env: EnvironmentId;
       collections: string[];
     }>,
+    sessions: [] as unknown[],
     dumps: [] as Array<{ source: EnvironmentId; destination: string }>,
     inspectedArchives: [] as Array<{
       target: EnvironmentId;
@@ -168,13 +171,21 @@ function createRunSyncDependencies(
     },
     async getCollectionCounts(
       env,
-      collections
+      collections,
+      options
     ): Promise<Record<string, number>> {
       calls.countedCollections.push({ env: env.id, collections });
+      calls.sessions.push(options?.remotePreflightSession);
       return Object.fromEntries(collections.map((name) => [name, 1]));
     },
-    async createArchiveBackup(env, _appConfig, destinationFile): Promise<void> {
+    async createArchiveBackup(
+      env,
+      _appConfig,
+      destinationFile,
+      options
+    ): Promise<void> {
       calls.dumps.push({ source: env.id, destination: destinationFile });
+      calls.sessions.push(options?.remotePreflightSession);
     },
     async inspectArchiveCollections(
       env,
@@ -182,6 +193,7 @@ function createRunSyncDependencies(
       archiveFile,
       options
     ): Promise<string[]> {
+      calls.sessions.push(options?.remotePreflightSession);
       calls.inspectedArchives.push({
         target: env.id,
         archive: archiveFile,
@@ -210,10 +222,12 @@ function createRunSyncDependencies(
       if (options.collection) {
         restoreCall.collection = options.collection;
       }
+      calls.sessions.push(options.remotePreflightSession);
       calls.restores.push(restoreCall);
     },
-    async dropCollections(env, collections): Promise<void> {
+    async dropCollections(env, collections, options): Promise<void> {
       calls.droppedCollections.push({ target: env.id, collections });
+      calls.sessions.push(options?.remotePreflightSession);
     },
     async verifyRestore(
       env,
@@ -232,6 +246,7 @@ function createRunSyncDependencies(
       const collections = manifest.collectionCounts
         ? Object.keys(manifest.collectionCounts)
         : [];
+      calls.sessions.push(options?.remotePreflightSession);
       collections.forEach((collection, index) => {
         options?.onCountedCollection?.({
           completed: index + 1,
@@ -447,11 +462,13 @@ test("runSync suppresses summary output in quiet mode", async () => {
 
 test("runSync preserves summary output in default mode", async () => {
   const { dependencies, calls } = createRunSyncDependencies();
+  const context = createCommandInvocationContext();
 
   await runSync(
     buildAppConfig(false),
     { from: "production", to: "development", outputMode: "default" },
-    dependencies
+    dependencies,
+    context
   );
 
   assert.deepEqual(calls.output, [
@@ -473,6 +490,11 @@ test("runSync preserves summary output in default mode", async () => {
   assert.deepEqual(calls.droppedCollections, [
     { target: "development", collections: [] }
   ]);
+  assert.ok(
+    calls.sessions.every(
+      (session) => session === context.remotePreflightSession
+    )
+  );
 });
 
 test("runSync rewrites count progress on one line for interactive stdout", async () => {

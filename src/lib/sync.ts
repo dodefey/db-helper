@@ -10,6 +10,10 @@ import {
   listCollections,
   restoreArchiveToEnvironment
 } from "./mongo.js";
+import {
+  CommandInvocationContext,
+  createCommandInvocationContext
+} from "./invocationContext.js";
 import { OutputMode, shouldPrintCommandSummary } from "./output.js";
 import { getRunLogger } from "./runLog.js";
 import { verifyRestore } from "./verify.js";
@@ -225,7 +229,8 @@ function buildSyncVerificationManifest(
 export async function runSync(
   appConfig: AppConfig,
   input: SyncInput & { outputMode: OutputMode },
-  dependencies: RunSyncDependencies = DEFAULT_RUN_SYNC_DEPENDENCIES
+  dependencies: RunSyncDependencies = DEFAULT_RUN_SYNC_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
   const source = appConfig.environments[input.from];
@@ -257,7 +262,8 @@ export async function runSync(
     const sourceCollections = filterSyncCollections(
       await dependencies.listCollections(source, {
         outputMode: input.outputMode,
-        signal: abortController.signal
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
       })
     );
     if (input.collection) {
@@ -274,7 +280,11 @@ export async function runSync(
     const collectionCounts = await dependencies.getCollectionCounts(
       source,
       verificationCollectionList,
-      { outputMode: input.outputMode, signal: abortController.signal }
+      {
+        outputMode: input.outputMode,
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
+      }
     );
     const verificationManifest = buildSyncVerificationManifest(
       input.from,
@@ -301,7 +311,8 @@ export async function runSync(
         () =>
           dependencies.createArchiveBackup(source, appConfig, tempArchive, {
             outputMode: input.outputMode,
-            signal: abortController.signal
+            signal: abortController.signal,
+            remotePreflightSession: context.remotePreflightSession
           })
       );
     } else {
@@ -312,7 +323,8 @@ export async function runSync(
       });
       await dependencies.createArchiveBackup(source, appConfig, tempArchive, {
         outputMode: input.outputMode,
-        signal: abortController.signal
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
       });
     }
     if (printSummary) {
@@ -334,7 +346,8 @@ export async function runSync(
               collection: input.collection,
               drop: true,
               outputMode: input.outputMode,
-              signal: abortController.signal
+              signal: abortController.signal,
+              remotePreflightSession: context.remotePreflightSession
             }
           )
       );
@@ -354,7 +367,8 @@ export async function runSync(
           collection: input.collection,
           drop: true,
           outputMode: input.outputMode,
-          signal: abortController.signal
+          signal: abortController.signal,
+          remotePreflightSession: context.remotePreflightSession
         }
       );
     }
@@ -371,7 +385,8 @@ export async function runSync(
           {
             sourceDatabaseName: source.databaseName,
             outputMode: input.outputMode,
-            signal: abortController.signal
+            signal: abortController.signal,
+            remotePreflightSession: context.remotePreflightSession
           }
         )
       );
@@ -387,7 +402,8 @@ export async function runSync(
       const targetCollections = filterSyncCollections(
         await dependencies.listCollections(target, {
           outputMode: input.outputMode,
-          signal: abortController.signal
+          signal: abortController.signal,
+          remotePreflightSession: context.remotePreflightSession
         })
       );
       const targetOnlyCollections = targetCollections.filter(
@@ -404,7 +420,8 @@ export async function runSync(
       }
       await dependencies.dropCollections(target, targetOnlyCollections, {
         outputMode: input.outputMode,
-        signal: abortController.signal
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
       });
     }
 
@@ -426,6 +443,7 @@ export async function runSync(
       {
         outputMode: input.outputMode,
         signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession,
         onCountedCollection: printSummary
           ? ({ completed, total, collection }) => {
               const message = `Checked collection counts: ${completed}/${total} (${collection})`;

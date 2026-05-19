@@ -12,6 +12,10 @@ import {
 import { restoreArchiveToEnvironment } from "./mongo.js";
 import { verifyRestore } from "./verify.js";
 import { backupCreate } from "../commands/backup.js";
+import {
+  CommandInvocationContext,
+  createCommandInvocationContext
+} from "./invocationContext.js";
 import { OutputMode } from "./output.js";
 import { getRunLogger } from "./runLog.js";
 
@@ -155,7 +159,8 @@ export async function runRestoreFull(
     skipPreBackup: boolean;
     outputMode: OutputMode;
   },
-  dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES
+  dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
   const abortController = new AbortController();
@@ -197,12 +202,17 @@ export async function runRestoreFull(
       if (printSummary) {
         dependencies.writeStdout("Creating pre-restore backup...\n");
       }
-      await dependencies.backupCreate(appConfig, {
-        from: "production",
-        note: `automatic pre-restore backup before restoring ${input.backup}`,
-        tags: ["pre-restore"],
-        outputMode: input.outputMode
-      });
+      await dependencies.backupCreate(
+        appConfig,
+        {
+          from: "production",
+          note: `automatic pre-restore backup before restoring ${input.backup}`,
+          tags: ["pre-restore"],
+          outputMode: input.outputMode
+        },
+        undefined,
+        context
+      );
     }
 
     currentPhase = "restore";
@@ -222,7 +232,8 @@ export async function runRestoreFull(
         sourceDatabaseName: backup.manifest.databaseName,
         drop: true,
         outputMode: input.outputMode,
-        signal: abortController.signal
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
       }
     );
 
@@ -239,7 +250,8 @@ export async function runRestoreFull(
       backup.manifest,
       {
         outputMode: input.outputMode,
-        signal: abortController.signal
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
       }
     );
     if (
@@ -296,7 +308,8 @@ export async function runRestoreCollection(
     to: EnvironmentId;
     outputMode: OutputMode;
   },
-  dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES
+  dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
   const abortController = new AbortController();
@@ -355,7 +368,8 @@ export async function runRestoreCollection(
         collection: input.collection,
         drop: true,
         outputMode: input.outputMode,
-        signal: abortController.signal
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
       }
     );
     if (printSummary) {

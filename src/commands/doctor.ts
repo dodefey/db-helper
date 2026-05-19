@@ -6,7 +6,12 @@ import {
   EnvironmentId
 } from "../config/types.js";
 import { assertWritable } from "../lib/fs.js";
+import {
+  CommandInvocationContext,
+  createCommandInvocationContext
+} from "../lib/invocationContext.js";
 import { verifyConnectivity } from "../lib/mongo.js";
+import { ensureRemotePreflight } from "../lib/remotePreflight.js";
 import { runCommand } from "../lib/exec.js";
 import { getRunLogger } from "../lib/runLog.js";
 
@@ -36,7 +41,14 @@ export interface DoctorDependencies {
   ensureBinary: (name: string) => Promise<void>;
   assertWritable: (path: string) => Promise<void>;
   assertReadable: (path: string) => Promise<void>;
-  verifyConnectivity: (env: EnvironmentConfig) => Promise<void>;
+  ensureRemotePreflight: (
+    context: CommandInvocationContext,
+    env: EnvironmentConfig
+  ) => Promise<void>;
+  verifyConnectivity: (
+    env: EnvironmentConfig,
+    context: CommandInvocationContext
+  ) => Promise<void>;
   writeStdout: (message: string) => void;
 }
 
@@ -48,7 +60,22 @@ const DEFAULT_DOCTOR_DEPENDENCIES: DoctorDependencies = {
   async assertReadable(path: string): Promise<void> {
     await access(path, constants.R_OK);
   },
-  verifyConnectivity,
+  async ensureRemotePreflight(
+    context: CommandInvocationContext,
+    env: EnvironmentConfig
+  ): Promise<void> {
+    await ensureRemotePreflight(context.remotePreflightSession, env, [
+      "hostKeyAccess"
+    ]);
+  },
+  async verifyConnectivity(
+    env: EnvironmentConfig,
+    context: CommandInvocationContext
+  ): Promise<void> {
+    await verifyConnectivity(env, {
+      remotePreflightSession: context.remotePreflightSession
+    });
+  },
   writeStdout: (message: string): void => {
     process.stdout.write(message);
   }
@@ -97,7 +124,8 @@ function hasMongoCredentials(env: EnvironmentConfig): boolean {
 
 export async function runDoctor(
   appConfig: AppConfig,
-  dependencies: DoctorDependencies = DEFAULT_DOCTOR_DEPENDENCIES
+  dependencies: DoctorDependencies = DEFAULT_DOCTOR_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
   const results: DoctorCheckResult[] = [];
@@ -137,8 +165,19 @@ export async function runDoctor(
       continue;
     }
 
+    if (env.kind === "remote") {
+      const hostKeyReady = await runCheck(
+        results,
+        { check: "host key access", scope: env.id },
+        () => dependencies.ensureRemotePreflight(context, env)
+      );
+      if (!hostKeyReady) {
+        continue;
+      }
+    }
+
     await runCheck(results, { check: "connectivity", scope: env.id }, () =>
-      dependencies.verifyConnectivity(env)
+      dependencies.verifyConnectivity(env, context)
     );
   }
 

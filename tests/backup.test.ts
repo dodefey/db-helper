@@ -16,6 +16,7 @@ import {
   runBackupCreate,
   RunBackupCreateDependencies
 } from "../src/lib/backup.js";
+import { createCommandInvocationContext } from "../src/lib/invocationContext.js";
 import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
@@ -61,6 +62,7 @@ function createBackupDependencies(
     countedCollections: Array<{ env: EnvironmentId; collections: string[] }>;
     listedCollectionOutputModes: Array<string | undefined>;
     countedCollectionOutputModes: Array<string | undefined>;
+    sessions: unknown[];
     archives: string[];
     archiveOutputModes: Array<string | undefined>;
     manifests: BackupManifest[];
@@ -81,6 +83,7 @@ function createBackupDependencies(
     }>,
     listedCollectionOutputModes: [] as Array<string | undefined>,
     countedCollectionOutputModes: [] as Array<string | undefined>,
+    sessions: [] as unknown[],
     archives: [] as string[],
     archiveOutputModes: [] as Array<string | undefined>,
     manifests: [] as BackupManifest[],
@@ -121,6 +124,7 @@ function createBackupDependencies(
     async listCollections(env, options): Promise<string[]> {
       calls.listedCollections.push(env.id);
       calls.listedCollectionOutputModes.push(options?.outputMode);
+      calls.sessions.push(options?.remotePreflightSession);
       return ["orders", "system.views", "customers"];
     },
     async getCollectionCounts(
@@ -130,6 +134,7 @@ function createBackupDependencies(
     ): Promise<Record<string, number>> {
       calls.countedCollections.push({ env: env.id, collections });
       calls.countedCollectionOutputModes.push(options?.outputMode);
+      calls.sessions.push(options?.remotePreflightSession);
       return Object.fromEntries(collections.map((name) => [name, 1]));
     },
     async createArchiveBackup(
@@ -140,6 +145,7 @@ function createBackupDependencies(
     ): Promise<void> {
       calls.archives.push(archiveFile);
       calls.archiveOutputModes.push(options?.outputMode);
+      calls.sessions.push(options?.remotePreflightSession);
     },
     async writeBackupManifest(_backupRoot, manifest): Promise<void> {
       calls.manifests.push(manifest);
@@ -169,6 +175,7 @@ function createBackupDependencies(
 
 test("runBackupCreate builds a valid backup record", async () => {
   const { dependencies, calls } = createBackupDependencies();
+  const context = createCommandInvocationContext();
 
   const record = await runBackupCreate(
     buildAppConfig(),
@@ -178,7 +185,8 @@ test("runBackupCreate builds a valid backup record", async () => {
       tags: ["known-good"],
       outputMode: "default"
     },
-    dependencies
+    dependencies,
+    context
   );
 
   assert.equal(record.name, "2026-03-26T12-00-00-development");
@@ -208,6 +216,11 @@ test("runBackupCreate builds a valid backup record", async () => {
   assert.deepEqual(calls.ensuredArtifacts, ["2026-03-26T12-00-00-development"]);
   assert.deepEqual(calls.removedBackups, []);
   assert.equal(calls.removeInterruptHandlerCount, 1);
+  assert.ok(
+    calls.sessions.every(
+      (session) => session === context.remotePreflightSession
+    )
+  );
 });
 
 test("runBackupCreate attempts cleanup when archive creation fails", async () => {
@@ -420,18 +433,16 @@ test("backupCreate delegates to runBackupCreate with output mode", async () => {
     dependencies
   );
 
-  assert.deepEqual(calls, [
-    [
-      appConfig,
-      {
-        from: "development",
-        note: "known-good",
-        tags: ["known-good"],
-        backupName: "backup-name",
-        outputMode: "verbose"
-      }
-    ]
-  ]);
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0][0], appConfig);
+  assert.deepEqual(calls[0][1], {
+    from: "development",
+    note: "known-good",
+    tags: ["known-good"],
+    backupName: "backup-name",
+    outputMode: "verbose"
+  });
+  assert.equal(calls[0].length, 4);
   assert.deepEqual(result, expectedRecord);
 });
 

@@ -16,6 +16,7 @@ import {
   runRestoreFull,
   RunRestoreDependencies
 } from "../src/lib/restore.js";
+import { createCommandInvocationContext } from "../src/lib/invocationContext.js";
 import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
@@ -160,6 +161,7 @@ function createRunRestoreDependencies(
       note?: string;
       tags?: string[];
       outputMode: "default" | "quiet" | "verbose";
+      context?: unknown;
     }>;
     restores: Array<{
       target: EnvironmentId;
@@ -168,10 +170,12 @@ function createRunRestoreDependencies(
       collection?: string;
       drop: boolean;
       outputMode?: "default" | "quiet" | "verbose";
+      session?: unknown;
     }>;
     verifications: Array<{
       target: EnvironmentId;
       outputMode?: "default" | "quiet" | "verbose";
+      session?: unknown;
     }>;
     interruptHandler?: () => void;
     output: string[];
@@ -186,6 +190,7 @@ function createRunRestoreDependencies(
       note?: string;
       tags?: string[];
       outputMode: "default" | "quiet" | "verbose";
+      context?: unknown;
     }>,
     restores: [] as Array<{
       target: EnvironmentId;
@@ -194,10 +199,12 @@ function createRunRestoreDependencies(
       collection?: string;
       drop: boolean;
       outputMode?: "default" | "quiet" | "verbose";
+      session?: unknown;
     }>,
     verifications: [] as Array<{
       target: EnvironmentId;
       outputMode?: "default" | "quiet" | "verbose";
+      session?: unknown;
     }>,
     interruptHandler: undefined as (() => void) | undefined,
     output: [] as string[]
@@ -215,8 +222,13 @@ function createRunRestoreDependencies(
       calls.archivePaths.push(backupName);
       return `/tmp/backups/${backupName}/dump.archive.gz`;
     },
-    async backupCreate(_appConfig, input): Promise<BackupRecord> {
-      calls.backupCreates.push(input);
+    async backupCreate(
+      _appConfig,
+      input,
+      _dependencies,
+      context
+    ): Promise<BackupRecord> {
+      calls.backupCreates.push({ ...input, context });
       return buildBackupRecord("production");
     },
     async restoreArchiveToEnvironment(
@@ -231,7 +243,8 @@ function createRunRestoreDependencies(
         sourceDatabaseName: options.sourceDatabaseName,
         collection: options.collection,
         drop: options.drop,
-        outputMode: options.outputMode
+        outputMode: options.outputMode,
+        session: options.remotePreflightSession
       });
     },
     async verifyRestore(
@@ -249,7 +262,8 @@ function createRunRestoreDependencies(
     }> {
       calls.verifications.push({
         target: env.id,
-        outputMode: options?.outputMode
+        outputMode: options?.outputMode,
+        session: options?.remotePreflightSession
       });
       return {
         collectionsPresent: ["orders", "customers"],
@@ -466,6 +480,7 @@ test("restoreFull rejects mismatched production confirmation text", async () => 
 
 test("runRestoreFull performs pre-restore backup for production targets", async () => {
   const { dependencies, calls } = createRunRestoreDependencies();
+  const context = createCommandInvocationContext();
 
   await runRestoreFull(
     buildAppConfig(false),
@@ -475,7 +490,8 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
       skipPreBackup: false,
       outputMode: "default"
     },
-    dependencies
+    dependencies,
+    context
   );
 
   assert.deepEqual(calls.ensuredArtifacts, ["backup-name"]);
@@ -485,7 +501,8 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
       from: "production",
       note: "automatic pre-restore backup before restoring backup-name",
       tags: ["pre-restore"],
-      outputMode: "default"
+      outputMode: "default",
+      context
     }
   ]);
   assert.deepEqual(calls.restores, [
@@ -495,13 +512,15 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
       sourceDatabaseName: "production",
       collection: undefined,
       drop: true,
-      outputMode: "default"
+      outputMode: "default",
+      session: context.remotePreflightSession
     }
   ]);
   assert.deepEqual(calls.verifications, [
     {
       target: "production",
-      outputMode: "default"
+      outputMode: "default",
+      session: context.remotePreflightSession
     }
   ]);
   assert.deepEqual(calls.output, [
@@ -621,6 +640,7 @@ test("runRestoreFull reports target unchanged when pre-restore backup fails", as
 
 test("runRestoreCollection validates collection membership and restores with drop", async () => {
   const { dependencies, calls } = createRunRestoreDependencies();
+  const context = createCommandInvocationContext();
 
   await runRestoreCollection(
     buildAppConfig(),
@@ -630,19 +650,20 @@ test("runRestoreCollection validates collection membership and restores with dro
       to: "test",
       outputMode: "default"
     },
-    dependencies
+    dependencies,
+    context
   );
 
-  assert.deepEqual(calls.restores, [
-    {
-      target: "test",
-      archivePath: "/tmp/backups/backup-name/dump.archive.gz",
-      sourceDatabaseName: "production",
-      collection: "orders",
-      drop: true,
-      outputMode: "default"
-    }
-  ]);
+  assert.equal(calls.restores.length, 1);
+  assert.deepEqual(calls.restores[0], {
+    target: "test",
+    archivePath: "/tmp/backups/backup-name/dump.archive.gz",
+    sourceDatabaseName: "production",
+    collection: "orders",
+    drop: true,
+    outputMode: "default",
+    session: context.remotePreflightSession
+  });
   assert.deepEqual(calls.output, [
     "Starting restore backup-name:orders -> test\n",
     "Restoring collection orders into test...\n",
@@ -704,6 +725,7 @@ test("runRestoreCollection reports dirty-target risk on restore failure", async 
 
 test("runRestoreFull suppresses summary output in quiet mode", async () => {
   const { dependencies, calls } = createRunRestoreDependencies();
+  const context = createCommandInvocationContext();
 
   await runRestoreFull(
     buildAppConfig(),
@@ -713,7 +735,8 @@ test("runRestoreFull suppresses summary output in quiet mode", async () => {
       skipPreBackup: true,
       outputMode: "quiet"
     },
-    dependencies
+    dependencies,
+    context
   );
 
   assert.deepEqual(calls.output, []);
@@ -724,19 +747,22 @@ test("runRestoreFull suppresses summary output in quiet mode", async () => {
       sourceDatabaseName: "production",
       collection: undefined,
       drop: true,
-      outputMode: "quiet"
+      outputMode: "quiet",
+      session: context.remotePreflightSession
     }
   ]);
   assert.deepEqual(calls.verifications, [
     {
       target: "development",
-      outputMode: "quiet"
+      outputMode: "quiet",
+      session: context.remotePreflightSession
     }
   ]);
 });
 
 test("runRestoreFull forces drop semantics even when config default is false", async () => {
   const { dependencies, calls } = createRunRestoreDependencies();
+  const context = createCommandInvocationContext();
 
   await runRestoreFull(
     buildAppConfig(false),
@@ -746,7 +772,8 @@ test("runRestoreFull forces drop semantics even when config default is false", a
       skipPreBackup: true,
       outputMode: "default"
     },
-    dependencies
+    dependencies,
+    context
   );
 
   assert.deepEqual(calls.restores, [
@@ -756,7 +783,8 @@ test("runRestoreFull forces drop semantics even when config default is false", a
       sourceDatabaseName: "production",
       collection: undefined,
       drop: true,
-      outputMode: "default"
+      outputMode: "default",
+      session: context.remotePreflightSession
     }
   ]);
 });

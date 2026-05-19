@@ -19,6 +19,10 @@ import {
   getCollectionCounts,
   listCollections
 } from "./mongo.js";
+import {
+  CommandInvocationContext,
+  createCommandInvocationContext
+} from "./invocationContext.js";
 import { OutputMode } from "./output.js";
 import { getRunLogger } from "./runLog.js";
 import { TOOL_VERSION } from "../version.js";
@@ -170,7 +174,8 @@ export async function runBackupCreate(
     backupName?: string;
     outputMode: OutputMode;
   },
-  dependencies: RunBackupCreateDependencies = DEFAULT_RUN_BACKUP_CREATE_DEPENDENCIES
+  dependencies: RunBackupCreateDependencies = DEFAULT_RUN_BACKUP_CREATE_DEPENDENCIES,
+  context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<BackupRecord> {
   const runLogger = getRunLogger();
   const env = appConfig.environments[input.from];
@@ -212,7 +217,8 @@ export async function runBackupCreate(
             const collectionList = filterBackupCollections(
               await dependencies.listCollections(env, {
                 outputMode: metadataOutputMode,
-                signal: abortController.signal
+                signal: abortController.signal,
+                remotePreflightSession: context.remotePreflightSession
               })
             );
             const collectionCounts = await dependencies.getCollectionCounts(
@@ -220,7 +226,8 @@ export async function runBackupCreate(
               collectionList,
               {
                 outputMode: metadataOutputMode,
-                signal: abortController.signal
+                signal: abortController.signal,
+                remotePreflightSession: context.remotePreflightSession
               }
             );
             return { collectionList, collectionCounts };
@@ -233,7 +240,8 @@ export async function runBackupCreate(
           const collectionList = filterBackupCollections(
             await dependencies.listCollections(env, {
               outputMode: metadataOutputMode,
-              signal: abortController.signal
+              signal: abortController.signal,
+              remotePreflightSession: context.remotePreflightSession
             })
           );
           const collectionCounts = await dependencies.getCollectionCounts(
@@ -241,7 +249,8 @@ export async function runBackupCreate(
             collectionList,
             {
               outputMode: metadataOutputMode,
-              signal: abortController.signal
+              signal: abortController.signal,
+              remotePreflightSession: context.remotePreflightSession
             }
           );
           return { collectionList, collectionCounts };
@@ -258,7 +267,8 @@ export async function runBackupCreate(
       await dependencies.runWithElapsedStatus("Creating archive...", () =>
         dependencies.createArchiveBackup(env, appConfig, archiveFile, {
           outputMode: input.outputMode,
-          signal: abortController.signal
+          signal: abortController.signal,
+          remotePreflightSession: context.remotePreflightSession
         })
       );
     } else {
@@ -267,7 +277,8 @@ export async function runBackupCreate(
       }
       await dependencies.createArchiveBackup(env, appConfig, archiveFile, {
         outputMode: input.outputMode,
-        signal: abortController.signal
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
       });
     }
 
