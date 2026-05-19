@@ -10,6 +10,7 @@ import {
   syncDatabase,
   SyncDependencies
 } from "../src/commands/sync.js";
+import { RemoteOperationError } from "../src/lib/mongo.js";
 import { parseOutputMode } from "../src/lib/output.js";
 import { runSync, RunSyncDependencies } from "../src/lib/sync.js";
 import { createCommandInvocationContext } from "../src/lib/invocationContext.js";
@@ -833,6 +834,30 @@ test("runSync refuses to prune when archive inspection finds no collections", as
   assert.deepEqual(calls.droppedCollections, []);
 });
 
+test("runSync includes remote temp path for archive inspection transport failures", async () => {
+  const { dependencies } = createRunSyncDependencies({
+    async inspectArchiveCollections(): Promise<string[]> {
+      throw new RemoteOperationError({
+        code: "scpTransport",
+        host: "gnomebrewshop.com",
+        operation: "scp-upload",
+        remoteTempPath: "/tmp/db-helper/inspect.archive.gz",
+        details:
+          "SCP transport to gnomebrewshop.com failed during scp-upload.\nconnection reset"
+      });
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      dependencies
+    ),
+    /Sync failed during removing target-only collections.*Target database may be dirty\..*Remote temporary archive path: \/tmp\/db-helper\/inspect\.archive\.gz.*SCP transport to gnomebrewshop\.com failed during scp-upload\.\nconnection reset/s
+  );
+});
+
 test("runSync reports source metadata failures with sync phase context", async () => {
   const { dependencies, calls } = createRunSyncDependencies({
     async listCollections(): Promise<string[]> {
@@ -990,6 +1015,30 @@ test("runSync attempts cleanup when dump fails", async () => {
   assert.equal(calls.restores.length, 0);
 });
 
+test("runSync includes remote temp path for remote dump transport failures", async () => {
+  const { dependencies } = createRunSyncDependencies({
+    async createArchiveBackup(): Promise<void> {
+      throw new RemoteOperationError({
+        code: "scpTransport",
+        host: "gnomebrewshop.com",
+        operation: "scp-download",
+        remoteTempPath: "/tmp/db-helper/source.archive.gz",
+        details:
+          "SCP transport to gnomebrewshop.com failed during scp-download.\nconnection reset"
+      });
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      dependencies
+    ),
+    /Sync failed during dump.*Target database was not modified\..*Remote temporary archive path: \/tmp\/db-helper\/source\.archive\.gz.*SCP transport to gnomebrewshop\.com failed during scp-download\.\nconnection reset/s
+  );
+});
+
 test("runSync preserves the original failure when cleanup fails too", async () => {
   const { dependencies } = createRunSyncDependencies({
     async restoreArchiveToEnvironment(): Promise<void> {
@@ -1010,11 +1059,20 @@ test("runSync preserves the original failure when cleanup fails too", async () =
   );
 });
 
-test("runSync reports interrupt state and cleanup attempt on ctrl-c during restore", async () => {
-  const { dependencies, calls } = createRunSyncDependencies({
+test("runSync includes remote temp path for remote restore cleanup failures", async () => {
+  const { dependencies } = createRunSyncDependencies({
     async restoreArchiveToEnvironment(): Promise<void> {
-      calls.interruptHandler?.();
-      throw new Error("Command interrupted: mongorestore");
+      throw new RemoteOperationError({
+        code: "scpTransport",
+        host: "gnomebrewshop.com",
+        operation: "scp-upload",
+        remoteTempPath: "/tmp/db-helper/restore.archive.gz",
+        details:
+          "SCP transport to gnomebrewshop.com failed during scp-upload.\npermission denied"
+      });
+    },
+    async unlink(): Promise<void> {
+      throw new Error("cleanup failed");
     }
   });
 
@@ -1024,7 +1082,33 @@ test("runSync reports interrupt state and cleanup attempt on ctrl-c during resto
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync interrupted during restore.*Target database may be dirty\..*Attempted to delete temporary sync artifacts, but cleanup success is not confirmed\..*The sync was interrupted by the operator\./s
+    /Sync failed during restore.*Target database may be dirty\..*Attempted to delete temporary sync artifacts, but cleanup may not have finished\..*Remote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz.*SCP transport to gnomebrewshop\.com failed during scp-upload\.\npermission denied/s
+  );
+});
+
+test("runSync reports interrupt state and cleanup attempt on ctrl-c during restore", async () => {
+  const { dependencies, calls } = createRunSyncDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      calls.interruptHandler?.();
+      throw new RemoteOperationError({
+        code: "scpTransport",
+        host: "gnomebrewshop.com",
+        operation: "scp-upload",
+        remoteTempPath: "/tmp/db-helper/restore.archive.gz",
+        details:
+          "SCP transport to gnomebrewshop.com failed during scp-upload.\nconnection reset",
+        interrupted: true
+      });
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "default" },
+      dependencies
+    ),
+    /Sync interrupted during restore.*Target database may be dirty\..*Attempted to delete temporary sync artifacts, but cleanup success is not confirmed\..*Remote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz.*The sync was interrupted by the operator\./s
   );
 
   assert.deepEqual(calls.unlinks, ["/tmp/db-helper/test-sync.archive.gz"]);

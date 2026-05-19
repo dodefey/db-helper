@@ -17,6 +17,7 @@ import {
   RunRestoreDependencies
 } from "../src/lib/restore.js";
 import { createCommandInvocationContext } from "../src/lib/invocationContext.js";
+import { RemoteOperationError } from "../src/lib/mongo.js";
 import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
@@ -595,7 +596,15 @@ test("runRestoreFull reports remote cleanup attempt when interrupted during rest
   appConfig.environments.development = buildRemoteEnvironment("development");
   const { dependencies } = createRunRestoreDependencies({
     async restoreArchiveToEnvironment(): Promise<void> {
-      throw new Error("Command interrupted: mongorestore");
+      throw new RemoteOperationError({
+        code: "scpTransport",
+        host: "development.example.com",
+        operation: "scp-upload",
+        remoteTempPath: "/tmp/db-helper/restore.archive.gz",
+        details:
+          "SCP transport to development.example.com failed during scp-upload.\nconnection reset",
+        interrupted: true
+      });
     }
   });
 
@@ -611,7 +620,7 @@ test("runRestoreFull reports remote cleanup attempt when interrupted during rest
         },
         dependencies
       ),
-    /Restore interrupted during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nTemporary restore artifact cleanup was attempted but may not have completed\.\nThe restore was interrupted by the operator\./
+    /Restore interrupted during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nTemporary restore artifact cleanup was attempted but may not have completed\.\nRemote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz\nThe restore was interrupted by the operator\./
   );
 });
 
@@ -720,6 +729,38 @@ test("runRestoreCollection reports dirty-target risk on restore failure", async 
         dependencies
       ),
     /Restore failed during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nrestore failed/
+  );
+});
+
+test("runRestoreFull includes remote temp path for remote transport failures", async () => {
+  const appConfig = buildAppConfig();
+  appConfig.environments.development = buildRemoteEnvironment("development");
+  const { dependencies } = createRunRestoreDependencies({
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new RemoteOperationError({
+        code: "scpTransport",
+        host: "development.example.com",
+        operation: "scp-upload",
+        remoteTempPath: "/tmp/db-helper/restore.archive.gz",
+        details:
+          "SCP transport to development.example.com failed during scp-upload.\npermission denied"
+      });
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      runRestoreFull(
+        appConfig,
+        {
+          backup: "backup-name",
+          to: "development",
+          skipPreBackup: true,
+          outputMode: "default"
+        },
+        dependencies
+      ),
+    /Restore failed during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nTemporary restore artifact cleanup was attempted but may not have completed\.\nRemote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz\nSCP transport to development\.example\.com failed during scp-upload\.\npermission denied/
   );
 });
 

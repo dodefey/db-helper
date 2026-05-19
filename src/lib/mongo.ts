@@ -10,6 +10,47 @@ type RemoteInvocationOptions = {
   remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
 };
 
+export type RemoteOperationErrorCode =
+  | "sshTransport"
+  | "scpTransport"
+  | "remoteCleanupFailed";
+
+export type RemoteOperation =
+  | "ssh"
+  | "scp-download"
+  | "scp-upload"
+  | "remote-cleanup";
+
+export class RemoteOperationError extends Error {
+  readonly code: RemoteOperationErrorCode;
+  readonly host: string;
+  readonly operation: RemoteOperation;
+  readonly remoteTempPath?: string;
+  readonly details: string;
+  readonly interrupted: boolean;
+
+  constructor(input: {
+    code: RemoteOperationErrorCode;
+    host: string;
+    operation: RemoteOperation;
+    details: string;
+    remoteTempPath?: string;
+    interrupted?: boolean;
+    cause?: unknown;
+  }) {
+    super(input.details, {
+      cause: input.cause instanceof Error ? input.cause : undefined
+    });
+    this.name = "RemoteOperationError";
+    this.code = input.code;
+    this.host = input.host;
+    this.operation = input.operation;
+    this.remoteTempPath = input.remoteTempPath;
+    this.details = input.details;
+    this.interrupted = input.interrupted ?? false;
+  }
+}
+
 function mongoUri(env: EnvironmentConfig): string {
   const host = env.mongoHost || env.host;
   const params = new URLSearchParams({ authSource: env.authSource });
@@ -31,13 +72,17 @@ async function cleanupRemoteArchive(
   remotePath: string,
   invocation?: RemoteInvocationOptions
 ): Promise<void> {
-  await runRemote(
-    env,
-    `rm -f ${JSON.stringify(remotePath)}`,
-    true,
-    undefined,
-    invocation
-  );
+  try {
+    await runRemote(
+      env,
+      `rm -f ${JSON.stringify(remotePath)}`,
+      true,
+      undefined,
+      invocation
+    );
+  } catch (error) {
+    throw wrapCleanupError(env, remotePath, error);
+  }
 }
 
 function getErrorDetails(error: unknown): string {
@@ -48,19 +93,132 @@ function getErrorDetails(error: unknown): string {
   return String(error);
 }
 
-function combineWithCleanupFailure(
-  primaryError: unknown,
-  cleanupError: unknown
-): Error {
-  const primaryDetails = getErrorDetails(primaryError);
-  const cleanupDetails = getErrorDetails(cleanupError);
+function extractTransportDetails(error: unknown): string {
+  if (error instanceof RemoteOperationError) {
+    return error.details;
+  }
+  return getErrorDetails(error);
+}
 
-  return new Error(
-    `${primaryDetails}\nRemote temporary archive cleanup failed: ${cleanupDetails}`,
-    {
-      cause: primaryError instanceof Error ? primaryError : undefined
-    }
+function hasKnownHostsTrustFailure(message: string): boolean {
+  return (
+    message.includes("hostkeys_foreach failed") ||
+    message.includes("Failed to add the host") ||
+    message.includes("Operation not permitted") ||
+    message.includes("known_hosts")
   );
+}
+
+function extractCommandFailureBody(message: string): string {
+  const newlineIndex = message.indexOf("\n");
+  if (newlineIndex === -1) {
+    return message.trim();
+  }
+
+  const body = message.slice(newlineIndex + 1).trim();
+  return body || message.trim();
+}
+
+function isInterruptedTransportFailure(error: unknown): boolean {
+  return (
+    (error instanceof Error &&
+      error.message.startsWith("Command interrupted:")) ||
+    (error instanceof RemoteOperationError && error.interrupted)
+  );
+}
+
+export function translateRemoteProcessError(input: {
+  host: string;
+  operation: RemoteOperation;
+  remoteTempPath?: string;
+  error: unknown;
+}): RemoteOperationError {
+  if (input.error instanceof RemoteOperationError) {
+    return input.error;
+  }
+
+  const rawDetails = extractCommandFailureBody(getErrorDetails(input.error));
+  const interrupted = isInterruptedTransportFailure(input.error);
+  const trustFailure = hasKnownHostsTrustFailure(rawDetails);
+
+  if (input.operation === "ssh") {
+    return new RemoteOperationError({
+      code: "sshTransport",
+      host: input.host,
+      operation: input.operation,
+      remoteTempPath: input.remoteTempPath,
+      interrupted,
+      details: trustFailure
+        ? `SSH could not verify or access host-key trust for ${input.host}. Check known_hosts access and trust the host before retrying.`
+        : `SSH transport to ${input.host} failed.\n${rawDetails}`,
+      cause: input.error
+    });
+  }
+
+  return new RemoteOperationError({
+    code: "scpTransport",
+    host: input.host,
+    operation: input.operation,
+    remoteTempPath: input.remoteTempPath,
+    interrupted,
+    details: trustFailure
+      ? `SSH could not verify or access host-key trust for ${input.host}. Check known_hosts access and trust the host before retrying.`
+      : `SCP transport to ${input.host} failed during ${input.operation}.\n${rawDetails}`,
+    cause: input.error
+  });
+}
+
+function wrapCleanupError(
+  env: EnvironmentConfig,
+  remotePath: string,
+  error: unknown
+): RemoteOperationError {
+  const translated = translateRemoteProcessError({
+    host: env.host,
+    operation: "ssh",
+    remoteTempPath: remotePath,
+    error
+  });
+
+  return new RemoteOperationError({
+    code: "remoteCleanupFailed",
+    host: env.host,
+    operation: "remote-cleanup",
+    remoteTempPath: remotePath,
+    interrupted: translated.interrupted,
+    details: `Remote cleanup failed on ${env.host}.\n${translated.details}`,
+    cause: translated
+  });
+}
+
+export function combineRemoteTransportErrors(
+  primaryError: unknown,
+  cleanupError: unknown,
+  remoteTempPath: string
+): RemoteOperationError {
+  const primary =
+    primaryError instanceof RemoteOperationError
+      ? primaryError
+      : new RemoteOperationError({
+          code: "sshTransport",
+          host: "unknown",
+          operation: "ssh",
+          details: extractTransportDetails(primaryError),
+          remoteTempPath,
+          interrupted: isInterruptedTransportFailure(primaryError),
+          cause: primaryError
+        });
+  const cleanupDetails = extractTransportDetails(cleanupError);
+
+  return new RemoteOperationError({
+    code: primary.code,
+    host: primary.host,
+    operation: primary.operation,
+    remoteTempPath: primary.remoteTempPath ?? remoteTempPath,
+    interrupted: primary.interrupted,
+    details: `${primary.details}\nRemote temporary archive cleanup failed: ${cleanupDetails}`,
+    cause: primary
+  });
 }
 
 async function runRemote(
@@ -80,7 +238,15 @@ async function runRemote(
     ? ["-i", env.sshKeyPath, target, remoteCommand]
     : [target, remoteCommand];
 
-  return runCommand("ssh", sshArgs, { streamOutput, signal });
+  try {
+    return await runCommand("ssh", sshArgs, { streamOutput, signal });
+  } catch (error) {
+    throw translateRemoteProcessError({
+      host: env.host,
+      operation: "ssh",
+      error
+    });
+  }
 }
 
 async function copyFromRemote(
@@ -99,7 +265,16 @@ async function copyFromRemote(
   const scpArgs = env.sshKeyPath
     ? ["-i", env.sshKeyPath, sourceTarget, localPath]
     : [sourceTarget, localPath];
-  await runCommand("scp", scpArgs, { signal });
+  try {
+    await runCommand("scp", scpArgs, { signal });
+  } catch (error) {
+    throw translateRemoteProcessError({
+      host: env.host,
+      operation: "scp-download",
+      remoteTempPath: remotePath,
+      error
+    });
+  }
 }
 
 async function copyToRemote(
@@ -118,7 +293,16 @@ async function copyToRemote(
   const scpArgs = env.sshKeyPath
     ? ["-i", env.sshKeyPath, localPath, destinationTarget]
     : [localPath, destinationTarget];
-  await runCommand("scp", scpArgs, { signal });
+  try {
+    await runCommand("scp", scpArgs, { signal });
+  } catch (error) {
+    throw translateRemoteProcessError({
+      host: env.host,
+      operation: "scp-upload",
+      remoteTempPath: remotePath,
+      error
+    });
+  }
 }
 
 async function runMongoShell(
@@ -296,16 +480,24 @@ export async function createArchiveBackup(
   }
 
   if (primaryError && cleanupError) {
-    throw combineWithCleanupFailure(primaryError, cleanupError);
+    throw combineRemoteTransportErrors(primaryError, cleanupError, remotePath);
   }
   if (primaryError) {
+    if (primaryError instanceof RemoteOperationError) {
+      throw new RemoteOperationError({
+        code: primaryError.code,
+        host: primaryError.host,
+        operation: primaryError.operation,
+        remoteTempPath: primaryError.remoteTempPath ?? remotePath,
+        interrupted: primaryError.interrupted,
+        details: primaryError.details,
+        cause: primaryError
+      });
+    }
     throw primaryError;
   }
   if (cleanupError) {
-    throw new Error(
-      `Remote temporary archive cleanup failed: ${getErrorDetails(cleanupError)}`,
-      { cause: cleanupError }
-    );
+    throw cleanupError;
   }
 }
 
@@ -388,16 +580,24 @@ export async function restoreArchiveToEnvironment(
   }
 
   if (primaryError && cleanupError) {
-    throw combineWithCleanupFailure(primaryError, cleanupError);
+    throw combineRemoteTransportErrors(primaryError, cleanupError, remotePath);
   }
   if (primaryError) {
+    if (primaryError instanceof RemoteOperationError) {
+      throw new RemoteOperationError({
+        code: primaryError.code,
+        host: primaryError.host,
+        operation: primaryError.operation,
+        remoteTempPath: primaryError.remoteTempPath ?? remotePath,
+        interrupted: primaryError.interrupted,
+        details: primaryError.details,
+        cause: primaryError
+      });
+    }
     throw primaryError;
   }
   if (cleanupError) {
-    throw new Error(
-      `Remote temporary archive cleanup failed: ${getErrorDetails(cleanupError)}`,
-      { cause: cleanupError }
-    );
+    throw cleanupError;
   }
 }
 
@@ -411,7 +611,9 @@ export async function verifyConnectivity(
 
   const script =
     "const result = db.runCommand({ ping: 1 }); if (result.ok !== 1) { throw new Error('Mongo ping failed'); }";
-  await runMongoShell(env, script);
+  await runMongoShell(env, script, {
+    remotePreflightSession: options.remotePreflightSession
+  });
 }
 
 export async function inspectArchiveCollections(
@@ -480,16 +682,24 @@ export async function inspectArchiveCollections(
   }
 
   if (primaryError && cleanupError) {
-    throw combineWithCleanupFailure(primaryError, cleanupError);
+    throw combineRemoteTransportErrors(primaryError, cleanupError, remotePath);
   }
   if (primaryError) {
+    if (primaryError instanceof RemoteOperationError) {
+      throw new RemoteOperationError({
+        code: primaryError.code,
+        host: primaryError.host,
+        operation: primaryError.operation,
+        remoteTempPath: primaryError.remoteTempPath ?? remotePath,
+        interrupted: primaryError.interrupted,
+        details: primaryError.details,
+        cause: primaryError
+      });
+    }
     throw primaryError;
   }
   if (cleanupError) {
-    throw new Error(
-      `Remote temporary archive cleanup failed: ${getErrorDetails(cleanupError)}`,
-      { cause: cleanupError }
-    );
+    throw cleanupError;
   }
 
   return parseArchiveCollections(

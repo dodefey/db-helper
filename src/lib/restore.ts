@@ -9,7 +9,7 @@ import {
   ensureBackupArtifacts,
   readBackup
 } from "./backups.js";
-import { restoreArchiveToEnvironment } from "./mongo.js";
+import { RemoteOperationError, restoreArchiveToEnvironment } from "./mongo.js";
 import { verifyRestore } from "./verify.js";
 import { backupCreate } from "../commands/backup.js";
 import {
@@ -53,11 +53,16 @@ type RestorePhase =
 
 function isInterruptedError(error: unknown): boolean {
   return (
-    error instanceof Error && error.message.startsWith("Command interrupted:")
+    (error instanceof Error &&
+      error.message.startsWith("Command interrupted:")) ||
+    (error instanceof RemoteOperationError && error.interrupted)
   );
 }
 
 function getErrorDetails(error: unknown): string {
+  if (error instanceof RemoteOperationError) {
+    return error.details;
+  }
   if (error instanceof Error && error.message.trim()) {
     return error.message.trim();
   }
@@ -72,6 +77,7 @@ function formatRestoreFailure(options: {
   targetMayBeDirty: boolean;
   interrupted: boolean;
   cleanupLine?: string;
+  remoteTempPath?: string;
   details?: string;
 }): string {
   const phaseLabel =
@@ -95,6 +101,10 @@ function formatRestoreFailure(options: {
 
   if (options.cleanupLine) {
     lines.push(options.cleanupLine);
+  }
+
+  if (options.remoteTempPath) {
+    lines.push(`Remote temporary archive path: ${options.remoteTempPath}`);
   }
 
   if (options.interrupted) {
@@ -123,6 +133,12 @@ function cleanupLineForFailure(
   }
 
   return undefined;
+}
+
+function getRemoteTempPath(error: unknown): string | undefined {
+  return error instanceof RemoteOperationError
+    ? error.remoteTempPath
+    : undefined;
 }
 
 function formatRestoreVerificationFailure(
@@ -287,6 +303,7 @@ export async function runRestoreFull(
         targetMayBeDirty,
         interrupted: isInterruptedError(error),
         cleanupLine: cleanupLineForFailure(currentPhase, target),
+        remoteTempPath: getRemoteTempPath(error),
         details: getErrorDetails(error)
       }),
       { cause: error }
@@ -399,6 +416,7 @@ export async function runRestoreCollection(
         targetMayBeDirty,
         interrupted: isInterruptedError(error),
         cleanupLine: cleanupLineForFailure(currentPhase, target),
+        remoteTempPath: getRemoteTempPath(error),
         details: getErrorDetails(error)
       }),
       { cause: error }

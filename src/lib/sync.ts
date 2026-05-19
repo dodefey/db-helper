@@ -8,6 +8,7 @@ import {
   getCollectionCounts,
   inspectArchiveCollections,
   listCollections,
+  RemoteOperationError,
   restoreArchiveToEnvironment
 } from "./mongo.js";
 import {
@@ -162,6 +163,7 @@ function formatSyncFailure(input: {
   details: string;
   cleanupFailed?: boolean;
   interrupted?: boolean;
+  remoteTempPath?: string;
 }): string {
   const phaseLabel =
     input.phase === "source_metadata"
@@ -186,11 +188,15 @@ function formatSyncFailure(input: {
     `Sync ${actionLabel} during ${phaseLabel} for ${formatSyncTarget(input)}.\n` +
     `${targetStatus}\n` +
     `${cleanupStatus}\n` +
+    `${input.remoteTempPath ? `Remote temporary archive path: ${input.remoteTempPath}\n` : ""}` +
     `${details}`
   );
 }
 
 function getErrorDetails(error: unknown): string {
+  if (error instanceof RemoteOperationError) {
+    return error.details;
+  }
   if (error instanceof Error) {
     return error.message;
   }
@@ -200,8 +206,16 @@ function getErrorDetails(error: unknown): string {
 
 function isInterruptedError(error: unknown): boolean {
   return (
-    error instanceof Error && error.message.startsWith("Command interrupted:")
+    (error instanceof Error &&
+      error.message.startsWith("Command interrupted:")) ||
+    (error instanceof RemoteOperationError && error.interrupted)
   );
+}
+
+function getRemoteTempPath(error: unknown): string | undefined {
+  return error instanceof RemoteOperationError
+    ? error.remoteTempPath
+    : undefined;
 }
 
 function filterSyncCollections(collections: string[]): string[] {
@@ -534,6 +548,7 @@ export async function runSync(
           phase: currentPhase,
           targetMayBeDirty,
           interrupted: interrupted || isInterruptedError(error),
+          remoteTempPath: getRemoteTempPath(error),
           details: getErrorDetails(error)
         })
       });
@@ -573,6 +588,9 @@ export async function runSync(
             phase: primaryError.phase,
             targetMayBeDirty: primaryError.targetMayBeDirty,
             interrupted: primaryError.interrupted,
+            remoteTempPath: getRemoteTempPath(
+              primaryError.cause ?? primaryError
+            ),
             details: getErrorDetails(primaryError.cause ?? primaryError),
             cleanupFailed: true
           })
@@ -591,6 +609,7 @@ export async function runSync(
             phase: "cleanup",
             targetMayBeDirty,
             interrupted,
+            remoteTempPath: getRemoteTempPath(error),
             details: getErrorDetails(error),
             cleanupFailed: true
           })

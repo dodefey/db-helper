@@ -3,6 +3,7 @@
 ## Unreleased
 
 - added session-scoped SSH host-key preflight across remote `backup`, `sync`, `restore`, and `doctor` so repeated SSH/SCP steps fail early and consistently when host trust or `known_hosts` access is broken
+- improved remote `sync` and `restore` failure reporting by translating SSH/SCP transport errors into clearer operator messages and surfacing remote temp archive paths when cleanup may need manual follow-up
 
 ## 0.1.12
 
