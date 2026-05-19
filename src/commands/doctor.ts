@@ -150,9 +150,14 @@ export async function runDoctor(
 
   for (const env of Object.values(appConfig.environments)) {
     if (env.kind === "remote" && env.sshKeyPath) {
-      await runCheck(results, { check: "ssh key", scope: env.id }, () =>
-        dependencies.assertReadable(env.sshKeyPath!)
+      const sshKeyReadable = await runCheck(
+        results,
+        { check: "ssh key", scope: env.id },
+        () => dependencies.assertReadable(env.sshKeyPath!)
       );
+      if (!sshKeyReadable) {
+        continue;
+      }
     }
 
     if (!hasMongoCredentials(env)) {

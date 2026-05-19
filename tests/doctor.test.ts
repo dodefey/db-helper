@@ -174,7 +174,7 @@ test("runDoctor reports writable path failures and continues", async () => {
   assert.deepEqual(calls.connectivity, ["development", "test", "production"]);
 });
 
-test("runDoctor reports unreadable remote ssh key and continues", async () => {
+test("runDoctor reports unreadable remote ssh key and skips remote checks", async () => {
   const appConfig = buildAppConfig(
     {},
     {
@@ -195,8 +195,8 @@ test("runDoctor reports unreadable remote ssh key and continues", async () => {
   await assert.rejects(runDoctor(appConfig, dependencies), /1 issue\(s\)/);
 
   assert.deepEqual(calls.readablePaths, ["/tmp/test-key.pem"]);
-  assert.deepEqual(calls.preflight, ["test"]);
-  assert.deepEqual(calls.connectivity, ["development", "test", "production"]);
+  assert.deepEqual(calls.preflight, []);
+  assert.deepEqual(calls.connectivity, ["development", "production"]);
 });
 
 test("runDoctor skips ssh key readability checks when remote ssh key path is omitted", async () => {
@@ -349,8 +349,8 @@ test("runDoctor reports multiple failures and summarizes the total", async () =>
       line.includes("Doctor checks failed: 3 issue(s).")
     )
   );
-  assert.deepEqual(calls.preflight, ["production"]);
-  assert.deepEqual(calls.connectivity, ["development", "production"]);
+  assert.deepEqual(calls.preflight, []);
+  assert.deepEqual(calls.connectivity, ["development"]);
 });
 
 test("runDoctor throws an already-reported doctor error on failure", async () => {
