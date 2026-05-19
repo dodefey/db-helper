@@ -41,9 +41,6 @@ test("ensureRemotePreflight no-ops for local environments", async () => {
       async runCommand(): Promise<string> {
         commandCount += 1;
         return "";
-      },
-      async pathExists(): Promise<boolean> {
-        return true;
       }
     }
   );
@@ -51,60 +48,52 @@ test("ensureRemotePreflight no-ops for local environments", async () => {
   assert.equal(commandCount, 0);
 });
 
-test("ensureRemotePreflight succeeds when a trusted host entry is found", async () => {
+test("ensureRemotePreflight succeeds with a non-interactive SSH probe", async () => {
   const session = createRemotePreflightSession();
   const commands: Array<{ command: string; args: string[] }> = [];
 
   await ensureRemotePreflight(session, buildEnvironment(), ["hostKeyAccess"], {
     async runCommand(command, args): Promise<string> {
       commands.push({ command, args });
-      if (command === "ssh") {
-        return [
-          "hostname prod.example.com",
-          "userknownhostsfile /tmp/known_hosts"
-        ].join("\n");
-      }
-      return "# Host prod.example.com found: line 1\n";
-    },
-    async pathExists(): Promise<boolean> {
-      return true;
+      return "";
     }
   });
 
   assert.deepEqual(commands, [
     {
       command: "ssh",
-      args: ["-G", "-i", "/tmp/test-key.pem", "ubuntu@prod.example.com"]
-    },
-    {
-      command: "ssh-keygen",
-      args: ["-F", "prod.example.com", "-f", "/tmp/known_hosts"]
+      args: [
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "StrictHostKeyChecking=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "-i",
+        "/tmp/test-key.pem",
+        "ubuntu@prod.example.com",
+        "true"
+      ]
     }
   ]);
 });
 
-test("ensureRemotePreflight reports hostNotTrusted when no entry is found", async () => {
+test("ensureRemotePreflight reports hostNotTrusted for trust failures", async () => {
   const session = createRemotePreflightSession();
 
   await assert.rejects(
     ensureRemotePreflight(session, buildEnvironment(), ["hostKeyAccess"], {
-      async runCommand(command): Promise<string> {
-        if (command === "ssh") {
-          return [
-            "hostname prod.example.com",
-            "userknownhostsfile /tmp/known_hosts"
-          ].join("\n");
-        }
-        throw new Error("Command failed (1): ssh-keygen");
-      },
-      async pathExists(): Promise<boolean> {
-        return true;
+      async runCommand(): Promise<string> {
+        throw new Error(
+          "Command failed (255): ssh 'host'\nHost key verification failed."
+        );
       }
     }),
     (error: unknown) =>
       error instanceof RemotePreflightError &&
       error.code === "hostNotTrusted" &&
-      error.knownHostsPaths.includes("/tmp/known_hosts")
+      error.lookupNames.length === 0 &&
+      error.knownHostsPaths.length === 0
   );
 });
 
@@ -113,57 +102,34 @@ test("ensureRemotePreflight reports knownHostsAccess for unreadable known_hosts"
 
   await assert.rejects(
     ensureRemotePreflight(session, buildEnvironment(), ["hostKeyAccess"], {
-      async runCommand(command): Promise<string> {
-        if (command === "ssh") {
-          return [
-            "hostname prod.example.com",
-            "userknownhostsfile /tmp/known_hosts"
-          ].join("\n");
-        }
+      async runCommand(): Promise<string> {
         throw new Error(
-          "Command failed (255): ssh-keygen\nhostkeys_foreach failed: Operation not permitted"
+          "Command failed (255): ssh 'host'\nhostkeys_foreach failed: Operation not permitted"
         );
-      },
-      async pathExists(): Promise<boolean> {
-        return true;
       }
     }),
     (error: unknown) =>
       error instanceof RemotePreflightError &&
       error.code === "knownHostsAccess" &&
-      error.knownHostsPaths[0] === "/tmp/known_hosts"
+      error.lookupNames.length === 0 &&
+      error.knownHostsPaths.length === 0
   );
 });
 
-test("ensureRemotePreflight parses multiple known_hosts files and prefers hostkeyalias", async () => {
+test("ensureRemotePreflight reports preflightFailed for generic SSH failures", async () => {
   const session = createRemotePreflightSession();
-  const lookups: string[][] = [];
 
-  await ensureRemotePreflight(session, buildEnvironment(), ["hostKeyAccess"], {
-    async runCommand(command, args): Promise<string> {
-      if (command === "ssh") {
-        return [
-          "hostkeyalias prod-alias",
-          "hostname prod.example.com",
-          "userknownhostsfile /tmp/first /tmp/second"
-        ].join("\n");
+  await assert.rejects(
+    ensureRemotePreflight(session, buildEnvironment(), ["hostKeyAccess"], {
+      async runCommand(): Promise<string> {
+        throw new Error(
+          "Command failed (255): ssh 'host'\nPermission denied (publickey)."
+        );
       }
-      lookups.push(args);
-      if (args[3] === "/tmp/first") {
-        throw new Error("Command failed (1): ssh-keygen");
-      }
-      return "# Host prod-alias found: line 1\n";
-    },
-    async pathExists(): Promise<boolean> {
-      return true;
-    }
-  });
-
-  assert.deepEqual(lookups, [
-    ["-F", "prod-alias", "-f", "/tmp/first"],
-    ["-F", "prod.example.com", "-f", "/tmp/first"],
-    ["-F", "prod-alias", "-f", "/tmp/second"]
-  ]);
+    }),
+    (error: unknown) =>
+      error instanceof RemotePreflightError && error.code === "preflightFailed"
+  );
 });
 
 test("ensureRemotePreflight caches successful checks for the session", async () => {
@@ -171,18 +137,9 @@ test("ensureRemotePreflight caches successful checks for the session", async () 
   let commandCount = 0;
 
   const dependencies = {
-    async runCommand(command: string): Promise<string> {
+    async runCommand(): Promise<string> {
       commandCount += 1;
-      if (command === "ssh") {
-        return [
-          "hostname prod.example.com",
-          "userknownhostsfile /tmp/known_hosts"
-        ].join("\n");
-      }
-      return "# Host prod.example.com found: line 1\n";
-    },
-    async pathExists(): Promise<boolean> {
-      return true;
+      return "";
     }
   };
 
@@ -199,7 +156,7 @@ test("ensureRemotePreflight caches successful checks for the session", async () 
     dependencies
   );
 
-  assert.equal(commandCount, 2);
+  assert.equal(commandCount, 1);
 });
 
 test("ensureRemotePreflight caches failed checks for the session", async () => {
@@ -207,18 +164,11 @@ test("ensureRemotePreflight caches failed checks for the session", async () => {
   let commandCount = 0;
 
   const dependencies = {
-    async runCommand(command: string): Promise<string> {
+    async runCommand(): Promise<string> {
       commandCount += 1;
-      if (command === "ssh") {
-        return [
-          "hostname prod.example.com",
-          "userknownhostsfile /tmp/known_hosts"
-        ].join("\n");
-      }
-      throw new Error("Command failed (1): ssh-keygen");
-    },
-    async pathExists(): Promise<boolean> {
-      return true;
+      throw new Error(
+        "Command failed (255): ssh 'host'\nHost key verification failed."
+      );
     }
   };
 
@@ -229,7 +179,7 @@ test("ensureRemotePreflight caches failed checks for the session", async () => {
       ["hostKeyAccess"],
       dependencies
     ),
-    /not trusted yet/
+    /host is not trusted/
   );
   await assert.rejects(
     ensureRemotePreflight(
@@ -238,8 +188,8 @@ test("ensureRemotePreflight caches failed checks for the session", async () => {
       ["hostKeyAccess"],
       dependencies
     ),
-    /not trusted yet/
+    /host is not trusted/
   );
 
-  assert.equal(commandCount, 2);
+  assert.equal(commandCount, 1);
 });

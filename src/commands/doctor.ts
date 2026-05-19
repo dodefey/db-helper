@@ -168,7 +168,7 @@ export async function runDoctor(
     if (env.kind === "remote") {
       const hostKeyReady = await runCheck(
         results,
-        { check: "host key access", scope: env.id },
+        { check: "SSH preflight", scope: env.id },
         () => dependencies.ensureRemotePreflight(context, env)
       );
       if (!hostKeyReady) {

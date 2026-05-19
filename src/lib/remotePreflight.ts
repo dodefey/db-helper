@@ -1,10 +1,6 @@
-import { access, constants as fsConstants } from "node:fs";
-import { promisify } from "node:util";
 import { EnvironmentConfig } from "../config/types.js";
 import { runCommand } from "./exec.js";
 import { getRunLogger } from "./runLog.js";
-
-const accessAsync = promisify(access);
 
 export type RemotePreflightCapability = "hostKeyAccess";
 
@@ -44,26 +40,20 @@ export interface RemotePreflightSession {
 
 export interface RemotePreflightDependencies {
   runCommand: typeof runCommand;
-  pathExists: (path: string) => Promise<boolean>;
 }
 
 const DEFAULT_REMOTE_PREFLIGHT_DEPENDENCIES: RemotePreflightDependencies = {
-  runCommand,
-  async pathExists(path: string): Promise<boolean> {
-    try {
-      await accessAsync(path, fsConstants.F_OK);
-      return true;
-    } catch {
-      return false;
-    }
-  }
+  runCommand
 };
 
-type EffectiveSshConfig = {
-  hostKeyAlias?: string;
-  hostname?: string;
-  userKnownHostsFiles: string[];
-};
+const SSH_PREFLIGHT_ARGS = [
+  "-o",
+  "BatchMode=yes",
+  "-o",
+  "StrictHostKeyChecking=yes",
+  "-o",
+  "ConnectTimeout=5"
+] as const;
 
 export function createRemotePreflightSession(): RemotePreflightSession {
   return {
@@ -96,55 +86,20 @@ function buildSshBaseArgs(env: EnvironmentConfig): string[] {
   return env.sshKeyPath ? ["-i", env.sshKeyPath, target] : [target];
 }
 
-function parseEffectiveSshConfig(output: string): EffectiveSshConfig {
-  const config: EffectiveSshConfig = {
-    userKnownHostsFiles: []
-  };
-
-  for (const line of output.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed) {
-      continue;
-    }
-
-    const [key, ...rest] = trimmed.split(/\s+/);
-    if (!key || rest.length === 0) {
-      continue;
-    }
-
-    if (key === "hostkeyalias") {
-      config.hostKeyAlias = rest.join(" ");
-      continue;
-    }
-    if (key === "hostname") {
-      config.hostname = rest.join(" ");
-      continue;
-    }
-    if (key === "userknownhostsfile") {
-      config.userKnownHostsFiles = rest;
-    }
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim();
   }
-
-  return config;
+  return String(error);
 }
 
-function buildLookupNames(
-  env: EnvironmentConfig,
-  effectiveConfig: EffectiveSshConfig
-): string[] {
-  const candidates = [
-    effectiveConfig.hostKeyAlias,
-    effectiveConfig.hostname,
-    env.host
-  ];
-  const names: string[] = [];
-  for (const candidate of candidates) {
-    if (!candidate || names.includes(candidate)) {
-      continue;
-    }
-    names.push(candidate);
+function extractFailureBody(message: string): string {
+  const newlineIndex = message.indexOf("\n");
+  if (newlineIndex === -1) {
+    return message;
   }
-  return names;
+  const body = message.slice(newlineIndex + 1).trim();
+  return body || message;
 }
 
 function isKnownHostsAccessFailure(message: string): boolean {
@@ -156,27 +111,21 @@ function isKnownHostsAccessFailure(message: string): boolean {
   );
 }
 
-async function loadEffectiveSshConfig(
-  env: EnvironmentConfig,
-  dependencies: RemotePreflightDependencies
-): Promise<EffectiveSshConfig> {
-  try {
-    const output = await dependencies.runCommand(
-      "ssh",
-      ["-G", ...buildSshBaseArgs(env)],
-      { streamOutput: false }
-    );
-    return parseEffectiveSshConfig(output);
-  } catch (error) {
-    throw new RemotePreflightError({
-      code: "preflightFailed",
-      host: env.host,
-      message:
-        `SSH host-key preflight failed for ${env.host}: ` +
-        `unable to inspect effective SSH configuration.`,
-      cause: error
-    });
-  }
+function isHostTrustFailure(message: string): boolean {
+  return (
+    message.includes("Host key verification failed") ||
+    message.includes("REMOTE HOST IDENTIFICATION HAS CHANGED") ||
+    message.includes("No ED25519 host key is known for") ||
+    message.includes("No RSA host key is known for") ||
+    message.includes("No ECDSA host key is known for") ||
+    message.includes("The authenticity of host") ||
+    message.includes("host key is not trusted") ||
+    message.includes("Host key verification")
+  );
+}
+
+function buildSshPreflightArgs(env: EnvironmentConfig): string[] {
+  return [...SSH_PREFLIGHT_ARGS, ...buildSshBaseArgs(env), "true"];
 }
 
 async function verifyHostKeyAccess(
@@ -188,95 +137,32 @@ async function verifyHostKeyAccess(
   }
 
   const runLogger = getRunLogger();
-  const effectiveConfig = await loadEffectiveSshConfig(env, dependencies);
-  const knownHostsPaths = effectiveConfig.userKnownHostsFiles;
-  const lookupNames = buildLookupNames(env, effectiveConfig);
+  const sshArgs = buildSshPreflightArgs(env);
+  try {
+    await dependencies.runCommand("ssh", sshArgs, { streamOutput: false });
+    runLogger.debug("remotePreflight", "Verified SSH preflight", {
+      host: env.host
+    });
+  } catch (error) {
+    const details = extractFailureBody(extractErrorMessage(error));
+    const code = isKnownHostsAccessFailure(details)
+      ? "knownHostsAccess"
+      : isHostTrustFailure(details)
+        ? "hostNotTrusted"
+        : "preflightFailed";
 
-  if (lookupNames.length === 0) {
     throw new RemotePreflightError({
-      code: "preflightFailed",
+      code,
       host: env.host,
-      knownHostsPaths,
       message:
-        `SSH host-key preflight failed for ${env.host}: ` +
-        `unable to determine a host name to check in known_hosts.`
+        code === "knownHostsAccess"
+          ? `SSH preflight failed for ${env.host}: OpenSSH could not access known_hosts state.\n${details}`
+          : code === "hostNotTrusted"
+            ? `SSH preflight failed for ${env.host}: the host is not trusted.\n${details}`
+            : `SSH preflight failed for ${env.host}.\n${details}`,
+      cause: error
     });
   }
-
-  if (knownHostsPaths.length === 0) {
-    throw new RemotePreflightError({
-      code: "hostNotTrusted",
-      host: env.host,
-      lookupNames,
-      message:
-        `SSH host key for ${env.host} is not trusted yet. ` +
-        `No UserKnownHostsFile entries were resolved for this target.`
-    });
-  }
-
-  for (const knownHostsPath of knownHostsPaths) {
-    if (!(await dependencies.pathExists(knownHostsPath))) {
-      continue;
-    }
-
-    for (const lookupName of lookupNames) {
-      try {
-        await dependencies.runCommand(
-          "ssh-keygen",
-          ["-F", lookupName, "-f", knownHostsPath],
-          { streamOutput: false }
-        );
-        runLogger.debug("remotePreflight", "Verified SSH host key trust", {
-          host: env.host,
-          lookupName,
-          knownHostsPath
-        });
-        return;
-      } catch (error) {
-        const message =
-          error instanceof Error && error.message.trim()
-            ? error.message
-            : String(error);
-        if (message.includes("Command failed (1):")) {
-          continue;
-        }
-        if (isKnownHostsAccessFailure(message)) {
-          throw new RemotePreflightError({
-            code: "knownHostsAccess",
-            host: env.host,
-            lookupNames,
-            knownHostsPaths: [knownHostsPath],
-            message:
-              `SSH host-key preflight failed for ${env.host}: ` +
-              `OpenSSH could not inspect ${knownHostsPath}. ` +
-              `Fix access to that known_hosts file or configure UserKnownHostsFile to a readable local path.`,
-            cause: error
-          });
-        }
-        throw new RemotePreflightError({
-          code: "preflightFailed",
-          host: env.host,
-          lookupNames,
-          knownHostsPaths: [knownHostsPath],
-          message:
-            `SSH host-key preflight failed for ${env.host}: ` +
-            `ssh-keygen could not verify trust in ${knownHostsPath}.`,
-          cause: error
-        });
-      }
-    }
-  }
-
-  throw new RemotePreflightError({
-    code: "hostNotTrusted",
-    host: env.host,
-    lookupNames,
-    knownHostsPaths,
-    message:
-      `SSH host key for ${env.host} is not trusted yet. ` +
-      `No entry for ${lookupNames.join(", ")} was found in ${knownHostsPaths.join(", ")}. ` +
-      `Trust the host first with ssh or update your SSH config, then rerun the command.`
-  });
 }
 
 async function runCapability(
@@ -286,7 +172,6 @@ async function runCapability(
 ): Promise<void> {
   if (capability === "hostKeyAccess") {
     await verifyHostKeyAccess(env, dependencies);
-    return;
   }
 }
 

@@ -309,7 +309,7 @@ test("runDoctor reports host-key preflight failure and skips connectivity for th
   assert.deepEqual(calls.connectivity, ["development", "production"]);
   assert.ok(
     calls.output.some((line) =>
-      line.includes("FAIL environment test host key access")
+      line.includes("FAIL environment test SSH preflight")
     )
   );
 });
