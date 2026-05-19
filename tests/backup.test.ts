@@ -17,6 +17,7 @@ import {
   RunBackupCreateDependencies
 } from "../src/lib/backup.js";
 import { createCommandInvocationContext } from "../src/lib/invocationContext.js";
+import { RemoteOperationError } from "../src/lib/mongo.js";
 import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
@@ -282,6 +283,36 @@ test("runBackupCreate reports interruption during archive creation", async () =>
         throw new Error("Command interrupted: mongodump");
       }
       throw new Error("expected interrupt");
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      runBackupCreate(
+        buildAppConfig(),
+        { from: "development", outputMode: "default" },
+        dependencies
+      ),
+    /Backup interrupted during archive creation for development\.\nThe backup may be incomplete or invalid and must not be trusted\.\nCleanup of incomplete backup artifacts was attempted\.\nThe backup was interrupted by the operator\./
+  );
+
+  assert.deepEqual(calls.removedBackups, ["2026-03-26T12-00-00-development"]);
+  assert.equal(calls.removeInterruptHandlerCount, 1);
+});
+
+test("runBackupCreate reports remote interruption during archive creation", async () => {
+  const { dependencies, calls, triggerInterrupt } = createBackupDependencies({
+    async createArchiveBackup(): Promise<void> {
+      triggerInterrupt();
+      throw new RemoteOperationError({
+        code: "scpTransport",
+        host: "development.example.com",
+        operation: "scp-download",
+        remoteTempPath: "/tmp/db-helper/source.archive.gz",
+        details:
+          "SCP transport to development.example.com failed during scp-download.\nconnection reset",
+        interrupted: true
+      });
     }
   });
 

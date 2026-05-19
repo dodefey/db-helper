@@ -17,7 +17,8 @@ import { ensureDirectory } from "./fs.js";
 import {
   createArchiveBackup,
   getCollectionCounts,
-  listCollections
+  listCollections,
+  RemoteOperationError
 } from "./mongo.js";
 import {
   CommandInvocationContext,
@@ -112,11 +113,16 @@ async function runWithElapsedStatus<T>(
 
 function isInterruptedError(error: unknown): boolean {
   return (
-    error instanceof Error && error.message.startsWith("Command interrupted:")
+    (error instanceof Error &&
+      error.message.startsWith("Command interrupted:")) ||
+    (error instanceof RemoteOperationError && error.interrupted)
   );
 }
 
 function getErrorDetails(error: unknown): string {
+  if (error instanceof RemoteOperationError) {
+    return error.details;
+  }
   if (error instanceof Error) {
     return error.message;
   }
