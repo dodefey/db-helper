@@ -4,6 +4,13 @@ import {
   getRecommendedUserConfigPath,
   loadConfig
 } from "./config/loadConfig.js";
+import {
+  printBackupHelp,
+  printConfigHelp,
+  printHelp,
+  printRestoreHelp,
+  printSyncHelp
+} from "./cliHelp.js";
 import { AppConfig, EnvironmentId } from "./config/types.js";
 import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
 import {
@@ -87,35 +94,6 @@ function resolveEnvironment(
   return value;
 }
 
-function printHelp(): void {
-  process.stdout.write(`dbh
-
-Global flags:
-  --config <path>
-  --log
-
-Default config search:
-  ./config.json
-  ${getRecommendedUserConfigPath()}
-
-Commands:
-  init [--from-env-file <path>] [--config <path>] [--force]
-  config validate
-  config path
-  config show [--unredacted]
-  interactive
-  backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
-  backup list [--from <environment>] [--tag <tag>]
-  backup inspect --backup <backup-name>
-  sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
-  sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
-  restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose] [--log]
-  restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
-  recover
-  doctor
-`);
-}
-
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
   const [command, subcommand, third] = args.positional;
@@ -139,9 +117,47 @@ async function main(): Promise<void> {
 
   if (!command || command === "--help" || command === "help") {
     runLogger.info("cli", "Printing help");
-    printHelp();
+    printHelp(getRecommendedUserConfigPath());
     await finishSuccess();
     return;
+  }
+
+  if (getBooleanFlag(args.flags, "help")) {
+    if (command === "config") {
+      runLogger.info("cli", "Printing config help");
+      printConfigHelp();
+      await finishSuccess();
+      return;
+    }
+    if (command === "backup") {
+      runLogger.info("cli", "Printing backup help");
+      printBackupHelp();
+      await finishSuccess();
+      return;
+    }
+    if (command === "sync") {
+      runLogger.info("cli", "Printing sync help");
+      printSyncHelp();
+      await finishSuccess();
+      return;
+    }
+    if (command === "restore") {
+      runLogger.info("cli", "Printing restore help");
+      printRestoreHelp();
+      await finishSuccess();
+      return;
+    }
+    if (
+      command === "init" ||
+      command === "interactive" ||
+      command === "recover" ||
+      command === "doctor"
+    ) {
+      runLogger.info("cli", "Printing help");
+      printHelp(getRecommendedUserConfigPath());
+      await finishSuccess();
+      return;
+    }
   }
 
   const outputMode = parseOutputMode({

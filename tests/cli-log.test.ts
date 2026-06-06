@@ -158,3 +158,38 @@ test("cli preserves failure logs and reports the path without --log", async () =
     await rm(tempDir, { recursive: true, force: true });
   }
 });
+
+test("cli prints grouped help without loading config", async () => {
+  const cwd = path.resolve(".");
+
+  const configHelp = await runCli(["config", "--help"], cwd);
+  assert.match(configHelp.stdout, /dbh config/);
+  assert.match(configHelp.stdout, /Purpose:/);
+  assert.match(
+    configHelp.stdout,
+    /config show \[--config <path>] \[--unredacted]/
+  );
+  assert.match(configHelp.stdout, /config show defaults to redacted output/);
+
+  const backupHelp = await runCli(["backup", "--help"], cwd);
+  assert.match(backupHelp.stdout, /dbh backup/);
+  assert.match(
+    backupHelp.stdout,
+    /backup create --from <environment> \[--name <name>]/
+  );
+  assert.match(backupHelp.stdout, /Required flags:/);
+  assert.match(backupHelp.stdout, /Interrupted backups should not be trusted/);
+
+  const syncHelp = await runCli(["sync", "--help"], cwd);
+  assert.match(syncHelp.stdout, /dbh sync/);
+  assert.match(syncHelp.stdout, /sync collection --from <environment>/);
+  assert.match(syncHelp.stdout, /Full sync overwrites the target/);
+
+  const restoreHelp = await runCli(["restore", "--help"], cwd);
+  assert.match(restoreHelp.stdout, /dbh restore/);
+  assert.match(restoreHelp.stdout, /restore full --backup <backup-name>/);
+  assert.match(
+    restoreHelp.stdout,
+    /Targets marked isProduction require --force-production-restore/
+  );
+});

@@ -261,6 +261,14 @@ dbh recover
 dbh doctor
 ```
 
+```bash
+# print grouped command help
+dbh config --help
+dbh backup --help
+dbh sync --help
+dbh restore --help
+```
+
 ## Backup
 
 `backup` is the command for capturing a full snapshot of one configured environment into a local archive plus manifest. In practice, it is most useful before risky work, before replacing a target with `sync` or `restore`, or when you want to preserve a known-good production snapshot for later recovery.
