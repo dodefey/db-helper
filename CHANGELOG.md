@@ -5,7 +5,7 @@
 - changed `config.json` to support arbitrary named environments instead of requiring fixed `development`, `test`, and `production` keys
 - added explicit `isProduction` environment marking so production safeguards follow config intent rather than reserved environment names
 - changed `init` to create one named environment first and optionally add more environments interactively
-- changed `sync` to allow any configured source-target pair except targets marked `isProduction: true`, with environment existence checked against config at command time
+- changed `sync` to allow configured source-target pairs with environment existence checked at command time, while still blocking targets marked `isProduction: true` and self-syncs
 - added `dbh backup create --name` so operators can choose an explicit backup directory name instead of always using the generated timestamp form
 
 ## 0.1.13

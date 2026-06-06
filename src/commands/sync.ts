@@ -33,6 +33,15 @@ export async function syncDatabase(
   const runLogger = getRunLogger();
   const targetEnv = appConfig.environments[input.to];
 
+  if (input.from === input.to) {
+    runLogger.warn("sync.command", "Blocked self-sync target", {
+      from: input.from,
+      to: input.to,
+      collection: input.collection
+    });
+    throw new Error(`Sync source and target must be different: ${input.to}.`);
+  }
+
   if (targetEnv.isProduction) {
     runLogger.warn("sync.command", "Blocked sync into production target", {
       from: input.from,

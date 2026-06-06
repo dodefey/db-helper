@@ -409,7 +409,7 @@ Environment rules:
 
 - `--from` and `--to` must name real configured environments
 - sync into an environment marked `isProduction: true` is blocked; use `backup` plus `restore` instead
-- self-syncs are allowed and use the same confirmation flow as any other sync
+- self-syncs are blocked; source and target must be different environments
 
 Collection sync expectations:
 

@@ -380,24 +380,25 @@ test("syncDatabase prompts with collection scope when syncing one collection", a
   ]);
 });
 
-test("syncDatabase allows same-environment paths under the flexible policy", async () => {
+test("syncDatabase rejects same-environment paths before confirmation or sync work", async () => {
   const { dependencies, calls } = createDependencies();
 
-  await syncDatabase(
-    buildAppConfig(true),
-    {
-      from: "development",
-      to: "development",
-      yes: true,
-      outputMode: "default"
-    },
-    dependencies
+  await assert.rejects(
+    syncDatabase(
+      buildAppConfig(true),
+      {
+        from: "development",
+        to: "development",
+        yes: true,
+        outputMode: "default"
+      },
+      dependencies
+    ),
+    /Sync source and target must be different: development/
   );
 
   assert.deepEqual(calls.promptMessages, []);
-  assert.deepEqual(calls.runSyncCalls, [
-    { from: "development", to: "development", outputMode: "default" }
-  ]);
+  assert.deepEqual(calls.runSyncCalls, []);
 });
 
 test("syncDatabase rejects production targets before confirmation or sync work", async () => {
