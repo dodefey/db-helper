@@ -9,6 +9,7 @@ import {
   archivePathForBackup,
   buildBackupName,
   ensureBackupArtifacts,
+  validateBackupName,
   removeBackupArtifacts,
   readBackup,
   writeBackupManifest
@@ -184,6 +185,9 @@ export async function runBackupCreate(
   context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<BackupRecord> {
   const runLogger = getRunLogger();
+  if (input.backupName) {
+    validateBackupName(input.backupName);
+  }
   const env = appConfig.environments[input.from];
   const backupName = input.backupName ?? dependencies.buildBackupName(env);
   const archiveFile = dependencies.archivePathForBackup(

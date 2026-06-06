@@ -528,6 +528,27 @@ test("backupCreate passes through a custom backup name", async () => {
   });
 });
 
+test("runBackupCreate rejects an invalid custom backup name before filesystem work", async () => {
+  const { dependencies, calls } = createBackupDependencies();
+
+  await assert.rejects(
+    () =>
+      runBackupCreate(
+        buildAppConfig(),
+        {
+          from: "development",
+          backupName: "../outside",
+          outputMode: "default"
+        },
+        dependencies
+      ),
+    /Invalid backup name/
+  );
+
+  assert.deepEqual(calls.ensuredDirs, []);
+  assert.deepEqual(calls.archives, []);
+});
+
 test("backupList filters backups by source environment and tag", async () => {
   const dependencies: BackupCommandDependencies = {
     async runBackupCreate() {

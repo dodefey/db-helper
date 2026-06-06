@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { listBackups } from "../src/lib/backups.js";
+import {
+  archivePathForBackup,
+  backupPath,
+  listBackups,
+  manifestPathForBackup,
+  validateBackupName
+} from "../src/lib/backups.js";
 
 async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(path.join(tmpdir(), "db-helper-backups-"));
@@ -57,4 +63,54 @@ test("listBackups returns backup directories with manifests", async () => {
       ["backup-name"]
     );
   });
+});
+
+test("validateBackupName rejects traversal and path-like names", () => {
+  assert.throws(
+    () => validateBackupName("../prod-snapshot"),
+    /Invalid backup name/
+  );
+  assert.throws(
+    () => validateBackupName("/tmp/outside"),
+    /Invalid backup name/
+  );
+  assert.throws(() => validateBackupName("nested/name"), /Invalid backup name/);
+  assert.throws(
+    () => validateBackupName("nested\\name"),
+    /Invalid backup name/
+  );
+});
+
+test("backup path helpers stay contained under the backup root", () => {
+  const backupRoot = "/tmp/db-helper-backups";
+
+  assert.equal(
+    backupPath(backupRoot, "manual-name"),
+    path.resolve(backupRoot, "manual-name")
+  );
+  assert.equal(
+    archivePathForBackup(backupRoot, "manual-name"),
+    path.resolve(backupRoot, "manual-name", "dump.archive.gz")
+  );
+  assert.equal(
+    manifestPathForBackup(backupRoot, "manual-name"),
+    path.resolve(backupRoot, "manual-name", "manifest.json")
+  );
+});
+
+test("backup path helpers reject names that would escape backup root", () => {
+  const backupRoot = "/tmp/db-helper-backups";
+
+  assert.throws(
+    () => backupPath(backupRoot, "../outside"),
+    /Invalid backup name/
+  );
+  assert.throws(
+    () => archivePathForBackup(backupRoot, "/tmp/outside"),
+    /Invalid backup name/
+  );
+  assert.throws(
+    () => manifestPathForBackup(backupRoot, "nested/name"),
+    /Invalid backup name/
+  );
 });

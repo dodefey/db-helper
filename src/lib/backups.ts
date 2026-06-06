@@ -13,6 +13,8 @@ import {
   writeJsonFile
 } from "./fs.js";
 
+const BACKUP_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+
 export function buildBackupName(env: EnvironmentConfig): string {
   return `${new Date()
     .toISOString()
@@ -20,8 +22,47 @@ export function buildBackupName(env: EnvironmentConfig): string {
     .replace(/\.\d{3}Z$/, "")}-${env.id}`;
 }
 
+export function validateBackupName(backupName: string): void {
+  if (!backupName) {
+    throw new Error("Backup name must not be empty");
+  }
+  if (
+    backupName === "." ||
+    backupName === ".." ||
+    backupName.includes("..") ||
+    backupName.includes(path.sep) ||
+    backupName.includes(path.posix.sep) ||
+    backupName.includes(path.win32.sep) ||
+    path.isAbsolute(backupName) ||
+    !BACKUP_NAME_PATTERN.test(backupName)
+  ) {
+    throw new Error(
+      "Invalid backup name. Use only letters, numbers, dots, underscores, and hyphens, with no path separators or '..'."
+    );
+  }
+}
+
+function resolveBackupPath(backupRoot: string, backupName: string): string {
+  validateBackupName(backupName);
+  const resolvedRoot = path.resolve(backupRoot);
+  const resolvedPath = path.resolve(resolvedRoot, backupName);
+  const relative = path.relative(resolvedRoot, resolvedPath);
+  if (
+    relative === "" ||
+    relative === "." ||
+    relative.startsWith("..") ||
+    path.isAbsolute(relative)
+  ) {
+    throw new Error(
+      `Backup path escaped backup root for name ${JSON.stringify(backupName)}`
+    );
+  }
+
+  return resolvedPath;
+}
+
 export function backupPath(backupRoot: string, backupName: string): string {
-  return path.join(backupRoot, backupName);
+  return resolveBackupPath(backupRoot, backupName);
 }
 
 export function archivePathForBackup(
