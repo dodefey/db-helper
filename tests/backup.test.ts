@@ -477,6 +477,57 @@ test("backupCreate delegates to runBackupCreate with output mode", async () => {
   assert.deepEqual(result, expectedRecord);
 });
 
+test("backupCreate passes through a custom backup name", async () => {
+  const appConfig = buildAppConfig();
+  const calls: unknown[][] = [];
+  const dependencies: BackupCommandDependencies = {
+    async runBackupCreate(...args) {
+      calls.push(args);
+      return {
+        name: "manual-name",
+        path: "/tmp/db-helper-backups/manual-name",
+        manifest: {
+          backupName: "manual-name",
+          sourceEnvironment: "development",
+          databaseName: "development",
+          createdAt: "2026-03-26T12:00:00.000Z",
+          tags: [],
+          collectionList: [],
+          toolVersion: "test",
+          archiveFile: "dump.archive.gz",
+          collectionCounts: {}
+        }
+      };
+    },
+    async listBackups() {
+      throw new Error("not used");
+    },
+    async ensureBackupArtifacts() {
+      throw new Error("not used");
+    },
+    async readBackup() {
+      throw new Error("not used");
+    }
+  };
+
+  await commandBackupCreate(
+    appConfig,
+    {
+      from: "development",
+      backupName: "manual-name",
+      outputMode: "default"
+    },
+    dependencies
+  );
+
+  assert.equal(calls.length, 1);
+  assert.deepEqual(calls[0][1], {
+    from: "development",
+    backupName: "manual-name",
+    outputMode: "default"
+  });
+});
+
 test("backupList filters backups by source environment and tag", async () => {
   const dependencies: BackupCommandDependencies = {
     async runBackupCreate() {

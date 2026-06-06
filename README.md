@@ -279,6 +279,11 @@ dbh backup create --from production
 ```
 
 ```bash
+# create a backup with an explicit name
+dbh backup create --from production --name prod-before-maintenance
+```
+
+```bash
 # create a manual recovery point before syncing into development
 dbh backup create --from development --note "pre-sync recovery point" --tag pre-sync
 ```
@@ -305,7 +310,7 @@ If `backup create` is interrupted during archive creation, manifest write, or va
 CLI forms:
 
 ```bash
-dbh backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
+dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
 dbh backup list [--from <environment>] [--tag <tag>]
 dbh backup inspect --backup <backup-name>
 ```
@@ -317,7 +322,7 @@ Required flags:
 
 Optional flags:
 
-- `backup create`: `--note`, `--tag`, `--quiet`, `--verbose`, `--log`
+- `backup create`: `--name`, `--note`, `--tag`, `--quiet`, `--verbose`, `--log`
 - `backup list`: `--from`, `--tag`
 
 Output modes for `backup create`:

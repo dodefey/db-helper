@@ -104,7 +104,7 @@ Commands:
   config path
   config show [--unredacted]
   interactive
-  backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
+  backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   backup list [--from <environment>] [--tag <tag>]
   backup inspect --backup <backup-name>
   sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
@@ -250,6 +250,7 @@ async function main(): Promise<void> {
               getFlag(args.flags, "from", true),
               "--from"
             ),
+            backupName: getFlag(args.flags, "name"),
             note: getFlag(args.flags, "note"),
             tags: getFlag(args.flags, "tag")
               ? [getFlag(args.flags, "tag")!]
