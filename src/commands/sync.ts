@@ -8,13 +8,6 @@ import { OutputMode } from "../lib/output.js";
 import { getRunLogger } from "../lib/runLog.js";
 import { runSync } from "../lib/sync.js";
 
-const ALLOWED_SYNC_PATHS = new Set([
-  "production->development",
-  "production->test",
-  "development->test",
-  "test->development"
-]);
-
 export interface SyncDependencies {
   promptConfirm: (message: string) => Promise<boolean>;
   runSync: typeof runSync;
@@ -24,16 +17,6 @@ const DEFAULT_SYNC_DEPENDENCIES: SyncDependencies = {
   promptConfirm,
   runSync
 };
-
-export function assertAllowedSyncPath(
-  from: EnvironmentId,
-  to: EnvironmentId
-): void {
-  const key = `${from}->${to}`;
-  if (!ALLOWED_SYNC_PATHS.has(key)) {
-    throw new Error(`Sync path not allowed: ${key}`);
-  }
-}
 
 export async function syncDatabase(
   appConfig: AppConfig,
@@ -48,7 +31,6 @@ export async function syncDatabase(
   context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
-  assertAllowedSyncPath(input.from, input.to);
 
   const source = input.collection
     ? `${input.from}.${input.collection}`

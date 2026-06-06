@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- changed `config.json` to support arbitrary named environments instead of requiring fixed `development`, `test`, and `production` keys
+- added explicit `isProduction` environment marking so production safeguards follow config intent rather than reserved environment names
+- changed `init` to create one named environment first and optionally add more environments interactively
+- changed `sync` to allow any configured source-target pair, with environment existence checked against config at command time
+
 ## 0.1.13
 
 - added session-scoped SSH host-key preflight across remote `backup`, `sync`, `restore`, and `doctor` so repeated SSH and SCP steps fail early and consistently when host trust or `known_hosts` access is broken

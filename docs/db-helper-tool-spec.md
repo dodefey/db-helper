@@ -93,7 +93,7 @@ The config should follow the same general model used elsewhere in this codebase 
 
 ### Required `config.json` contract
 
-The config must define all three environments explicitly and must also include global tool settings.
+The config must define at least one named environment and must also include global tool settings.
 
 Example:
 
@@ -108,42 +108,31 @@ Example:
     "backupRoot": "/Users/your-user/db-backups",
     "tempRoot": "/tmp/db"
   },
-  "profiles": [
-    {
-      "name": "development",
+  "environments": {
+    "local": {
       "label": "Local Development",
       "kind": "local",
+      "host": "localhost",
       "mongoHost": "127.0.0.1",
       "mongoPort": 27017,
       "databaseName": "development",
       "mongoUser": "sysadmin",
-      "mongoPasswordSecret": "db/development/mongo-password"
+      "mongoPassword": "changeme",
+      "isProduction": false
     },
-    {
-      "name": "test",
-      "label": "Test Server",
-      "kind": "remote",
-      "sshConnectionString": "ubuntu@test.example.com",
-      "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
-      "mongoHost": "127.0.0.1",
-      "mongoPort": 27017,
-      "databaseName": "development",
-      "mongoUser": "sysadmin",
-      "mongoPasswordSecret": "db/test/mongo-password"
-    },
-    {
-      "name": "production",
+    "live": {
       "label": "Production Server",
       "kind": "remote",
-      "sshConnectionString": "ubuntu@prod.example.com",
+      "host": "prod.example.com",
       "sshKeyPath": "/Users/your-user/.ssh/LightsailDefaultKey-us-east-1.pem",
       "mongoHost": "127.0.0.1",
       "mongoPort": 27017,
       "databaseName": "production",
       "mongoUser": "sysadmin",
-      "mongoPasswordSecret": "db/production/mongo-password"
+      "mongoPassword": "changeme",
+      "isProduction": true
     }
-  ]
+  }
 }
 ```
 

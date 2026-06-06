@@ -4,7 +4,7 @@ import {
   getRecommendedUserConfigPath,
   loadConfig
 } from "./config/loadConfig.js";
-import { ENVIRONMENT_IDS, EnvironmentId } from "./config/types.js";
+import { AppConfig, EnvironmentId } from "./config/types.js";
 import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
 import {
   runConfigPath,
@@ -71,16 +71,19 @@ function getBooleanFlag(flags: ParsedArgs["flags"], name: string): boolean {
   return flags[name] === true;
 }
 
-function parseEnvironment(
+function resolveEnvironment(
+  appConfig: AppConfig,
   value: string | undefined,
   flagName: string
 ): EnvironmentId {
-  if (!value || !ENVIRONMENT_IDS.includes(value as EnvironmentId)) {
-    throw new Error(
-      `Invalid ${flagName}. Expected one of: ${ENVIRONMENT_IDS.join(", ")}`
-    );
+  if (!value) {
+    throw new Error(`Missing required flag ${flagName}`);
   }
-  return value as EnvironmentId;
+  if (!appConfig.environments[value]) {
+    throw new Error(`Unknown environment ${flagName}: ${value}`);
+  }
+
+  return value;
 }
 
 function printHelp(): void {
@@ -220,7 +223,11 @@ async function main(): Promise<void> {
         await backupCreate(
           appConfig,
           {
-            from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
+            from: resolveEnvironment(
+              appConfig,
+              getFlag(args.flags, "from", true),
+              "--from"
+            ),
             note: getFlag(args.flags, "note"),
             tags: getFlag(args.flags, "tag")
               ? [getFlag(args.flags, "tag")!]
@@ -237,7 +244,11 @@ async function main(): Promise<void> {
         runLogger.info("cli", "Running backup list");
         const records = await backupList(appConfig, {
           from: getFlag(args.flags, "from")
-            ? parseEnvironment(getFlag(args.flags, "from"), "--from")
+            ? resolveEnvironment(
+                appConfig,
+                getFlag(args.flags, "from"),
+                "--from"
+              )
             : undefined,
           tag: getFlag(args.flags, "tag")
         });
@@ -266,8 +277,16 @@ async function main(): Promise<void> {
         await syncDatabase(
           appConfig,
           {
-            from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
-            to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+            from: resolveEnvironment(
+              appConfig,
+              getFlag(args.flags, "from", true),
+              "--from"
+            ),
+            to: resolveEnvironment(
+              appConfig,
+              getFlag(args.flags, "to", true),
+              "--to"
+            ),
             collection: getFlag(args.flags, "collection", true)!,
             yes: getBooleanFlag(args.flags, "yes"),
             outputMode
@@ -282,8 +301,16 @@ async function main(): Promise<void> {
       await syncDatabase(
         appConfig,
         {
-          from: parseEnvironment(getFlag(args.flags, "from", true), "--from"),
-          to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+          from: resolveEnvironment(
+            appConfig,
+            getFlag(args.flags, "from", true),
+            "--from"
+          ),
+          to: resolveEnvironment(
+            appConfig,
+            getFlag(args.flags, "to", true),
+            "--to"
+          ),
           yes: getBooleanFlag(args.flags, "yes"),
           outputMode
         },
@@ -299,7 +326,11 @@ async function main(): Promise<void> {
           appConfig,
           {
             backup: getFlag(args.flags, "backup", true)!,
-            to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+            to: resolveEnvironment(
+              appConfig,
+              getFlag(args.flags, "to", true),
+              "--to"
+            ),
             yes: getBooleanFlag(args.flags, "yes"),
             skipPreBackup: getBooleanFlag(args.flags, "skip-pre-backup"),
             forceProductionRestore: getBooleanFlag(
@@ -321,7 +352,11 @@ async function main(): Promise<void> {
           {
             backup: getFlag(args.flags, "backup", true)!,
             collection: getFlag(args.flags, "collection", true)!,
-            to: parseEnvironment(getFlag(args.flags, "to", true), "--to"),
+            to: resolveEnvironment(
+              appConfig,
+              getFlag(args.flags, "to", true),
+              "--to"
+            ),
             yes: getBooleanFlag(args.flags, "yes"),
             forceProductionRestore: getBooleanFlag(
               args.flags,

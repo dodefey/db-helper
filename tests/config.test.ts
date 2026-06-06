@@ -36,17 +36,17 @@ test("loadConfig parses a valid config file", async () => {
             tempRoot: "/tmp/db-helper"
           },
           environments: {
-            development: {
-              label: "Development",
+            sandbox: {
+              label: "Sandbox",
               kind: "local",
               host: "localhost",
               mongoHost: "localhost",
               mongoPort: 7854,
-              databaseName: "development",
+              databaseName: "sandbox",
               mongoUser: "dev-user",
               mongoPassword: "dev-pass"
             },
-            test: {
+            qa: {
               label: "Test",
               kind: "remote",
               host: "test.example.com",
@@ -58,7 +58,7 @@ test("loadConfig parses a valid config file", async () => {
               mongoUser: "test-user",
               mongoPassword: "test-pass"
             },
-            production: {
+            live: {
               label: "Production",
               kind: "remote",
               host: "prod.example.com",
@@ -68,7 +68,8 @@ test("loadConfig parses a valid config file", async () => {
               sshUser: "ubuntu",
               sshKeyPath: "/tmp/prod.pem",
               mongoUser: "prod-user",
-              mongoPassword: "prod-pass"
+              mongoPassword: "prod-pass",
+              isProduction: true
             }
           }
         },
@@ -82,12 +83,13 @@ test("loadConfig parses a valid config file", async () => {
     assert.equal(config.backupRoot, "/tmp/backups");
     assert.equal(config.tempRoot, "/tmp/db-helper");
     assert.equal(config.defaultDropOnRestore, false);
-    assert.equal(config.environments.development.mongoUser, "dev-user");
+    assert.equal(config.environments.sandbox.mongoUser, "dev-user");
     assert.equal(
-      config.environments.test.sshKeyPath,
+      config.environments.qa.sshKeyPath,
       path.join(homedir(), "keys/test.pem")
     );
-    assert.equal(config.environments.production.databaseName, "production");
+    assert.equal(config.environments.live.databaseName, "production");
+    assert.equal(config.environments.live.isProduction, true);
   });
 });
 
@@ -103,7 +105,7 @@ test("loadConfig allows remote ssh user and key path to be omitted", async () =>
             tempRoot: "/tmp/db-helper"
           },
           environments: {
-            development: {
+            primary: {
               label: "Development",
               kind: "local",
               host: "localhost",
@@ -111,7 +113,7 @@ test("loadConfig allows remote ssh user and key path to be omitted", async () =>
               mongoUser: "dev-user",
               mongoPassword: "dev-pass"
             },
-            test: {
+            backup: {
               label: "Test",
               kind: "remote",
               host: "test-alias",
@@ -121,7 +123,7 @@ test("loadConfig allows remote ssh user and key path to be omitted", async () =>
               sshUser: "",
               sshKeyPath: ""
             },
-            production: {
+            archive: {
               label: "Production",
               kind: "remote",
               host: "prod-alias",
@@ -138,14 +140,14 @@ test("loadConfig allows remote ssh user and key path to be omitted", async () =>
 
     const config = await loadConfig(configPath);
 
-    assert.equal(config.environments.test.sshUser, undefined);
-    assert.equal(config.environments.test.sshKeyPath, undefined);
-    assert.equal(config.environments.production.sshUser, undefined);
-    assert.equal(config.environments.production.sshKeyPath, undefined);
+    assert.equal(config.environments.backup.sshUser, undefined);
+    assert.equal(config.environments.backup.sshKeyPath, undefined);
+    assert.equal(config.environments.archive.sshUser, undefined);
+    assert.equal(config.environments.archive.sshKeyPath, undefined);
   });
 });
 
-test("loadConfig rejects missing required environments", async () => {
+test("loadConfig allows a single configured environment", async () => {
   await withTempDir(async (dir) => {
     const configPath = path.join(dir, "config.json");
     await writeFile(
@@ -157,8 +159,8 @@ test("loadConfig rejects missing required environments", async () => {
             tempRoot: "/tmp/db-helper"
           },
           environments: {
-            development: {
-              label: "Development",
+            sole: {
+              label: "Only Environment",
               kind: "local",
               host: "localhost",
               databaseName: "development",
@@ -172,9 +174,77 @@ test("loadConfig rejects missing required environments", async () => {
       )
     );
 
+    const config = await loadConfig(configPath);
+
+    assert.deepEqual(Object.keys(config.environments), ["sole"]);
+  });
+});
+
+test("loadConfig rejects empty environments", async () => {
+  await withTempDir(async (dir) => {
+    const configPath = path.join(dir, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          paths: {
+            backupRoot: "/tmp/backups",
+            tempRoot: "/tmp/db-helper"
+          },
+          environments: {}
+        },
+        null,
+        2
+      )
+    );
+
     await assert.rejects(
       () => loadConfig(configPath),
-      /Missing required environment config: test/
+      /Config must define at least one environment/
+    );
+  });
+});
+
+test("loadConfig rejects multiple production environments", async () => {
+  await withTempDir(async (dir) => {
+    const configPath = path.join(dir, "config.json");
+    await writeFile(
+      configPath,
+      JSON.stringify(
+        {
+          paths: {
+            backupRoot: "/tmp/backups",
+            tempRoot: "/tmp/db-helper"
+          },
+          environments: {
+            primary: {
+              label: "Primary",
+              kind: "local",
+              host: "localhost",
+              databaseName: "primary",
+              mongoUser: "dev-user",
+              mongoPassword: "dev-pass",
+              isProduction: true
+            },
+            secondary: {
+              label: "Secondary",
+              kind: "local",
+              host: "localhost",
+              databaseName: "secondary",
+              mongoUser: "dev-user",
+              mongoPassword: "dev-pass",
+              isProduction: true
+            }
+          }
+        },
+        null,
+        2
+      )
+    );
+
+    await assert.rejects(
+      () => loadConfig(configPath),
+      /Config may not mark more than one environment as production/
     );
   });
 });

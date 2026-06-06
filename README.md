@@ -1,6 +1,6 @@
 # db-helper
 
-`db-helper` is a standalone TypeScript CLI for safe Mongo backup, sync, restore, recovery, and maintenance operations across `development`, `test`, and `production`. The executable command is `dbh`.
+`db-helper` is a standalone TypeScript CLI for safe Mongo backup, sync, restore, recovery, and maintenance operations across one or more named environments. The executable command is `dbh`.
 
 ## Setup
 
@@ -46,7 +46,12 @@ Temp root [/tmp/db-helper]:
 
 Usually the default is fine.
 
-Development prompts:
+Environment prompts:
+
+```bash
+# environment key used with --from and --to
+Environment name [development]:
+```
 
 ```bash
 # human label shown in menus and output
@@ -57,8 +62,6 @@ development label [Local Development]:
 # local or remote
 development kind [local]:
 ```
-
-For a normal local development database, keep `local`.
 
 ```bash
 # machine or DNS name for the environment
@@ -90,119 +93,26 @@ development mongo user []:
 development mongo password []:
 ```
 
-Test prompts use the same database fields, plus SSH:
-
 ```bash
-# human label shown in menus and output
-test label [Test Server]:
+# mark the environment that should receive production-only safeguards
+development is production [y/N]:
 ```
 
-```bash
-# local or remote
-test kind [remote]:
-```
-
-For a hosted test server, keep `remote`.
-
-```bash
-# SSH host / machine hostname
-test host [test.example.com]:
-```
-
-```bash
-# Mongo host as seen from that remote machine
-test mongo host [localhost]:
-```
-
-```bash
-# Mongo TCP port on the remote machine
-test mongo port [27017]:
-```
-
-```bash
-# database name on test
-test database name [development]:
-```
-
-```bash
-# Mongo username on test
-test mongo user []:
-```
-
-```bash
-# Mongo password on test
-test mongo password []:
-```
+Remote environments use the same fields, plus SSH prompts:
 
 ```bash
 # SSH username
-test ssh user []:
+staging ssh user []:
 ```
-
-Leave this blank if your SSH host alias or local SSH config supplies the user.
 
 ```bash
 # SSH private key path
-test ssh key path []:
+staging ssh key path []:
 ```
 
 Leave this blank to use your SSH agent, macOS keychain-backed identities, or `~/.ssh/config`.
 
-Production prompts are the same shape:
-
-```bash
-# human label shown in menus and output
-production label [Production Server]:
-```
-
-```bash
-# local or remote
-production kind [remote]:
-```
-
-```bash
-# SSH host / machine hostname
-production host [prod.example.com]:
-```
-
-```bash
-# Mongo host as seen from that remote machine
-production mongo host [localhost]:
-```
-
-```bash
-# Mongo TCP port
-production mongo port [27017]:
-```
-
-```bash
-# production database name
-production database name [production]:
-```
-
-```bash
-# production Mongo username
-production mongo user []:
-```
-
-```bash
-# production Mongo password
-production mongo password []:
-```
-
-```bash
-# production SSH username
-production ssh user []:
-```
-
-Leave this blank if your SSH host alias or local SSH config supplies the user.
-
-```bash
-# production SSH private key path
-production ssh key path []:
-```
-
-Leave this blank to use your SSH agent, macOS keychain-backed identities, or `~/.ssh/config`.
+After each environment, `dbh init` asks whether to add another environment. At least one environment is required. No specific environment names are required.
 
 Current limitation:
 
@@ -308,7 +218,7 @@ dbh interactive
 
 ```bash
 # create a timestamped backup
-dbh backup create --from production
+dbh backup create --from live
 ```
 
 ```bash
@@ -322,18 +232,18 @@ dbh backup inspect --backup 2026-03-16T10-30-00-production
 ```
 
 ```bash
-# sync between allowed environments
-dbh sync --from production --to development --yes
+# sync between configured environments
+dbh sync --from live --to local --yes
 ```
 
 ```bash
 # restore a full backup
-dbh restore full --backup 2026-03-16T10-30-00-production --to development --yes
+dbh restore full --backup 2026-03-16T10-30-00-live --to local --yes
 ```
 
 ```bash
 # restore a single collection
-dbh restore collection --backup 2026-03-16T10-30-00-production --collection orders --to test --yes
+dbh restore collection --backup 2026-03-16T10-30-00-live --collection orders --to staging --yes
 ```
 
 ```bash
@@ -418,9 +328,9 @@ Debug log retention:
 
 ## Sync
 
-`sync` is the command for replacing one non-production database with another environment. In practice, that usually means replacing `development` or `test` with a fresh copy of `production`, or moving data between `development` and `test`. It also supports syncing one named collection between allowed environments.
+`sync` is the command for replacing one configured database with another environment. It also supports syncing one named collection between configured environments.
 
-It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. `sync` never syncs into `production`, and an interrupted restore can still leave the target in a dirty state.
+It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. An interrupted restore can still leave the target in a dirty state.
 
 ### Usage
 
@@ -477,25 +387,18 @@ Optional flags:
 - `--verbose`
 - `--log`
 
-Allowed paths:
+Environment rules:
 
-- `production -> development`
-- `production -> test`
-- `development -> test`
-- `test -> development`
-
-Blocked paths:
-
-- any sync into `production`
-- self-syncs such as `development -> development`
-- any path not explicitly listed above
+- `--from` and `--to` must name real configured environments
+- sync paths are not hard-coded; any configured pair is allowed
+- self-syncs are allowed and use the same confirmation flow as any other sync
 
 Collection sync expectations:
 
 - `sync collection` restores one named collection only
 - the target collection is dropped before restore
 - unrelated target collections are left in place
-- `sync collection` uses the same allowed environment pairs as full sync
+- `sync collection` uses the same environment rules as full sync
 
 Output modes:
 
@@ -511,13 +414,13 @@ Operator expectations:
 
 ## Restore
 
-`restore` is the command for applying a named backup to a target environment. In practice, it is most useful when you want to recover `development`, `test`, or `production` from a known-good backup, or when you need to restore one collection without replacing the full database.
+`restore` is the command for applying a named backup to a target environment. In practice, it is most useful when you want to recover any configured environment from a known-good backup, or when you need to restore one collection without replacing the full database.
 
-It is a backup-to-target recovery workflow, not a merge tool. `restore full` validates the named backup, replaces the target with drop enabled, verifies the result, and enforces stronger safeguards for `production`. `restore collection` restores only one named collection from the backup with drop enabled.
+It is a backup-to-target recovery workflow, not a merge tool. `restore full` validates the named backup, replaces the target with drop enabled, verifies the result, and enforces stronger safeguards for environments marked `isProduction: true`. `restore collection` restores only one named collection from the backup with drop enabled.
 
 ### Usage
 
-Run `doctor` first if tooling, SSH, or database connectivity is in doubt. Before restoring into `production`, review the backup manifest with `backup inspect` so you know exactly which snapshot you are applying.
+Run `doctor` first if tooling, SSH, or database connectivity is in doubt. Before restoring into an environment marked `isProduction: true`, review the backup manifest with `backup inspect` so you know exactly which snapshot you are applying.
 
 Common workflows:
 
@@ -564,11 +467,10 @@ Optional flags:
 
 Production restore expectations:
 
-- `restore full --to production` requires `--force-production-restore`
-- `restore collection --to production` requires `--force-production-restore`
+- `restore` into an environment marked `isProduction: true` requires `--force-production-restore`
 - interactive production restore requires an additional typed confirmation
-- production restore creates a pre-restore production backup by default
-- `--skip-pre-backup` bypasses that automatic production backup
+- production restore creates a pre-restore backup of that same target by default
+- `--skip-pre-backup` bypasses that automatic pre-restore backup
 
 Output modes:
 
@@ -577,10 +479,10 @@ Output modes:
 
 ## Safety Model
 
-- Sync is only allowed for `production -> development`, `production -> test`, `development -> test`, and `test -> development`.
-- Sync into `production` is blocked in code.
+- `sync`, `backup`, and `restore` require real environment names from config.
+- Production restore follows the environment marked `isProduction: true`, not a reserved name.
 - Production restore requires a named backup, `--force-production-restore` for non-interactive use, and an extra typed confirmation in interactive mode.
-- Production restore creates a pre-restore production backup by default.
+- Production restore creates a pre-restore backup of the same target by default.
 
 ## Backup Layout
 

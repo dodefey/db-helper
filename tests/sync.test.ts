@@ -5,11 +5,7 @@ import {
   EnvironmentConfig,
   EnvironmentId
 } from "../src/config/types.js";
-import {
-  assertAllowedSyncPath,
-  syncDatabase,
-  SyncDependencies
-} from "../src/commands/sync.js";
+import { syncDatabase, SyncDependencies } from "../src/commands/sync.js";
 import { RemoteOperationError } from "../src/lib/mongo.js";
 import { parseOutputMode } from "../src/lib/output.js";
 import { runSync, RunSyncDependencies } from "../src/lib/sync.js";
@@ -270,36 +266,6 @@ function createRunSyncDependencies(
   return { dependencies, calls };
 }
 
-test("assertAllowedSyncPath accepts all allowed sync directions", () => {
-  assert.doesNotThrow(() => assertAllowedSyncPath("production", "development"));
-  assert.doesNotThrow(() => assertAllowedSyncPath("production", "test"));
-  assert.doesNotThrow(() => assertAllowedSyncPath("development", "test"));
-  assert.doesNotThrow(() => assertAllowedSyncPath("test", "development"));
-});
-
-test("assertAllowedSyncPath rejects disallowed sync directions", () => {
-  assert.throws(
-    () => assertAllowedSyncPath("development", "production"),
-    /Sync path not allowed/
-  );
-  assert.throws(
-    () => assertAllowedSyncPath("test", "production"),
-    /Sync path not allowed/
-  );
-  assert.throws(
-    () => assertAllowedSyncPath("production", "production"),
-    /Sync path not allowed/
-  );
-  assert.throws(
-    () => assertAllowedSyncPath("development", "development"),
-    /Sync path not allowed/
-  );
-  assert.throws(
-    () => assertAllowedSyncPath("test", "test"),
-    /Sync path not allowed/
-  );
-});
-
 test("syncDatabase prompts before syncing when --yes is not provided", async () => {
   const { dependencies, calls } = createDependencies();
 
@@ -414,25 +380,24 @@ test("syncDatabase prompts with collection scope when syncing one collection", a
   ]);
 });
 
-test("syncDatabase rejects invalid paths before confirmation or dump work begins", async () => {
+test("syncDatabase allows same-environment paths under the flexible policy", async () => {
   const { dependencies, calls } = createDependencies();
 
-  await assert.rejects(
-    syncDatabase(
-      buildAppConfig(true),
-      {
-        from: "development",
-        to: "production",
-        yes: false,
-        outputMode: "default"
-      },
-      dependencies
-    ),
-    /Sync path not allowed: development->production/
+  await syncDatabase(
+    buildAppConfig(true),
+    {
+      from: "development",
+      to: "development",
+      yes: true,
+      outputMode: "default"
+    },
+    dependencies
   );
 
   assert.deepEqual(calls.promptMessages, []);
-  assert.equal(calls.runSyncCalls.length, 0);
+  assert.deepEqual(calls.runSyncCalls, [
+    { from: "development", to: "development", outputMode: "default" }
+  ]);
 });
 
 test("parseOutputMode rejects quiet and verbose together", () => {

@@ -47,7 +47,10 @@ function buildRemoteEnvironment(id: EnvironmentId): EnvironmentConfig {
   };
 }
 
-function buildAppConfig(defaultDropOnRestore = true): AppConfig {
+function buildAppConfig(
+  defaultDropOnRestore = true,
+  productionName = "production"
+): AppConfig {
   return {
     backupRoot: "/tmp/backups",
     tempRoot: "/tmp/db-helper",
@@ -56,7 +59,10 @@ function buildAppConfig(defaultDropOnRestore = true): AppConfig {
     environments: {
       development: buildEnvironment("development"),
       test: buildEnvironment("test"),
-      production: buildEnvironment("production")
+      [productionName]: {
+        ...buildEnvironment(productionName),
+        isProduction: true
+      }
     }
   };
 }
@@ -484,10 +490,10 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
   const context = createCommandInvocationContext();
 
   await runRestoreFull(
-    buildAppConfig(false),
+    buildAppConfig(false, "live"),
     {
       backup: "backup-name",
-      to: "production",
+      to: "live",
       skipPreBackup: false,
       outputMode: "default"
     },
@@ -499,7 +505,7 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
   assert.deepEqual(calls.readBackups, ["backup-name"]);
   assert.deepEqual(calls.backupCreates, [
     {
-      from: "production",
+      from: "live",
       note: "automatic pre-restore backup before restoring backup-name",
       tags: ["pre-restore"],
       outputMode: "default",
@@ -508,7 +514,7 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
   ]);
   assert.deepEqual(calls.restores, [
     {
-      target: "production",
+      target: "live",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
       sourceDatabaseName: "production",
       collection: undefined,
@@ -519,17 +525,17 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
   ]);
   assert.deepEqual(calls.verifications, [
     {
-      target: "production",
+      target: "live",
       outputMode: "default",
       session: context.remotePreflightSession
     }
   ]);
   assert.deepEqual(calls.output, [
-    "Starting restore backup-name -> production\n",
+    "Starting restore backup-name -> live\n",
     "Creating pre-restore backup...\n",
-    "Restoring target production...\n",
-    "Verifying target production...\n",
-    "Restore complete: backup-name -> production\n"
+    "Restoring target live...\n",
+    "Verifying target live...\n",
+    "Restore complete: backup-name -> live\n"
   ]);
 });
 

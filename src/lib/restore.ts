@@ -221,7 +221,7 @@ export async function runRestoreFull(
       await dependencies.backupCreate(
         appConfig,
         {
-          from: "production",
+          from: target.name,
           note: `automatic pre-restore backup before restoring ${input.backup}`,
           tags: ["pre-restore"],
           outputMode: input.outputMode

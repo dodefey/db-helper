@@ -8,7 +8,7 @@
     "tempRoot": "/tmp/db-helper"
   },
   "environments": {
-    "development": {
+    "local": {
       "label": "Local Development",
       "kind": "local",
       "host": "localhost",
@@ -16,9 +16,10 @@
       "mongoPort": 27017,
       "databaseName": "development",
       "mongoUser": "",
-      "mongoPassword": "changeme"
+      "mongoPassword": "changeme",
+      "isProduction": false
     },
-    "test": {
+    "staging": {
       "label": "Test Server",
       "kind": "remote",
       "host": "test.example.com",
@@ -28,9 +29,10 @@
       "sshUser": "",
       "sshKeyPath": "",
       "mongoUser": "",
-      "mongoPassword": "changeme"
+      "mongoPassword": "changeme",
+      "isProduction": false
     },
-    "production": {
+    "live": {
       "label": "Production Server",
       "kind": "remote",
       "host": "prod.example.com",
@@ -40,7 +42,8 @@
       "sshUser": "",
       "sshKeyPath": "",
       "mongoUser": "",
-      "mongoPassword": "changeme"
+      "mongoPassword": "changeme",
+      "isProduction": true
     }
   }
 }

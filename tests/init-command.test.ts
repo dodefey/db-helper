@@ -106,18 +106,21 @@ test("runInitFromEnvFile imports legacy env config into config json", async () =
     defaults: { authSource: string; defaultDropOnRestore: boolean };
     paths: { backupRoot: string; tempRoot: string };
     environments: {
-      development: { mongoPassword: string };
-      test: { sshUser: string };
-      production: { host: string };
+      development: { mongoPassword: string; isProduction: boolean };
+      test: { sshUser: string; isProduction: boolean; sshKeyPath: string };
+      production: { host: string; isProduction: boolean };
     };
   };
   assert.equal(written.defaults.authSource, "admin");
   assert.equal(written.defaults.defaultDropOnRestore, true);
   assert.equal(written.paths.backupRoot, "/tmp/db-backups");
   assert.equal(written.environments.development.mongoPassword, "dev-pass");
+  assert.equal(written.environments.development.isProduction, false);
   assert.equal(written.environments.test.sshUser, "ubuntu");
   assert.equal(written.environments.test.sshKeyPath, "/tmp/test.pem");
+  assert.equal(written.environments.test.isProduction, false);
   assert.equal(written.environments.production.host, "prod.example.com");
+  assert.equal(written.environments.production.isProduction, true);
   assert.deepEqual(output, [
     "Importing config from env file /tmp/.env.test...\n",
     "Config written: /tmp/config.json\n",
@@ -164,7 +167,7 @@ test("runInitFromEnvFile allows overwrite with force", async () => {
   assert.equal(writes.length, 1);
 });
 
-test("runInteractiveInit writes a config from prompts", async () => {
+test("runInteractiveInit writes a config with one environment", async () => {
   const answers = [
     "",
     "",
@@ -180,26 +183,7 @@ test("runInteractiveInit writes a config from prompts", async () => {
     "",
     "dev-pass",
     "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "test-pass",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "",
-    "prod-pass",
-    "",
-    ""
+    "n"
   ];
   const { dependencies, writes, output } = createDependencies({
     async promptText(): Promise<string> {
@@ -218,17 +202,17 @@ test("runInteractiveInit writes a config from prompts", async () => {
   assert.equal(writes.length, 1);
   const written = JSON.parse(writes[0].content) as {
     defaults: { authSource: string; defaultDropOnRestore: boolean };
-    environments: {
-      development: { mongoPassword: string };
-      test: { sshUser: string };
-      production: { sshKeyPath: string };
-    };
+    environments: Record<
+      string,
+      { mongoPassword: string; isProduction: boolean; kind: string }
+    >;
   };
   assert.equal(written.defaults.authSource, "admin");
   assert.equal(written.defaults.defaultDropOnRestore, true);
+  assert.deepEqual(Object.keys(written.environments), ["development"]);
   assert.equal(written.environments.development.mongoPassword, "dev-pass");
-  assert.equal(written.environments.test.sshUser, "");
-  assert.equal(written.environments.production.sshKeyPath, "");
+  assert.equal(written.environments.development.isProduction, false);
+  assert.equal(written.environments.development.kind, "local");
   assert.deepEqual(output, [
     "Starting interactive config setup...\n",
     "Writing config to /tmp/config.json. Press Enter to accept defaults.\n",
@@ -237,7 +221,7 @@ test("runInteractiveInit writes a config from prompts", async () => {
   ]);
 });
 
-test("runInteractiveInit can skip test and production setup", async () => {
+test("runInteractiveInit writes multiple named environments", async () => {
   const answers = [
     "",
     "",
@@ -252,7 +236,20 @@ test("runInteractiveInit can skip test and production setup", async () => {
     "",
     "",
     "dev-pass",
-    "n",
+    "",
+    "y",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "test-pass",
+    "",
+    "",
+    "",
     "n"
   ];
   const { dependencies, writes } = createDependencies({
@@ -270,15 +267,105 @@ test("runInteractiveInit can skip test and production setup", async () => {
   );
 
   const written = JSON.parse(writes[0].content) as {
-    environments: {
-      development: { mongoPassword: string };
-      test: { host: string };
-      production: { host: string };
-    };
+    environments: Record<
+      string,
+      {
+        kind: string;
+        mongoPassword: string;
+        isProduction: boolean;
+        sshUser?: string;
+      }
+    >;
   };
+  assert.deepEqual(Object.keys(written.environments), ["development", "test"]);
   assert.equal(written.environments.development.mongoPassword, "dev-pass");
-  assert.equal(written.environments.test.host, "test.example.com");
-  assert.equal(written.environments.production.host, "prod.example.com");
+  assert.equal(written.environments.test.kind, "remote");
+  assert.equal(written.environments.test.mongoPassword, "test-pass");
+  assert.equal(written.environments.test.isProduction, false);
+  assert.equal(written.environments.test.sshUser, "");
+});
+
+test("runInteractiveInit rejects duplicate environment names", async () => {
+  const answers = [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "dev-pass",
+    "",
+    "y",
+    "development"
+  ];
+  const { dependencies } = createDependencies({
+    async promptText(): Promise<string> {
+      return answers.shift() ?? "";
+    }
+  });
+
+  await assert.rejects(
+    runInteractiveInit(
+      {
+        configPath: "/tmp/config.json",
+        force: false
+      },
+      dependencies
+    ),
+    /Duplicate environment name: development/
+  );
+});
+
+test("runInteractiveInit rejects a second production environment", async () => {
+  const answers = [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "dev-pass",
+    "y",
+    "y",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "test-pass",
+    "y"
+  ];
+  const { dependencies } = createDependencies({
+    async promptText(): Promise<string> {
+      return answers.shift() ?? "";
+    }
+  });
+
+  await assert.rejects(
+    runInteractiveInit(
+      {
+        configPath: "/tmp/config.json",
+        force: false
+      },
+      dependencies
+    ),
+    /Only one environment may be marked as production/
+  );
 });
 
 test("runInteractiveInit refuses to overwrite without force", async () => {

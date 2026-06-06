@@ -61,7 +61,8 @@ const DEFAULT_CONFIG: ConfigFile = {
       mongoPort: 27017,
       databaseName: "development",
       mongoUser: "",
-      mongoPassword: ""
+      mongoPassword: "",
+      isProduction: false
     },
     test: {
       label: "Test Server",
@@ -73,7 +74,8 @@ const DEFAULT_CONFIG: ConfigFile = {
       mongoUser: "",
       mongoPassword: "",
       sshUser: "",
-      sshKeyPath: ""
+      sshKeyPath: "",
+      isProduction: false
     },
     production: {
       label: "Production Server",
@@ -85,7 +87,8 @@ const DEFAULT_CONFIG: ConfigFile = {
       mongoUser: "",
       mongoPassword: "",
       sshUser: "",
-      sshKeyPath: ""
+      sshKeyPath: "",
+      isProduction: true
     }
   }
 };
@@ -99,11 +102,7 @@ type ConfigFile = {
     backupRoot: string;
     tempRoot: string;
   };
-  environments: {
-    development: ImportedEnvironment;
-    test: ImportedEnvironment;
-    production: ImportedEnvironment;
-  };
+  environments: Record<string, ImportedEnvironment>;
 };
 
 type ImportedEnvironment = {
@@ -117,6 +116,7 @@ type ImportedEnvironment = {
   mongoPassword: string;
   sshUser?: string;
   sshKeyPath?: string;
+  isProduction: boolean;
 };
 
 type RedactedConfigView = {
@@ -193,7 +193,8 @@ function requireEnvValue(env: Record<string, string>, name: string): string {
 
 function buildImportedEnvironment(
   env: Record<string, string>,
-  prefix: string
+  prefix: string,
+  isProduction: boolean
 ): ImportedEnvironment {
   const kind = requireEnvValue(env, `${prefix}_KIND`);
   if (kind !== "local" && kind !== "remote") {
@@ -211,7 +212,8 @@ function buildImportedEnvironment(
     ),
     databaseName: requireEnvValue(env, `${prefix}_NAME`),
     mongoUser: requireEnvValue(env, `${prefix}_MONGO_USER`),
-    mongoPassword: requireEnvValue(env, `${prefix}_MONGO_PASSWORD`)
+    mongoPassword: requireEnvValue(env, `${prefix}_MONGO_PASSWORD`),
+    isProduction
   };
 
   if (kind === "remote") {
@@ -238,9 +240,9 @@ function convertEnvFileToConfig(content: string): ConfigFile {
       tempRoot: requireEnvValue(env, "DB_TEMP_ROOT")
     },
     environments: {
-      development: buildImportedEnvironment(env, "DB_DEVELOPMENT"),
-      test: buildImportedEnvironment(env, "DB_TEST"),
-      production: buildImportedEnvironment(env, "DB_PRODUCTION")
+      development: buildImportedEnvironment(env, "DB_DEVELOPMENT", false),
+      test: buildImportedEnvironment(env, "DB_TEST", false),
+      production: buildImportedEnvironment(env, "DB_PRODUCTION", true)
     }
   };
 }
@@ -269,63 +271,94 @@ async function promptConfirmWithDefault(
 }
 
 async function promptEnvironmentConfig(
-  id: "development" | "test" | "production",
+  name: string,
   defaults: ImportedEnvironment,
   prompt: (message: string) => Promise<string>
 ): Promise<ImportedEnvironment> {
-  const kind = await promptWithDefault(prompt, `${id} kind`, defaults.kind);
+  const kind = await promptWithDefault(prompt, `${name} kind`, defaults.kind);
   if (kind !== "local" && kind !== "remote") {
-    throw new Error(`Invalid ${id} kind: ${kind}`);
+    throw new Error(`Invalid ${name} kind: ${kind}`);
   }
 
   const config: ImportedEnvironment = {
-    label: await promptWithDefault(prompt, `${id} label`, defaults.label),
+    label: await promptWithDefault(prompt, `${name} label`, defaults.label),
     kind,
-    host: await promptWithDefault(prompt, `${id} host`, defaults.host),
+    host: await promptWithDefault(prompt, `${name} host`, defaults.host),
     mongoHost: await promptWithDefault(
       prompt,
-      `${id} mongo host`,
+      `${name} mongo host`,
       defaults.mongoHost
     ),
     mongoPort: parseInteger(
       await promptWithDefault(
         prompt,
-        `${id} mongo port`,
+        `${name} mongo port`,
         String(defaults.mongoPort)
       ),
-      `${id} mongo port`
+      `${name} mongo port`
     ),
     databaseName: await promptWithDefault(
       prompt,
-      `${id} database name`,
+      `${name} database name`,
       defaults.databaseName
     ),
     mongoUser: await promptWithDefault(
       prompt,
-      `${id} mongo user`,
+      `${name} mongo user`,
       defaults.mongoUser
     ),
     mongoPassword: await promptWithDefault(
       prompt,
-      `${id} mongo password`,
+      `${name} mongo password`,
       defaults.mongoPassword
+    ),
+    isProduction: await promptConfirmWithDefault(
+      prompt,
+      `${name} is production`,
+      defaults.isProduction
     )
   };
 
   if (kind === "remote") {
     config.sshUser = await promptWithDefault(
       prompt,
-      `${id} ssh user`,
+      `${name} ssh user`,
       defaults.sshUser ?? ""
     );
     config.sshKeyPath = await promptWithDefault(
       prompt,
-      `${id} ssh key path`,
+      `${name} ssh key path`,
       defaults.sshKeyPath ?? ""
     );
   }
 
   return config;
+}
+
+function getDefaultEnvironmentName(index: number): string {
+  if (index === 0) {
+    return "development";
+  }
+  if (index === 1) {
+    return "test";
+  }
+  if (index === 2) {
+    return "production";
+  }
+
+  return `environment-${index + 1}`;
+}
+
+function getEnvironmentDefaults(name: string): ImportedEnvironment {
+  if (DEFAULT_CONFIG.environments[name]) {
+    return DEFAULT_CONFIG.environments[name];
+  }
+
+  return {
+    ...DEFAULT_CONFIG.environments.development,
+    label: name,
+    databaseName: name
+  };
 }
 
 async function assertConfigWritable(
@@ -496,50 +529,44 @@ export async function runInteractiveInit(
         DEFAULT_CONFIG.paths.tempRoot
       )
     },
-    environments: {
-      development: DEFAULT_CONFIG.environments.development,
-      test: DEFAULT_CONFIG.environments.test,
-      production: DEFAULT_CONFIG.environments.production
-    }
+    environments: {}
   };
+  let environmentIndex = 0;
 
-  if (
-    await promptConfirmWithDefault(
+  while (true) {
+    const suggestedName = getDefaultEnvironmentName(environmentIndex);
+    const environmentName = await promptWithDefault(
       dependencies.promptText,
-      "Set up development environment?"
-    )
-  ) {
-    config.environments.development = await promptEnvironmentConfig(
-      "development",
-      DEFAULT_CONFIG.environments.development,
+      "Environment name",
+      suggestedName
+    );
+    if (config.environments[environmentName]) {
+      throw new Error(`Duplicate environment name: ${environmentName}`);
+    }
+
+    const environmentConfig = await promptEnvironmentConfig(
+      environmentName,
+      getEnvironmentDefaults(environmentName),
       dependencies.promptText
     );
-  }
+    if (
+      environmentConfig.isProduction &&
+      Object.values(config.environments).some((env) => env.isProduction)
+    ) {
+      throw new Error("Only one environment may be marked as production.");
+    }
 
-  if (
-    await promptConfirmWithDefault(
-      dependencies.promptText,
-      "Set up test environment?"
-    )
-  ) {
-    config.environments.test = await promptEnvironmentConfig(
-      "test",
-      DEFAULT_CONFIG.environments.test,
-      dependencies.promptText
-    );
-  }
+    config.environments[environmentName] = environmentConfig;
+    environmentIndex += 1;
 
-  if (
-    await promptConfirmWithDefault(
+    const addAnother = await promptConfirmWithDefault(
       dependencies.promptText,
-      "Set up production environment?"
-    )
-  ) {
-    config.environments.production = await promptEnvironmentConfig(
-      "production",
-      DEFAULT_CONFIG.environments.production,
-      dependencies.promptText
+      "Add another environment?",
+      false
     );
+    if (!addAnother) {
+      break;
+    }
   }
 
   await writeConfigFile(config, destinationPath, input.force, dependencies);

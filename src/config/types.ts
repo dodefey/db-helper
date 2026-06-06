@@ -1,6 +1,4 @@
-export const ENVIRONMENT_IDS = ["development", "test", "production"] as const;
-
-export type EnvironmentId = (typeof ENVIRONMENT_IDS)[number];
+export type EnvironmentId = string;
 export type EnvironmentKind = "local" | "remote";
 
 export interface EnvironmentConfig {
@@ -25,7 +23,7 @@ export interface AppConfig {
   tempRoot: string;
   authSource: string;
   defaultDropOnRestore: boolean;
-  environments: Record<EnvironmentId, EnvironmentConfig>;
+  environments: Record<string, EnvironmentConfig>;
 }
 
 export interface BackupManifest {

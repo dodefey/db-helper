@@ -2,13 +2,7 @@ import { homedir } from "node:os";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import {
-  AppConfig,
-  ENVIRONMENT_IDS,
-  EnvironmentConfig,
-  EnvironmentId,
-  EnvironmentKind
-} from "./types.js";
+import { AppConfig, EnvironmentConfig, EnvironmentKind } from "./types.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const USER_CONFIG_PATH = path.join(
@@ -27,7 +21,7 @@ type RawConfig = {
     backupRoot?: string;
     tempRoot?: string;
   };
-  environments?: Partial<Record<EnvironmentId, RawEnvironment>>;
+  environments?: Record<string, RawEnvironment>;
 };
 
 type RawEnvironment = {
@@ -41,6 +35,7 @@ type RawEnvironment = {
   mongoPassword?: string;
   sshUser?: string;
   sshKeyPath?: string;
+  isProduction?: boolean;
 };
 
 function expandHomePath(value: string): string {
@@ -87,16 +82,23 @@ function requirePositiveInteger(
   return value;
 }
 
-function parseEnvironment(
-  environments: RawConfig["environments"],
-  id: EnvironmentId,
-  authSource: string
-): EnvironmentConfig {
-  const raw = environments?.[id];
-  if (!raw) {
-    throw new Error(`Missing required environment config: ${id}`);
+function requireBoolean(value: boolean | undefined, name: string): boolean {
+  if (value === undefined) {
+    return false;
   }
 
+  if (typeof value !== "boolean") {
+    throw new Error(`Invalid boolean config value ${name}: ${String(value)}`);
+  }
+
+  return value;
+}
+
+function parseEnvironment(
+  id: string,
+  raw: RawEnvironment,
+  authSource: string
+): EnvironmentConfig {
   const kind = requireString(raw.kind, `${id}.kind`) as EnvironmentKind;
   if (kind !== "local" && kind !== "remote") {
     throw new Error(`Invalid ${id}.kind: ${String(raw.kind)}`);
@@ -119,7 +121,7 @@ function parseEnvironment(
     mongoUser: requireString(raw.mongoUser, `${id}.mongoUser`),
     mongoPassword: requireString(raw.mongoPassword, `${id}.mongoPassword`),
     authSource,
-    isProduction: id === "production"
+    isProduction: requireBoolean(raw.isProduction, `${id}.isProduction`)
   };
 
   if (kind === "remote") {
@@ -196,12 +198,25 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
   }
 
   const authSource = raw.defaults?.authSource ?? "admin";
+  const environmentEntries = Object.entries(raw.environments ?? {});
+  if (environmentEntries.length === 0) {
+    throw new Error("Config must define at least one environment.");
+  }
+
   const environments = Object.fromEntries(
-    ENVIRONMENT_IDS.map((id) => [
+    environmentEntries.map(([id, env]) => [
       id,
-      parseEnvironment(raw.environments, id, authSource)
+      parseEnvironment(id, env, authSource)
     ])
-  ) as Record<EnvironmentId, EnvironmentConfig>;
+  ) as Record<string, EnvironmentConfig>;
+  const productionCount = Object.values(environments).filter(
+    (env) => env.isProduction
+  ).length;
+  if (productionCount > 1) {
+    throw new Error(
+      "Config may not mark more than one environment as production."
+    );
+  }
 
   return {
     backupRoot: expandHomePath(

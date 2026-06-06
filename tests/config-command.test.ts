@@ -16,23 +16,23 @@ function buildAppConfig(): AppConfig {
     authSource: "admin",
     defaultDropOnRestore: true,
     environments: {
-      development: {
-        id: "development",
-        name: "development",
-        label: "Development",
+      sandbox: {
+        id: "sandbox",
+        name: "sandbox",
+        label: "Sandbox",
         kind: "local",
         host: "localhost",
         mongoHost: "localhost",
         mongoPort: 27017,
-        databaseName: "development",
+        databaseName: "sandbox",
         mongoUser: "user",
         mongoPassword: "pass",
         authSource: "admin",
         isProduction: false
       },
-      test: {
-        id: "test",
-        name: "test",
+      qa: {
+        id: "qa",
+        name: "qa",
         label: "Test",
         kind: "remote",
         host: "test.example.com",
@@ -46,9 +46,9 @@ function buildAppConfig(): AppConfig {
         sshUser: "ubuntu",
         sshKeyPath: "/tmp/test.pem"
       },
-      production: {
-        id: "production",
-        name: "production",
+      live: {
+        id: "live",
+        name: "live",
         label: "Production",
         kind: "remote",
         host: "prod.example.com",
@@ -105,7 +105,7 @@ test("runConfigValidate reports success for a valid config", async () => {
 test("runConfigValidate reports failure for an invalid config", async () => {
   const { dependencies, output } = createDependencies({
     async loadConfig(): Promise<AppConfig> {
-      throw new Error("Missing required environment config: test");
+      throw new Error("Config must define at least one environment.");
     }
   });
 
@@ -116,7 +116,7 @@ test("runConfigValidate reports failure for an invalid config", async () => {
 
   assert.deepEqual(output, [
     "Validating config...\n",
-    "Config validation failed: Missing required environment config: test\n"
+    "Config validation failed: Config must define at least one environment.\n"
   ]);
 });
 
@@ -135,10 +135,10 @@ test("runConfigShowRedacted hides mongo passwords", async () => {
 
   const shown = JSON.parse(output[0]) as {
     environments: {
-      development: { mongoPassword: string };
-      test: { mongoPassword: string };
+      sandbox: { mongoPassword: string };
+      qa: { mongoPassword: string };
     };
   };
-  assert.equal(shown.environments.development.mongoPassword, "<redacted>");
-  assert.equal(shown.environments.test.mongoPassword, "<redacted>");
+  assert.equal(shown.environments.sandbox.mongoPassword, "<redacted>");
+  assert.equal(shown.environments.qa.mongoPassword, "<redacted>");
 });

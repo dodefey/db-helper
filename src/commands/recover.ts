@@ -29,17 +29,13 @@ export async function recoverDatabase(appConfig: AppConfig): Promise<void> {
     }))
   );
 
-  const target = await promptChoice<EnvironmentId>("Select a restore target", [
-    {
-      label: `${appConfig.environments.development.label} (development)`,
-      value: "development"
-    },
-    { label: `${appConfig.environments.test.label} (test)`, value: "test" },
-    {
-      label: `${appConfig.environments.production.label} (production)`,
-      value: "production"
-    }
-  ]);
+  const target = await promptChoice<EnvironmentId>(
+    "Select a restore target",
+    Object.values(appConfig.environments).map((env) => ({
+      label: `${env.label} (${env.name})`,
+      value: env.name
+    }))
+  );
 
   const approved = await promptConfirm(`Restore ${backup} into ${target}?`);
   if (!approved) {
@@ -59,7 +55,7 @@ export async function recoverDatabase(appConfig: AppConfig): Promise<void> {
     to: target,
     yes: false,
     skipPreBackup: false,
-    forceProductionRestore: target === "production",
+    forceProductionRestore: appConfig.environments[target].isProduction,
     outputMode: "default"
   });
 }

@@ -48,7 +48,8 @@ function buildConfig(tempRoot: string, backupRoot: string): string {
           mongoPort: 27017,
           databaseName: "production",
           mongoUser: "user",
-          mongoPassword: "pass"
+          mongoPassword: "pass",
+          isProduction: true
         }
       }
     },
@@ -116,23 +117,43 @@ test("cli preserves failure logs and reports the path without --log", async () =
         [
           "sync",
           "--from",
-          "development",
+          "missing",
           "--to",
-          "production",
+          "development",
           "--config",
           configPath
         ],
         cwd
       ),
       (error: NodeJS.ErrnoException & { stderr?: string }) => {
-        assert.match(error.stderr ?? "", /Sync path not allowed/);
+        assert.match(error.stderr ?? "", /Unknown environment --from: missing/);
+        assert.match(error.stderr ?? "", /Debug log saved: .+\.log/);
+        return true;
+      }
+    );
+
+    await assert.rejects(
+      runCli(
+        [
+          "sync",
+          "--from",
+          "development",
+          "--to",
+          "missing",
+          "--config",
+          configPath
+        ],
+        cwd
+      ),
+      (error: NodeJS.ErrnoException & { stderr?: string }) => {
+        assert.match(error.stderr ?? "", /Unknown environment --to: missing/);
         assert.match(error.stderr ?? "", /Debug log saved: .+\.log/);
         return true;
       }
     );
 
     const logFiles = await readdir(path.join(tempRoot, "logs"));
-    assert.equal(logFiles.length, 1);
+    assert.equal(logFiles.length, 2);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
