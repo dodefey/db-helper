@@ -454,6 +454,20 @@ export async function runConfigShowRedacted(
   );
 }
 
+export async function runConfigShow(
+  input: {
+    configPath?: string;
+    redacted?: boolean;
+  } = {},
+  dependencies: ConfigCommandDependencies = DEFAULT_CONFIG_COMMAND_DEPENDENCIES
+): Promise<void> {
+  const resolvedPath = await dependencies.resolveConfigPath(input.configPath);
+  const config = await dependencies.loadConfig(resolvedPath);
+  dependencies.writeStdout(
+    `${JSON.stringify(input.redacted === false ? config : redactConfig(config), null, 2)}\n`
+  );
+}
+
 export async function runInitFromEnvFile(
   input: {
     fromEnvFile: string;

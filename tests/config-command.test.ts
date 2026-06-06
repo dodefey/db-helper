@@ -5,6 +5,7 @@ import {
   ConfigCommandDependencies,
   ConfigCommandError,
   runConfigPath,
+  runConfigShow,
   runConfigShowRedacted,
   runConfigValidate
 } from "../src/commands/config.js";
@@ -141,4 +142,45 @@ test("runConfigShowRedacted hides mongo passwords", async () => {
   };
   assert.equal(shown.environments.sandbox.mongoPassword, "<redacted>");
   assert.equal(shown.environments.qa.mongoPassword, "<redacted>");
+});
+
+test("runConfigShow defaults to redacted output", async () => {
+  const { dependencies, output } = createDependencies();
+
+  await runConfigShow(
+    {
+      configPath: "/tmp/config.json"
+    },
+    dependencies
+  );
+
+  const shown = JSON.parse(output[0]) as {
+    environments: {
+      sandbox: { mongoPassword: string };
+      qa: { mongoPassword: string };
+    };
+  };
+  assert.equal(shown.environments.sandbox.mongoPassword, "<redacted>");
+  assert.equal(shown.environments.qa.mongoPassword, "<redacted>");
+});
+
+test("runConfigShow can print unredacted output", async () => {
+  const { dependencies, output } = createDependencies();
+
+  await runConfigShow(
+    {
+      configPath: "/tmp/config.json",
+      redacted: false
+    },
+    dependencies
+  );
+
+  const shown = JSON.parse(output[0]) as {
+    environments: {
+      sandbox: { mongoPassword: string };
+      qa: { mongoPassword: string };
+    };
+  };
+  assert.equal(shown.environments.sandbox.mongoPassword, "pass");
+  assert.equal(shown.environments.qa.mongoPassword, "pass");
 });

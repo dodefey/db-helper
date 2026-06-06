@@ -190,8 +190,13 @@ dbh config path
 ```
 
 ```bash
-# inspect config safely with secrets redacted
-dbh config show --redacted
+# inspect config safely with secrets redacted by default
+dbh config show
+```
+
+```bash
+# print config with secrets included only when you explicitly need them
+dbh config show --unredacted
 ```
 
 ```bash

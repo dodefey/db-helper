@@ -8,6 +8,7 @@ import { AppConfig, EnvironmentId } from "./config/types.js";
 import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
 import {
   runConfigPath,
+  runConfigShow,
   runConfigShowRedacted,
   runConfigValidate,
   runInitFromEnvFile,
@@ -101,7 +102,7 @@ Commands:
   init [--from-env-file <path>] [--config <path>] [--force]
   config validate
   config path
-  config show --redacted
+  config show [--unredacted]
   interactive
   backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   backup list [--from <environment>] [--tag <tag>]
@@ -182,13 +183,34 @@ async function main(): Promise<void> {
         return;
       }
       if (subcommand === "show") {
-        if (!getBooleanFlag(args.flags, "redacted")) {
+        if (
+          getBooleanFlag(args.flags, "redacted") &&
+          getBooleanFlag(args.flags, "unredacted")
+        ) {
           throw new Error(
-            "Config show requires --redacted. Refusing to print secrets."
+            "Config show flags --redacted and --unredacted cannot be used together."
           );
         }
+        if (getBooleanFlag(args.flags, "unredacted")) {
+          runLogger.info("cli", "Running config show unredacted");
+          await runConfigShow({
+            configPath: getFlag(args.flags, "config"),
+            redacted: false
+          });
+          await finishSuccess();
+          return;
+        }
+        if (getBooleanFlag(args.flags, "redacted")) {
+          runLogger.info("cli", "Running config show redacted");
+          await runConfigShowRedacted(getFlag(args.flags, "config"));
+          await finishSuccess();
+          return;
+        }
         runLogger.info("cli", "Running config show redacted");
-        await runConfigShowRedacted(getFlag(args.flags, "config"));
+        await runConfigShow({
+          configPath: getFlag(args.flags, "config"),
+          redacted: true
+        });
         await finishSuccess();
         return;
       }
