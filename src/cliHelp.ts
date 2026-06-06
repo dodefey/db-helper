@@ -128,6 +128,7 @@ Required flags:
 
 Important notes:
   Full sync overwrites the target and prunes target-only non-system collections.
+  Targets marked isProduction are blocked; use backup plus restore instead.
   Interrupted sync can leave the target dirty.
   If the target matters, create a backup before running sync.
 

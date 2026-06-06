@@ -31,6 +31,18 @@ export async function syncDatabase(
   context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
+  const targetEnv = appConfig.environments[input.to];
+
+  if (targetEnv.isProduction) {
+    runLogger.warn("sync.command", "Blocked sync into production target", {
+      from: input.from,
+      to: input.to,
+      collection: input.collection
+    });
+    throw new Error(
+      `Sync into production environment ${input.to} is not allowed. Create a backup and use restore instead.`
+    );
+  }
 
   const source = input.collection
     ? `${input.from}.${input.collection}`

@@ -408,7 +408,7 @@ Optional flags:
 Environment rules:
 
 - `--from` and `--to` must name real configured environments
-- sync paths are not hard-coded; any configured pair is allowed
+- sync into an environment marked `isProduction: true` is blocked; use `backup` plus `restore` instead
 - self-syncs are allowed and use the same confirmation flow as any other sync
 
 Collection sync expectations:

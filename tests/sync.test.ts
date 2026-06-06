@@ -400,6 +400,27 @@ test("syncDatabase allows same-environment paths under the flexible policy", asy
   ]);
 });
 
+test("syncDatabase rejects production targets before confirmation or sync work", async () => {
+  const { dependencies, calls } = createDependencies();
+
+  await assert.rejects(
+    syncDatabase(
+      buildAppConfig(true),
+      {
+        from: "development",
+        to: "production",
+        yes: true,
+        outputMode: "default"
+      },
+      dependencies
+    ),
+    /Sync into production environment production is not allowed/
+  );
+
+  assert.deepEqual(calls.promptMessages, []);
+  assert.deepEqual(calls.runSyncCalls, []);
+});
+
 test("parseOutputMode rejects quiet and verbose together", () => {
   assert.throws(
     () => parseOutputMode({ quiet: true, verbose: true }),
