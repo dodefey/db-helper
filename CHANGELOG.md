@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.0
+
 - changed `config.json` to support arbitrary named environments instead of requiring fixed `development`, `test`, and `production` keys
 - added explicit `isProduction` environment marking so production safeguards follow config intent rather than reserved environment names
 - changed `init` to create one named environment first and optionally add more environments interactively
