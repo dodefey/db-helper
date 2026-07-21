@@ -453,6 +453,16 @@ export async function runRestoreCollection(
         `Collection ${input.collection} not present in backup ${input.backup}`
       );
     }
+    const expectedCount = backup.manifest.collectionCounts?.[input.collection];
+    if (
+      expectedCount === undefined ||
+      !Number.isInteger(expectedCount) ||
+      expectedCount < 0
+    ) {
+      throw new Error(
+        `Collection ${input.collection} has no valid manifest count in backup ${input.backup}`
+      );
+    }
 
     currentPhase = "restore";
     targetMayBeDirty = true;
@@ -479,6 +489,42 @@ export async function runRestoreCollection(
         remotePreflightSession: context.remotePreflightSession
       }
     );
+    currentPhase = "verify";
+    if (printSummary) {
+      dependencies.writeStdout(
+        `Verifying collection ${input.collection} in ${input.to}...\n`
+      );
+    }
+    const verification = await dependencies.verifyRestore(
+      target,
+      {
+        ...backup.manifest,
+        collectionList: [input.collection],
+        collectionCounts: { [input.collection]: expectedCount }
+      },
+      {
+        outputMode: input.outputMode,
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
+      }
+    );
+    if (
+      verification.missingCollections.length > 0 ||
+      verification.countMismatches.length > 0
+    ) {
+      throw new Error(
+        `Collection restore verification failed for ${backup.name}:${input.collection} -> ${input.to}\n` +
+          `Missing collections: ${verification.missingCollections.join(", ") || "none"}\n` +
+          `Count mismatches: ${
+            verification.countMismatches
+              .map(
+                (item) =>
+                  `${item.collection} expected=${item.expected} actual=${item.actual}`
+              )
+              .join(", ") || "none"
+          }`
+      );
+    }
     if (printSummary) {
       dependencies.writeStdout(
         `Restore complete: ${input.backup}:${input.collection} -> ${input.to}\n`

@@ -682,6 +682,7 @@ test("runRestoreCollection validates collection membership and restores with dro
   assert.deepEqual(calls.output, [
     "Starting restore backup-name:orders -> test\n",
     "Restoring collection orders into test...\n",
+    "Verifying collection orders in test...\n",
     "Restore complete: backup-name:orders -> test\n"
   ]);
 });
@@ -713,6 +714,34 @@ test("runRestoreCollection rejects collections missing from the backup", async (
       ),
     /Collection orders not present in backup backup-name/
   );
+});
+
+test("runRestoreCollection rejects a missing manifest count before restore", async () => {
+  const { dependencies, calls } = createRunRestoreDependencies({
+    async readBackup(): Promise<BackupRecord> {
+      const backup = buildBackupRecord();
+      return {
+        ...backup,
+        manifest: { ...backup.manifest, collectionCounts: { customers: 2 } }
+      };
+    }
+  });
+
+  await assert.rejects(
+    () =>
+      runRestoreCollection(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          collection: "orders",
+          to: "development",
+          outputMode: "quiet"
+        },
+        dependencies
+      ),
+    /Collection orders has no valid manifest count/
+  );
+  assert.equal(calls.restores.length, 0);
 });
 
 test("runRestoreCollection reports dirty-target risk on restore failure", async () => {

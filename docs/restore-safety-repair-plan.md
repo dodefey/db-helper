@@ -284,7 +284,7 @@ Completion notes:
 
 ## Phase 6: Add Collection-Scoped Post-Restore Verification
 
-Status: pending
+Status: complete
 
 Complete the targeted collection workflow after the namespace repair.
 
@@ -296,6 +296,16 @@ Complete the targeted collection workflow after the namespace repair.
 - Print collection restore success only after verification passes.
 - Keep unrelated target collections outside runtime verification and pruning.
 - Preserve `sync collection`'s existing collection-scoped verification while routing its mutation through the same preflight-safe helper.
+
+Completion notes:
+
+- Collection restore now requires a finite, nonnegative manifest count before
+  invoking `mongorestore`.
+- Verification receives a one-collection manifest and runs after mutation,
+  including valid zero-count collections.
+- Collection success output is emitted only after scoped verification passes.
+- Validation passed: `npm run lint`, `npm test` (133 tests),
+  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
 
 ### Phase 6 tests
 
