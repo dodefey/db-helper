@@ -419,13 +419,22 @@ For full scenarios, prove:
 
 ## Phase 9: Reconcile User Documentation And Unreleased History
 
-Status: pending
+Status: complete
 
 - Update the README restore and sync-collection sections with the exact replacement and targeted-isolation guarantees.
 - Document full-restore archive inspection, target-only pruning, collection preflight, and post-restore verification at the operator level.
 - Add `CHANGELOG.md` `Unreleased` entries for all three user-visible safety fixes and the affected `sync collection` seam.
 - Keep version, doctor, public explain mode, JSON output, index verification, and preimage backup ideas deferred.
 - Reconcile touched Markdown with current Prettier rules.
+
+Completion notes:
+
+- Updated README restore/sync guidance with archive preflight, exact
+  replacement, target-only pruning, scoped collection verification, and trust
+  state expectations.
+- Added unreleased changelog entries for restore isolation, full replacement,
+  verification framing, lifecycle reporting, and integration coverage.
+- Validation passed: `npm run format:check` and `git diff --check`.
 
 ## Phase 10: Verification And Release Readiness
 
