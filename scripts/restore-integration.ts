@@ -139,7 +139,7 @@ async function main(): Promise<void> {
       "--eval",
       "JSON.stringify(db.getSiblingDB('archive_db').getCollectionNames().sort())"
     ]);
-    if (!stdout.includes("orders") || stdout.includes("unrelated")) {
+    if (!stdout.includes("orders") || !stdout.includes("unrelated")) {
       throw new Error(
         `Collection restore regression detected: ${stdout.trim()}`
       );

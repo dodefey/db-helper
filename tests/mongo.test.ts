@@ -42,8 +42,20 @@ test("mongo URI builders distinguish database and server scope", () => {
     mongoDatabaseUri(TEST_ENV),
     /@mongo\.example:27017\/target_db\?/
   );
-  assert.match(mongoServerUri(TEST_ENV), /@mongo\.example:27017\?/);
+  assert.match(mongoServerUri(TEST_ENV), /@mongo\.example:27017\/\?/);
   assert.doesNotMatch(mongoServerUri(TEST_ENV), /target_db/);
+});
+
+test("credential-less Mongo URIs omit authSource", () => {
+  const noAuthEnvironment = {
+    ...TEST_ENV,
+    mongoUser: "",
+    mongoPassword: ""
+  };
+  assert.equal(
+    mongoServerUri(noAuthEnvironment),
+    "mongodb://mongo.example:27017/"
+  );
 });
 
 test("restore namespace contract covers full and collection scope", () => {

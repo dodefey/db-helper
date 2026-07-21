@@ -485,9 +485,8 @@ Completion notes:
 
 - `npm run format:check`, `npm run lint`, `npm test` (133 tests),
   `npm run typecheck`, and `npm run build` all pass.
-- `npm run test:restore-integration` was executed and correctly failed at the
-  local `mongorestore --dryRun` invocation; release publication remains gated
-  on resolving that environment-specific integration failure.
+- `npm run test:restore-integration` now passes against a disposable local
+  `mongod` with mongod 7.0.34 and MongoDB Database Tools 100.16.1.
 - No version cut, release branch promotion, tag, or publish was performed.
 
 ## Acceptance Criteria

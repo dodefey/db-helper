@@ -66,13 +66,15 @@ function mongoUriForScope(
   scope: "database" | "server"
 ): string {
   const host = env.mongoHost || env.host;
-  const params = new URLSearchParams({ authSource: env.authSource });
-  const databasePath = scope === "database" ? `/${env.databaseName}` : "";
+  const databasePath = scope === "database" ? `/${env.databaseName}` : "/";
   const credentials =
     env.mongoUser || env.mongoPassword
       ? `${encodeURIComponent(env.mongoUser)}:${encodeURIComponent(env.mongoPassword)}@`
       : "";
-  return `mongodb://${credentials}${host}:${env.mongoPort}${databasePath}?${params.toString()}`;
+  const query = credentials
+    ? `?${new URLSearchParams({ authSource: env.authSource }).toString()}`
+    : "";
+  return `mongodb://${credentials}${host}:${env.mongoPort}${databasePath}${query}`;
 }
 
 export function mongoDatabaseUri(env: EnvironmentConfig): string {
