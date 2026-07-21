@@ -2,7 +2,9 @@
 
 ## Purpose
 
-`sync` copies a full Mongo database from one configured environment to another across a small set of explicitly allowed paths so the target ends as an exact copy of the source snapshot for normal user collections.
+`sync` copies a full Mongo database from one configured environment to another
+across a small set of explicitly allowed paths so the target ends as an exact
+copy of the source snapshot for normal user collections.
 
 The command exists for operational refresh workflows such as:
 
@@ -11,120 +13,94 @@ The command exists for operational refresh workflows such as:
 - copy one non-production environment into the other
 - refresh one named collection between allowed environments
 
-`sync` is not a generic "copy anything to anywhere" command.
+`sync` is not a generic `copy anything to anywhere` command.
 
 ## Command Surface
 
-CLI form:
+CLI forms:
 
 ```bash
-dbh sync --from <environment> --to <environment> [--yes]
-dbh sync collection --from <environment> --to <environment> --collection <name> [--yes]
+dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
+dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose]
 ```
 
 Required flags:
 
-- `--from`
-- `--to`
+- `sync`: `--from`, `--to`
+- `sync collection`: `--from`, `--to`, `--collection`
 
 Optional flags:
 
-- `--yes`
+- `sync`: `--yes`, `--quiet`, `--verbose`
+- `sync collection`: `--yes`, `--quiet`, `--verbose`
 
-No other sync modes are supported.
 No selective multi-collection sync mode is supported.
 
 ## Allowed Paths
 
-The command must allow only these source and target pairs:
+The command must allow only configured non-production target paths. It must
+reject any sync into an environment marked `isProduction: true` before starting
+any dump, copy, or restore work.
 
-- `production -> development`
-- `production -> test`
-- `development -> test`
-- `test -> development`
-
-The command must reject all other pairs before starting any dump, copy, or restore work.
-
-Specifically rejected:
-
-- any sync into `production`
-- `development -> production`
-- `test -> production`
-- `production -> production`
-- `development -> development`
-- `test -> test`
-- any future environment pair not explicitly added to the allowlist
+The command must also reject self-sync and any source-target pair that is not
+allowed by configured policy.
 
 ## Data Semantics
 
-`sync` is an exact full-target replacement workflow for normal user collections.
+### Full sync
+
+`sync` is an exact full-target replacement workflow for normal user
+collections.
 
 Meaning:
 
 - the source database is dumped as a full archive
 - the target database is restored from that archive
-- existing target data is overwritten by the restored source data
 - target collections included in the archive are dropped before restore
-- target collections that do not exist in the source are removed so the final target collection set matches the source
+- target collections that do not exist in the validated archive are removed so
+  the final normal-user collection set matches that archive
 
-Exception:
+Internal Mongo namespaces such as `system.*` are excluded from full-sync prune
+and verification. No other exception to exact-copy behavior is part of this
+command.
 
-- internal Mongo namespaces such as `system.*` are excluded from sync prune and verification
-- no other exceptions to the exact-copy rule are part of this command
-
-This command is destructive to the target environment.
-
-Current behavior:
-
-- use `mongorestore --drop`
-- do not support merge mode
-- do not support collection-level sync
-- do not support partial namespace filters
+### Collection sync
 
 `sync collection` is the targeted collection workflow:
 
-- restore one named collection from the source archive into the target
-- drop the target collection before restore
-- do not prune unrelated target collections
-- verify only the requested collection
+- dump the source database archive used by the sync operation
+- preflight the effective archive namespace mapping before target mutation
+- require exactly one source-to-target mapping for the requested collection
+- restore and replace only the requested target collection
+- verify only the requested collection's presence and count
+- do not prune, rewrite, or verify unrelated target collections
 
-Collection-level or selective restore belongs under `sync collection` or `restore collection`, not full `sync`.
+Collection sync uses a server-scoped restore connection and explicit namespace
+rules. Same-database collection sync uses an exact namespace include only;
+namespace remapping is used only when source and target database names differ.
+A collection name that cannot be represented as an exact namespace filter must
+fail before subprocess execution.
 
 ## Confirmation Rules
 
-If `--yes` is not provided, the operator must confirm before any destructive work starts.
+If `--yes` is not provided, the operator must confirm before any destructive
+work starts.
 
 Minimum confirmation text must clearly state:
 
 - source environment
 - target environment
-- that the target will be replaced with an exact copy of the source snapshot
+- whether the full target or one named collection will be replaced
 
-Baseline prompt:
-
-```text
-This will replace <to> with an exact copy of <from>. Continue?
-```
-
-For collection sync, the confirmation must name the source and target collection as well.
-
-If `--yes` is provided, the command may proceed without interactive confirmation.
-
-Typed confirmation is not required for non-production targets.
+If `--yes` is provided, the command may proceed without interactive
+confirmation. Typed confirmation is not required for non-production sync.
 
 ## Backups
 
 `sync` does not create an automatic pre-sync backup of the target.
 
-Reason:
-
-- the main use cases are environment refreshes into non-production targets
-- mandatory pre-sync target backup adds time, storage, and operational complexity
-- backup creation already exists as a separate explicit workflow
-
-Operator expectation:
-
-- if target recovery matters, create a backup explicitly before running sync
+If target recovery matters, the operator must create a backup explicitly before
+running sync.
 
 Future enhancement, not part of this spec:
 
@@ -134,40 +110,52 @@ Future enhancement, not part of this spec:
 
 `sync` requires post-sync verification.
 
-Required verification behavior:
+For full sync, verification must:
 
-- verify that the target collection set exactly matches the source collection set
+- verify that the normal-user target collection set exactly matches the
+  validated archive collection set
 - verify source and target collection counts after restore
-- exclude internal Mongo collections such as `system.*` from sync prune and verification
+- exclude internal Mongo collections such as `system.*` from prune and
+  verification
 
-Verification is part of the sync operation. A sync that restores successfully but fails verification must still be treated as a failed sync.
+For collection sync, verification is limited to the requested collection.
+Unrelated target collections must not affect collection-sync verification or be
+pruned by it.
 
-Current tradeoff:
-
-- count-based verification can be slow on large collections
-- that cost is accepted because the command favors explicit post-restore validation over a faster but less trustworthy default
+Verification is part of the operation. A sync that restores successfully but
+fails verification must still be treated as a failed sync.
 
 ## Execution Model
 
-The command must perform sync using an archive-based workflow:
+### Full sync
 
-1. validate source and target path
-2. confirm with operator unless `--yes`
+`sync` must perform this workflow:
+
+1. validate the source and target path
+2. confirm with the operator unless `--yes` is provided
 3. create a temporary archive from the source database
 4. restore that archive into the target database with drop enabled
-5. remove target-only collections so the target collection set matches the source snapshot exactly
-6. clean up temporary artifacts
+5. inspect the archive before authorizing target-only pruning
+6. remove target-only normal user collections
+7. verify the exact target collection set and collection counts
+8. clean up temporary artifacts
 
-The implementation may use:
+### Collection sync
 
-- local temp archive files
-- remote temp archive files
-- `ssh`
-- `scp`
-- `mongodump`
-- `mongorestore`
+`sync collection` must perform this workflow:
 
-The implementation must keep those details internal to the execution layer.
+1. validate the source and target path
+2. confirm with the operator unless `--yes` is provided
+3. create a temporary archive from the source database
+4. inspect the effective archive namespace mapping
+5. require exactly the requested source-to-target collection mapping
+6. restore the requested collection with drop enabled
+7. verify only the requested collection
+8. clean up temporary artifacts
+
+The implementation may use local temp archive files, remote temp archive files,
+`ssh`, `scp`, `mongodump`, and `mongorestore`. Those details remain internal to
+the execution layer.
 
 ## Cleanup Guarantees
 
@@ -176,67 +164,48 @@ The command must attempt cleanup even when sync fails.
 Required cleanup behavior:
 
 - local temp archive should be deleted in a `finally` path
-- remote temp archive should be deleted in a `finally` path when remote execution was used
+- remote temp archive should be deleted in a `finally` path when remote
+  execution was used
+- cleanup failure should not hide the original operational failure
 
-Cleanup failure should not hide the original sync failure.
+If cleanup fails after a successful mutation, the command must report that
+separately from database-state failure.
 
-If cleanup itself fails after an otherwise successful sync, the command may report cleanup failure as an error.
-
-## Failure Semantics
+## Failure And Target-Trust Semantics
 
 The command must fail fast and exit non-zero when any required step fails.
 
 Failure cases include:
 
-- invalid source/target path
+- invalid source or target path
 - operator declines confirmation
 - source dump fails
+- archive inspection fails or collection mapping is ambiguous
 - remote copy fails
 - target restore fails
+- full-sync target-only prune fails
+- required verification fails
 - required local or remote temp path cannot be used
 
 No rollback is guaranteed.
 
-If restore fails after target drop has started, the target may be left partially restored. This is acceptable because `sync` targets only non-production environments.
+The command must distinguish these target-trust states:
 
-### Dirty Target Contract
-
-`sync` does not guarantee rollback of target database state.
-
-The command must distinguish failures by phase and define the operator expectation for each case:
-
-- failure before restore starts:
-  - target database state is unchanged
+- failure before restore starts, including collection archive inspection failure:
+  - target database is unchanged
 - failure after restore starts but before restore completes:
-  - target database state may be partially replaced
-  - target must be treated as dirty until a fresh sync or manual inspection confirms it is usable
-- failure after restore completes but during verification:
-  - target database state has been modified
-  - target must be treated as dirty until manual inspection or a subsequent successful sync confirms it is usable
+  - target database may be partially replaced
+- failure after restore completes during full-sync prune or verification:
+  - target database has been modified and requires independent verification or
+    a subsequent successful sync
 - failure during temp artifact cleanup after successful restore and verification:
-  - target database state may still be valid
-  - the command should report cleanup failure separately from database-state failure
+  - target database may still be valid, but cleanup failure must be reported
 
-The implementation must preserve the primary operational failure and must not replace it with a cleanup-only failure.
+Interruptions follow the same contract. Operator-facing output must identify the
+phase and distinguish a successful mutation from a later prune, cleanup, or
+verification failure when that state is known.
 
-The implementation should surface phase-aware operator messaging so a failed sync clearly states whether the target may be dirty.
-
-Interruptions such as `Ctrl-C` must follow the same phase-aware contract:
-
-- interrupted during dump:
-  - target database state is unchanged
-- interrupted during restore:
-  - target database may be partially replaced and must be treated as dirty
-- interrupted during verification:
-  - target database has been modified and must be treated as dirty
-
-Interruption output should be practical rather than low-level. It should report:
-
-- which sync phase was interrupted
-- whether the target database was modified or may be dirty
-- whether temp artifact cleanup was attempted or may not have completed
-
-## Logging and Operator Output
+## Logging And Operator Output
 
 `sync` output should be concise and operationally useful.
 
@@ -244,18 +213,21 @@ At minimum, output should make clear:
 
 - source environment
 - target environment
-- whether sync started
-- whether sync completed
+- requested collection when applicable
 - current long-running phase
-- verification progress while collection counts are being checked
+- verification progress while collection counts are checked
+- whether mutation, full-sync pruning, and verification succeeded
 
-Current output behavior:
+Output modes follow `output-standards.md`:
 
-- default mode shows sync phases, elapsed timers for dump and restore, and verification count progress
-- quiet mode suppresses normal command-summary output
-- verbose mode may stream low-level subprocess output
+- default mode shows concise phase progress
+- quiet mode suppresses normal success-path summaries but still reports failures
+- verbose mode may stream useful diagnostics but not internal machine-result
+  envelopes
 
-Output should avoid dumping raw underlying command text in normal interruption messaging. Operator-facing messages should focus on practical state and next steps.
+Output should avoid dumping raw underlying command text in normal interruption
+messages. Operator-facing messages should focus on practical state and next
+steps.
 
 ## Environment Assumptions
 
@@ -272,16 +244,18 @@ The command assumes:
 
 `sync` owns:
 
-- allowed path enforcement
+- allowed-path enforcement
 - operator confirmation
 - full-database transport from source to target
+- targeted collection transport through `sync collection`
+- full-sync target-only pruning
+- verification
 - temp artifact cleanup
 
 `sync` does not own:
 
 - backup catalog management
 - named backup restore
-- collection-level restore
 - maintenance or migration tasks
 - generic replication or continuous sync
 
@@ -290,18 +264,24 @@ The command assumes:
 Any refactor of the sync flow should preserve these invariants:
 
 - invalid paths fail before any destructive work
-- sync never targets `production`
-- sync always performs full target replacement in phase 1
+- sync never targets an environment marked `isProduction: true`
+- full sync always performs exact normal-user target replacement
+- `sync collection` always performs an exact single-collection replacement
+- collection namespace inspection completes before collection mutation
 - sync always attempts temp artifact cleanup
-- sync behavior is expressed in terms of clear source and target environments, not arbitrary URIs
-- interruption handling preserves the same dirty-target contract as ordinary failures
+- sync behavior is expressed in terms of clear source and target environments,
+  not arbitrary URIs
+- interruption handling preserves the same target-trust contract as ordinary
+  failures
 
 ## Deferred Decisions
 
-These are intentionally out of scope and should not be added implicitly during refactor:
+These are intentionally out of scope and should not be added implicitly during
+refactor:
 
 - target pre-backup
 - merge mode
-- partial sync
+- multi-collection sync
 - typed confirmation for non-production sync
-- support for arbitrary user-defined environments beyond the current allowlist model
+- public sync `--dry-run` or `--explain` mode
+- machine-readable `--json` command output

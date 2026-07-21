@@ -96,15 +96,40 @@ Subprocess output should follow these rules:
   - suppress normal subprocess progress when possible
   - still surface subprocess failure output
 - verbose mode:
-  - stream subprocess output directly
+  - stream useful subprocess diagnostics directly
+  - do not expose internal machine-result envelopes used by the command to
+    parse subprocess results
 
 If a helper cannot yet fully control subprocess streaming, the command should still target this contract when refactored.
+
+## Machine-Readable Subprocess Results
+
+Some subprocesses produce both diagnostics and a machine-readable result on
+stdout. Commands must not parse the complete stdout stream as data in that
+case.
+
+- result-bearing subprocess calls must use an explicit, per-invocation result
+  envelope
+- parsers must accept only the matching envelope and validate its result shape
+- missing, duplicate, malformed, or wrong-shaped envelopes are failures; do not
+  fall back to empty or partial results
+- diagnostic stdout before or after a valid envelope is not result data
+- nonzero subprocess, connection, authentication, and script failures remain
+  failures
+- default and quiet modes must not print internal envelopes
+- verbose mode may print useful diagnostics, but must not print internal
+  envelopes
+- retained run logs may preserve redacted subprocess diagnostics for later
+  investigation
 
 ## Summary Rules
 
 - Every command should print at most one final success summary.
 - Every command should print at most one final failure summary.
 - A lower layer that already prints a final failure summary must mark the error so the top-level CLI does not print it again.
+- Lifecycle command failures must identify the completed state that matters to
+  operators: mutation, any post-mutation prune or cleanup, verification, and
+  target trust.
 
 ## Command Design Rules
 
