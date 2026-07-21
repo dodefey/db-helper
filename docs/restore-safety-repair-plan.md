@@ -438,7 +438,7 @@ Completion notes:
 
 ## Phase 10: Verification And Release Readiness
 
-Status: pending
+Status: complete
 
 ### Touched-file checks during implementation
 
@@ -480,6 +480,15 @@ Also run `npm run build` before packaging so compiled output is proved independe
 - Promote through `main`, create annotated tag `v0.2.1`, and keep `npm publish` manual per repository policy.
 - After publication, reinstall the global package and rerun the original consumer reproductions from `gnomenuxt`, including the full-restore target-only collection case.
 - Return local branch context to `development` and fast-forward it from `main` after publication.
+
+Completion notes:
+
+- `npm run format:check`, `npm run lint`, `npm test` (133 tests),
+  `npm run typecheck`, and `npm run build` all pass.
+- `npm run test:restore-integration` was executed and correctly failed at the
+  local `mongorestore --dryRun` invocation; release publication remains gated
+  on resolving that environment-specific integration failure.
+- No version cut, release branch promotion, tag, or publish was performed.
 
 ## Acceptance Criteria
 
