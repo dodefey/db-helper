@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-07-21 (America/Chicago)
-Status: Implementation complete; pending commit and release review
+Status: Closed; implementation and integration validation complete
 Branch baseline: development
 Target release: 0.2.1
 Sequence: repository contracts first, shared Mongo safety primitives second, restore and sync orchestration third, real lifecycle proof fourth
@@ -557,6 +557,19 @@ Completion notes:
 - automatic scoped collection preimage backups
 - transactional rollback guarantees
 - merge or multi-collection restore modes
+
+## Completion Record
+
+- Closed after commit `f4706a4` (`Complete disposable lifecycle integration coverage`).
+- The disposable lifecycle gate now covers production backup creation, full and
+  collection restore, full and collection sync, interrupted restore with retry
+  recovery, diagnostic shell output, namespace isolation, sentinel preservation,
+  exact state assertions, and credential-redacted logs.
+- Validation passed: `npm run format:check`, `npm run lint`, `npm test` (157
+  tests), `npm run typecheck`, `npm run build`, and
+  `npm run test:restore-integration`.
+- Release publication remains outside this closeout; no tag or package publish
+  was performed.
 
 ## Plan Maintenance
 
