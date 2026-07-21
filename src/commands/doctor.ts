@@ -38,7 +38,7 @@ export class DoctorCommandError extends Error {
 }
 
 export interface DoctorDependencies {
-  ensureBinary: (name: string) => Promise<void>;
+  ensureBinary: (name: string) => Promise<string>;
   assertWritable: (path: string) => Promise<void>;
   assertReadable: (path: string) => Promise<void>;
   ensureRemotePreflight: (
@@ -53,8 +53,14 @@ export interface DoctorDependencies {
 }
 
 const DEFAULT_DOCTOR_DEPENDENCIES: DoctorDependencies = {
-  async ensureBinary(name: string): Promise<void> {
-    await runCommand("which", [name]);
+  async ensureBinary(name: string): Promise<string> {
+    const version = await runCommand(name, ["--version"], {
+      streamOutput: false
+    });
+    if (!version) {
+      throw new Error(`${name} did not report a version`);
+    }
+    return version;
   },
   assertWritable,
   async assertReadable(path: string): Promise<void> {
@@ -98,14 +104,14 @@ function formatDoctorLine(result: DoctorCheckResult): string {
 async function runCheck(
   results: DoctorCheckResult[],
   result: Omit<DoctorCheckResult, "status" | "message">,
-  operation: () => Promise<void>
+  operation: () => Promise<string | void>
 ): Promise<boolean> {
   try {
-    await operation();
+    const message = await operation();
     results.push({
       ...result,
       status: "pass",
-      message: "ok"
+      message: message || "ok"
     });
     return true;
   } catch (error) {
@@ -181,8 +187,10 @@ export async function runDoctor(
       }
     }
 
-    await runCheck(results, { check: "connectivity", scope: env.id }, () =>
-      dependencies.verifyConnectivity(env, context)
+    await runCheck(
+      results,
+      { check: "connectivity (tagged result probe)", scope: env.id },
+      () => dependencies.verifyConnectivity(env, context)
     );
   }
 

@@ -140,6 +140,9 @@ dbh config validate
 dbh doctor
 ```
 
+`doctor` reports the installed MongoDB/SSH tool versions and validates MongoDB
+connectivity with a tagged machine-readable ping result.
+
 If you already have the old env-file format, import it instead:
 
 ```bash
@@ -255,6 +258,11 @@ dbh restore full --backup 2026-03-16T10-30-00-live --to local --yes
 ```bash
 # restore a single collection
 dbh restore collection --backup 2026-03-16T10-30-00-live --collection orders --to staging --yes
+```
+
+```bash
+# inspect a full restore plan without mutating the target
+dbh restore full --backup 2026-03-16T10-30-00-live --to staging --explain
 ```
 
 ```bash

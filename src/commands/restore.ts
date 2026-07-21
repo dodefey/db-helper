@@ -73,6 +73,7 @@ export async function restoreFull(
     skipPreBackup: boolean;
     forceProductionRestore: boolean;
     outputMode: OutputMode;
+    explain?: boolean;
   },
   dependencies: RestoreDependencies = DEFAULT_RESTORE_DEPENDENCIES,
   context: CommandInvocationContext = createCommandInvocationContext()
@@ -84,14 +85,16 @@ export async function restoreFull(
   );
   const target = appConfig.environments[input.to];
 
-  await confirmRestore(input.to, input.yes, dependencies);
+  if (!input.explain) {
+    await confirmRestore(input.to, input.yes, dependencies);
+  }
   runLogger.info("restore.command", "Restore target confirmed", {
     backup: input.backup,
     to: input.to,
     kind: "full"
   });
 
-  if (target.isProduction) {
+  if (target.isProduction && !input.explain) {
     await confirmProductionRestore(
       backup,
       input.yes,
@@ -112,7 +115,8 @@ export async function restoreFull(
       backup: input.backup,
       to: input.to,
       skipPreBackup: input.skipPreBackup,
-      outputMode: input.outputMode
+      outputMode: input.outputMode,
+      ...(input.explain ? { explain: true } : {})
     },
     undefined,
     context

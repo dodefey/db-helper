@@ -107,6 +107,7 @@ function createRestoreCommandDependencies(
       to: EnvironmentId;
       skipPreBackup: boolean;
       outputMode: "default" | "quiet" | "verbose";
+      explain?: boolean;
     }>;
     runRestoreCollectionArgs: Array<{
       backup: string;
@@ -125,6 +126,7 @@ function createRestoreCommandDependencies(
       to: EnvironmentId;
       skipPreBackup: boolean;
       outputMode: "default" | "quiet" | "verbose";
+      explain?: boolean;
     }>,
     runRestoreCollectionArgs: [] as Array<{
       backup: string;
@@ -390,6 +392,36 @@ test("restoreFull enforces production confirmation before running restore", asyn
       to: "production",
       skipPreBackup: false,
       outputMode: "default"
+    }
+  ]);
+});
+
+test("restoreFull explain skips mutation confirmations", async () => {
+  const { dependencies, calls } = createRestoreCommandDependencies();
+
+  await restoreFull(
+    buildAppConfig(),
+    {
+      backup: "backup-name",
+      to: "production",
+      yes: false,
+      skipPreBackup: false,
+      forceProductionRestore: false,
+      outputMode: "default",
+      explain: true
+    },
+    dependencies
+  );
+
+  assert.deepEqual(calls.promptMessages, []);
+  assert.deepEqual(calls.promptTexts, []);
+  assert.deepEqual(calls.runRestoreFullArgs, [
+    {
+      backup: "backup-name",
+      to: "production",
+      skipPreBackup: false,
+      outputMode: "default",
+      explain: true
     }
   ]);
 });
@@ -994,6 +1026,65 @@ test("runRestoreFull owns one prepared session through verification and cleanup"
   );
 
   assert.deepEqual(events, ["prepare", "restore", "verify", "cleanup"]);
+});
+
+test("runRestoreFull explains a prepared archive without mutation", async () => {
+  const events: string[] = [];
+  const { dependencies, calls } = createRunRestoreDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      events.push("prepare");
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(): Promise<void> {
+          events.push("restore");
+        },
+        async cleanup(): Promise<void> {
+          events.push("cleanup");
+        }
+      };
+    },
+    async listCollections(): Promise<string[]> {
+      events.push("list");
+      return ["customers", "orders", "stale", "system.views"];
+    },
+    async verifyRestore(): Promise<never> {
+      throw new Error("verification should not run during explain");
+    }
+  });
+
+  await runRestoreFull(
+    buildAppConfig(),
+    {
+      backup: "backup-name",
+      to: "development",
+      skipPreBackup: false,
+      outputMode: "default",
+      explain: true
+    },
+    dependencies
+  );
+
+  assert.deepEqual(events, ["prepare", "list", "cleanup"]);
+  assert.deepEqual(calls.restores, []);
+  assert.deepEqual(calls.backupCreates, []);
+  assert.deepEqual(calls.verifications, []);
+  assert.ok(calls.output.some((line) => line.includes("Restore explanation:")));
+  assert.ok(
+    calls.output.some((line) =>
+      line.includes("Target-only collections to prune: stale")
+    )
+  );
+  assert.ok(
+    calls.output.some((line) =>
+      line.includes(
+        "Mutation: not performed; pre-restore backup: not performed"
+      )
+    )
+  );
 });
 
 test("runRestoreFull accepts a recognized empty backup and removes all target user collections", async () => {

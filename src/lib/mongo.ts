@@ -509,6 +509,21 @@ export function parseMongoShellCollectionCounts(
   );
 }
 
+export function parseMongoShellPingResult(
+  output: string,
+  marker: string
+): void {
+  const result = parseMongoShellResult<unknown>(output, marker);
+  if (
+    !result ||
+    typeof result !== "object" ||
+    Array.isArray(result) ||
+    (result as { ok?: unknown }).ok !== 1
+  ) {
+    throw new Error("mongosh returned an invalid ping result");
+  }
+}
+
 async function runMongoShellResult<T>(
   env: EnvironmentConfig,
   script: string,
@@ -1031,8 +1046,8 @@ export async function verifyConnectivity(
   }
 
   const script =
-    "const result = db.runCommand({ ping: 1 }); if (result.ok !== 1) { throw new Error('Mongo ping failed'); }";
-  await runMongoShell(env, script, {
+    "const result = db.runCommand({ ping: 1 }); if (result.ok !== 1) { throw new Error('Mongo ping failed'); } const __dbhResult = { ok: result.ok };";
+  await runMongoShellResult(env, script, parseMongoShellPingResult, {
     remotePreflightSession: options.remotePreflightSession
   });
 }

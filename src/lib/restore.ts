@@ -253,6 +253,7 @@ export async function runRestoreFull(
     to: EnvironmentId;
     skipPreBackup: boolean;
     outputMode: OutputMode;
+    explain?: boolean;
   },
   dependencies: RunRestoreDependencies = DEFAULT_RUN_RESTORE_DEPENDENCIES,
   context: CommandInvocationContext = createCommandInvocationContext()
@@ -320,6 +321,43 @@ export async function runRestoreFull(
       throw new Error(
         `Archive inspection does not match backup manifest. Missing from archive: ${collectionSetDifference(manifestCollections, inspectedArchiveCollections).join(", ") || "none"}. Unexpected in archive: ${collectionSetDifference(inspectedArchiveCollections, manifestCollections).join(", ") || "none"}.`
       );
+    }
+
+    if (input.explain) {
+      const targetCollections = filterRestoreCollections(
+        await dependencies.listCollections(target, {
+          outputMode: input.outputMode,
+          signal: abortController.signal,
+          remotePreflightSession: context.remotePreflightSession
+        })
+      );
+      const targetOnlyCollections = collectionSetDifference(
+        targetCollections,
+        inspectedArchiveCollections
+      );
+      if (printSummary) {
+        dependencies.writeStdout(
+          `Restore explanation: ${input.backup} -> ${input.to}\n`
+        );
+        dependencies.writeStdout(
+          `Archive inspection passed: ${inspectedArchiveCollections.join(", ") || "no user collections"}\n`
+        );
+        dependencies.writeStdout(
+          `Target-only collections to prune: ${targetOnlyCollections.join(", ") || "none"}\n`
+        );
+        dependencies.writeStdout(
+          `Mutation: not performed; pre-restore backup: not performed\n`
+        );
+      }
+      await preparedSession.cleanup();
+      preparedSession = undefined;
+      runLogger.info("restore", "Restore explanation completed", {
+        backup: input.backup,
+        to: input.to,
+        archiveCollections: inspectedArchiveCollections,
+        targetOnlyCollections
+      });
+      return;
     }
 
     if (target.isProduction && !input.skipPreBackup) {

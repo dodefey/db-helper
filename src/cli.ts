@@ -365,7 +365,10 @@ async function main(): Promise<void> {
       await finishSuccess();
       return;
     case "restore":
-      if (subcommand === "full") {
+      if (
+        subcommand === "full" ||
+        (subcommand === undefined && getBooleanFlag(args.flags, "explain"))
+      ) {
         runLogger.info("cli", "Running restore full");
         await restoreFull(
           appConfig,
@@ -382,7 +385,8 @@ async function main(): Promise<void> {
               args.flags,
               "force-production-restore"
             ),
-            outputMode
+            outputMode,
+            ...(getBooleanFlag(args.flags, "explain") ? { explain: true } : {})
           },
           undefined,
           invocationContext
@@ -391,6 +395,9 @@ async function main(): Promise<void> {
         return;
       }
       if (subcommand === "collection") {
+        if (getBooleanFlag(args.flags, "explain")) {
+          throw new Error("--explain is only supported for full restore.");
+        }
         runLogger.info("cli", "Running restore collection");
         await restoreCollection(
           appConfig,

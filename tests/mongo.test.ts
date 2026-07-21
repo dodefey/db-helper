@@ -14,6 +14,7 @@ import {
   parseArchiveCollections,
   parseMongoShellCollectionCounts,
   parseMongoShellCollectionList,
+  parseMongoShellPingResult,
   parseMongoShellResult,
   prepareArchiveRestoreSession,
   PrepareArchiveRestoreDependencies,
@@ -187,6 +188,19 @@ test("parseMongoShellResult fails closed for missing, duplicate, or malformed re
   assert.throws(
     () => parseMongoShellResult(`${RESULT_MARKER}{invalid}`, RESULT_MARKER),
     /malformed tagged machine-readable result/
+  );
+});
+
+test("parseMongoShellPingResult ignores diagnostics and requires a successful ping", () => {
+  assert.doesNotThrow(() =>
+    parseMongoShellPingResult(
+      `warning\n${RESULT_MARKER}{"ok":1}\npost-result diagnostic`,
+      RESULT_MARKER
+    )
+  );
+  assert.throws(
+    () => parseMongoShellPingResult(`${RESULT_MARKER}{"ok":0}`, RESULT_MARKER),
+    /invalid ping result/
   );
 });
 

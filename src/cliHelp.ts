@@ -147,12 +147,13 @@ Purpose:
   Apply a named backup to one configured environment.
 
 Usage:
-  dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose] [--log]
+  dbh restore full --backup <backup-name> --to <environment> [--explain] [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose] [--log]
   dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
 
 Commands:
   full
     Restore a full backup into one configured environment.
+    Use --explain to inspect the archive and show planned pruning without mutation.
 
   collection
     Restore one collection from a backup into one configured environment.

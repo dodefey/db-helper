@@ -446,7 +446,7 @@ Status: complete
 - Update the README restore and sync-collection sections with the exact replacement and targeted-isolation guarantees.
 - Document full-restore archive inspection, target-only pruning, collection preflight, and post-restore verification at the operator level.
 - Add `CHANGELOG.md` `Unreleased` entries for all three user-visible safety fixes and the affected `sync collection` seam.
-- Keep version, doctor, public explain mode, JSON output, index verification, and preimage backup ideas deferred.
+- Keep broader doctor checks, JSON output, index verification, and preimage backup ideas deferred.
 - Reconcile touched Markdown with current Prettier rules.
 
 Completion notes:

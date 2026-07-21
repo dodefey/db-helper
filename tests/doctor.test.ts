@@ -83,8 +83,9 @@ function createDoctorDependencies(
   };
 
   const dependencies: DoctorDependencies = {
-    async ensureBinary(name: string): Promise<void> {
+    async ensureBinary(name: string): Promise<string> {
       calls.binaries.push(name);
+      return `${name} version 1.0.0`;
     },
     async assertWritable(path: string): Promise<void> {
       calls.writablePaths.push(path);
@@ -116,6 +117,18 @@ test("runDoctor reports success when all checks pass", async () => {
   await runDoctor(buildAppConfig(), dependencies);
 
   assert.ok(calls.output.includes("Doctor checks passed.\n"));
+  assert.ok(
+    calls.output.some((line) =>
+      line.includes("PASS binary mongodump: mongodump version 1.0.0")
+    )
+  );
+  assert.ok(
+    calls.output.some((line) =>
+      line.includes(
+        "PASS environment development connectivity (tagged result probe)"
+      )
+    )
+  );
   assert.deepEqual(calls.binaries, [
     "mongodump",
     "mongorestore",
@@ -129,11 +142,12 @@ test("runDoctor reports success when all checks pass", async () => {
 
 test("runDoctor reports binary failure and continues", async () => {
   const { dependencies, calls } = createDoctorDependencies({
-    async ensureBinary(name: string): Promise<void> {
+    async ensureBinary(name: string): Promise<string> {
       calls.binaries.push(name);
       if (name === "mongosh") {
         throw new Error("missing binary");
       }
+      return `${name} version 1.0.0`;
     }
   });
 
@@ -330,11 +344,12 @@ test("runDoctor reports multiple failures and summarizes the total", async () =>
     }
   );
   const { dependencies, calls } = createDoctorDependencies({
-    async ensureBinary(name: string): Promise<void> {
+    async ensureBinary(name: string): Promise<string> {
       calls.binaries.push(name);
       if (name === "mongorestore") {
         throw new Error("missing binary");
       }
+      return `${name} version 1.0.0`;
     },
     async assertReadable(path: string): Promise<void> {
       calls.readablePaths.push(path);
@@ -355,7 +370,7 @@ test("runDoctor reports multiple failures and summarizes the total", async () =>
 
 test("runDoctor throws an already-reported doctor error on failure", async () => {
   const { dependencies } = createDoctorDependencies({
-    async ensureBinary(): Promise<void> {
+    async ensureBinary(): Promise<string> {
       throw new Error("missing binary");
     }
   });

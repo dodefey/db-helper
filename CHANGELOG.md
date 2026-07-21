@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- added `restore full --explain` to inspect archive contents and planned pruning without mutation
+- enhanced `dbh doctor` with tool-version diagnostics and tagged Mongo ping probes
 - added `dbh --version` for config-free executable version reporting
 - fixed full restore so archive inspection happens before mutation and target-only normal-user collections are removed before exact final verification
 - fixed collection restore so namespace selection is isolated to the requested collection and post-restore presence/count verification is required, including valid empty collections
