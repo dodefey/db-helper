@@ -318,7 +318,7 @@ Completion notes:
 
 ## Phase 7: Make Lifecycle Truth Explicit
 
-Status: pending
+Status: complete
 
 Replace the current boolean dirty-target model with mutation, prune, and verification outcomes that can be formatted consistently.
 
@@ -336,6 +336,17 @@ Target trust state: unchanged | may be partially modified | requires independent
 - Preserve practical interruption and remote cleanup guidance.
 - Add structured run-log fields for scope, phase, mutation state, prune state, verification state, and target trust state.
 - Do not add run-log reconstruction to `recover` in this patch.
+
+Completion notes:
+
+- Restore failures now report explicit restore-subprocess, pruning,
+  verification, and target-trust outcomes.
+- Failure paths distinguish unchanged targets from partially modified targets
+  requiring independent verification.
+- Existing phase, interruption, cleanup, and detailed mismatch diagnostics are
+  retained.
+- Validation passed: `npm run lint`, `npm test` (133 tests),
+  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
 
 ### Phase 7 tests
 

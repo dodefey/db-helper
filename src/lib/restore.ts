@@ -64,6 +64,9 @@ type RestorePhase =
   | "prune"
   | "verify";
 
+type RestoreSubprocessState = "not_started" | "succeeded" | "failed";
+type RestorePostMutationState = "not_started" | "succeeded" | "failed";
+
 function isInterruptedError(error: unknown): boolean {
   return (
     (error instanceof Error &&
@@ -92,6 +95,9 @@ function formatRestoreFailure(options: {
   cleanupLine?: string;
   remoteTempPath?: string;
   details?: string;
+  restoreSubprocess: RestoreSubprocessState;
+  prune: RestorePostMutationState;
+  verification: RestorePostMutationState;
 }): string {
   const phaseLabel =
     options.phase === "backup_validation"
@@ -127,6 +133,21 @@ function formatRestoreFailure(options: {
   } else if (options.details) {
     lines.push(options.details);
   }
+
+  lines.push(`Restore subprocess: ${options.restoreSubprocess}`);
+  lines.push(`Post-restore pruning: ${options.prune}`);
+  lines.push(`Post-restore verification: ${options.verification}`);
+  lines.push(
+    `Target trust state: ${
+      options.verification === "succeeded"
+        ? "verified"
+        : options.restoreSubprocess === "not_started"
+          ? "unchanged"
+          : options.prune === "failed" || options.verification === "failed"
+            ? "requires independent verification"
+            : "may be partially modified"
+    }`
+  );
 
   return lines.join("\n");
 }
@@ -210,6 +231,9 @@ export async function runRestoreFull(
   const abortController = new AbortController();
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
+  let restoreSubprocess: RestoreSubprocessState = "not_started";
+  let pruneState: RestorePostMutationState = "not_started";
+  let verificationState: RestorePostMutationState = "not_started";
   const printSummary = input.outputMode !== "quiet";
   const target = appConfig.environments[input.to];
   const removeInterruptHandler = dependencies.installInterruptHandler(() => {
@@ -310,6 +334,7 @@ export async function runRestoreFull(
         remotePreflightSession: context.remotePreflightSession
       }
     );
+    restoreSubprocess = "succeeded";
 
     const targetCollections = dependencies.listCollections
       ? filterRestoreCollections(
@@ -336,6 +361,7 @@ export async function runRestoreFull(
         remotePreflightSession: context.remotePreflightSession
       });
     }
+    pruneState = "succeeded";
 
     currentPhase = "verify";
     runLogger.info("restore", "Verifying restored target", {
@@ -368,6 +394,7 @@ export async function runRestoreFull(
           `Unexpected collections: ${unexpectedCollections.join(", ") || "none"}`
       );
     }
+    verificationState = "succeeded";
     if (printSummary) {
       dependencies.writeStdout(
         `Restore complete: ${input.backup} -> ${input.to}\n`
@@ -378,6 +405,9 @@ export async function runRestoreFull(
       to: input.to
     });
   } catch (error) {
+    if (currentPhase === "restore") restoreSubprocess = "failed";
+    if (currentPhase === "prune") pruneState = "failed";
+    if (currentPhase === "verify") verificationState = "failed";
     runLogger.error("restore", "Restore full workflow failed", {
       backup: input.backup,
       to: input.to,
@@ -394,7 +424,10 @@ export async function runRestoreFull(
         interrupted: isInterruptedError(error),
         cleanupLine: cleanupLineForFailure(currentPhase, target),
         remoteTempPath: getRemoteTempPath(error),
-        details: getErrorDetails(error)
+        details: getErrorDetails(error),
+        restoreSubprocess,
+        prune: pruneState,
+        verification: verificationState
       }),
       { cause: error }
     );
@@ -422,6 +455,9 @@ export async function runRestoreCollection(
   const abortController = new AbortController();
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
+  let restoreSubprocess: RestoreSubprocessState = "not_started";
+  const pruneState: RestorePostMutationState = "not_started";
+  let verificationState: RestorePostMutationState = "not_started";
   const printSummary = input.outputMode !== "quiet";
   const target = appConfig.environments[input.to];
   const removeInterruptHandler = dependencies.installInterruptHandler(() => {
@@ -489,6 +525,7 @@ export async function runRestoreCollection(
         remotePreflightSession: context.remotePreflightSession
       }
     );
+    restoreSubprocess = "succeeded";
     currentPhase = "verify";
     if (printSummary) {
       dependencies.writeStdout(
@@ -525,6 +562,7 @@ export async function runRestoreCollection(
           }`
       );
     }
+    verificationState = "succeeded";
     if (printSummary) {
       dependencies.writeStdout(
         `Restore complete: ${input.backup}:${input.collection} -> ${input.to}\n`
@@ -536,6 +574,8 @@ export async function runRestoreCollection(
       to: input.to
     });
   } catch (error) {
+    if (currentPhase === "restore") restoreSubprocess = "failed";
+    if (currentPhase === "verify") verificationState = "failed";
     runLogger.error("restore", "Restore collection workflow failed", {
       backup: input.backup,
       collection: input.collection,
@@ -553,7 +593,10 @@ export async function runRestoreCollection(
         interrupted: isInterruptedError(error),
         cleanupLine: cleanupLineForFailure(currentPhase, target),
         remoteTempPath: getRemoteTempPath(error),
-        details: getErrorDetails(error)
+        details: getErrorDetails(error),
+        restoreSubprocess,
+        prune: pruneState,
+        verification: verificationState
       }),
       { cause: error }
     );
