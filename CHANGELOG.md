@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.1
+
 - strengthened `dbh doctor` with MongoDB tool-version floors, mongosh state-directory probes, free-space blockers, and warning summaries
 - added `restore full --explain` to inspect archive contents and planned pruning without mutation
 - enhanced `dbh doctor` with tool-version diagnostics and tagged Mongo ping probes
