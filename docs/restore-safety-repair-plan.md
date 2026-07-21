@@ -107,7 +107,7 @@ Completion notes:
 
 ## Phase 2: Add Explicit `mongosh` Result Framing
 
-Status: pending
+Status: complete
 
 Refactor result-bearing shell calls in `src/lib/mongo.ts` without changing command-facing APIs.
 
@@ -133,6 +133,16 @@ Refactor result-bearing shell calls in `src/lib/mongo.ts` without changing comma
 - nonzero `mongosh` exit still fails and is not converted into a protocol error
 - real verification mismatches still report missing collections and count differences
 - default, quiet, verbose, redaction, and retained-log behavior remain covered
+
+Completion notes:
+
+- Added per-invocation tagged result framing and fail-closed payload/shape
+  validation for collection listing and count verification.
+- Preserved authoritative subprocess failures and retained raw subprocess
+  evidence while suppressing internal result envelopes from normal output.
+- Added focused parser, integration-seam, and nonzero-exit tests.
+- Validation passed: `npm run format:check`, `npm run lint`, `npm test` (128
+  tests), and `npm run typecheck`.
 
 ## Phase 3: Centralize Restore URI And Namespace Contracts
 

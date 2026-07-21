@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AppConfig, EnvironmentConfig } from "../config/types.js";
@@ -8,6 +9,15 @@ import { ensureRemotePreflight } from "./remotePreflight.js";
 
 type RemoteInvocationOptions = {
   remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+};
+
+type MongoShellOptions = {
+  outputMode?: OutputMode;
+  signal?: AbortSignal;
+  remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+  env?: NodeJS.ProcessEnv;
+  streamOutput?: boolean;
+  writeStdout?: (message: string) => void;
 };
 
 export type RemoteOperationErrorCode =
@@ -308,20 +318,17 @@ async function copyToRemote(
 async function runMongoShell(
   env: EnvironmentConfig,
   script: string,
-  options: {
-    outputMode?: OutputMode;
-    signal?: AbortSignal;
-    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
-  } = {}
+  options: MongoShellOptions = {}
 ): Promise<string> {
-  const streamOutput = shouldStreamSubprocessOutput(
-    options.outputMode ?? "verbose"
-  );
+  const streamOutput =
+    options.streamOutput ??
+    shouldStreamSubprocessOutput(options.outputMode ?? "verbose");
 
   if (env.kind === "local") {
     return runCommand("mongosh", [mongoUri(env), "--quiet", "--eval", script], {
       streamOutput,
-      signal: options.signal
+      signal: options.signal,
+      env: options.env
     });
   }
 
@@ -332,6 +339,140 @@ async function runMongoShell(
     options.signal,
     options
   );
+}
+
+const MONGOSH_RESULT_PREFIX = "__DBH_MONGOSH_RESULT__";
+
+function buildMongoShellResultMarker(): string {
+  return `${MONGOSH_RESULT_PREFIX}${randomUUID()}__`;
+}
+
+function buildMongoShellResultScript(script: string, marker: string): string {
+  return `${script} print(${JSON.stringify(marker)} + JSON.stringify(__dbhResult));`;
+}
+
+export function parseMongoShellResult<T>(output: string, marker: string): T {
+  const resultLines = output
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith(marker));
+
+  if (resultLines.length === 0) {
+    throw new Error("mongosh returned no tagged machine-readable result");
+  }
+  if (resultLines.length > 1) {
+    throw new Error(
+      "mongosh returned multiple tagged machine-readable results"
+    );
+  }
+
+  const payload = resultLines[0].slice(marker.length);
+  if (!payload) {
+    throw new Error("mongosh returned an empty tagged machine-readable result");
+  }
+
+  try {
+    return JSON.parse(payload) as T;
+  } catch (error) {
+    throw new Error(
+      "mongosh returned malformed tagged machine-readable result",
+      {
+        cause: error
+      }
+    );
+  }
+}
+
+function assertCollectionList(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((collection) => typeof collection !== "string")
+  ) {
+    throw new Error("mongosh returned an invalid collection-list result");
+  }
+
+  return value;
+}
+
+function assertCollectionCounts(
+  value: unknown,
+  collections: string[]
+): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("mongosh returned an invalid collection-count result");
+  }
+
+  const counts = value as Record<string, unknown>;
+  const names = Object.keys(counts);
+  if (
+    names.length !== collections.length ||
+    collections.some((collection) => !Object.hasOwn(counts, collection))
+  ) {
+    throw new Error(
+      "mongosh returned incomplete or ambiguous collection counts"
+    );
+  }
+
+  for (const collection of collections) {
+    const count = counts[collection];
+    if (
+      typeof count !== "number" ||
+      !Number.isFinite(count) ||
+      count < 0 ||
+      !Number.isInteger(count)
+    ) {
+      throw new Error(`mongosh returned an invalid count for ${collection}`);
+    }
+  }
+
+  return Object.fromEntries(
+    collections.map((collection) => [collection, counts[collection] as number])
+  );
+}
+
+export function parseMongoShellCollectionList(
+  output: string,
+  marker: string
+): string[] {
+  return assertCollectionList(parseMongoShellResult(output, marker));
+}
+
+export function parseMongoShellCollectionCounts(
+  output: string,
+  marker: string,
+  collections: string[]
+): Record<string, number> {
+  return assertCollectionCounts(
+    parseMongoShellResult(output, marker),
+    collections
+  );
+}
+
+async function runMongoShellResult<T>(
+  env: EnvironmentConfig,
+  script: string,
+  parse: (output: string, marker: string) => T,
+  options: MongoShellOptions = {}
+): Promise<T> {
+  const marker = buildMongoShellResultMarker();
+  const output = await runMongoShell(
+    env,
+    buildMongoShellResultScript(script, marker),
+    { ...options, streamOutput: false }
+  );
+  const result = parse(output, marker);
+
+  if (options.outputMode === "verbose") {
+    const diagnostics = output
+      .split(/\r?\n/)
+      .filter((line) => line && !line.startsWith(marker));
+    if (diagnostics.length > 0) {
+      (options.writeStdout ?? ((message) => process.stdout.write(message)))(
+        `${diagnostics.join("\n")}\n`
+      );
+    }
+  }
+
+  return result;
 }
 
 async function runCommandViaShell(
@@ -381,35 +522,34 @@ export function parseArchiveCollections(
 
 export async function listCollections(
   env: EnvironmentConfig,
-  options: {
-    outputMode?: OutputMode;
-    signal?: AbortSignal;
-    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
-  } = {}
+  options: MongoShellOptions = {}
 ): Promise<string[]> {
-  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); print(JSON.stringify(dbx.getCollectionNames().sort()));`;
-  const output = await runMongoShell(env, script, options);
-
-  return JSON.parse(output || "[]") as string[];
+  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const __dbhResult = dbx.getCollectionNames().sort();`;
+  return runMongoShellResult(
+    env,
+    script,
+    parseMongoShellCollectionList,
+    options
+  );
 }
 
 export async function getCollectionCounts(
   env: EnvironmentConfig,
   collections: string[],
-  options: {
-    outputMode?: OutputMode;
-    signal?: AbortSignal;
-    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
-  } = {}
+  options: MongoShellOptions = {}
 ): Promise<Record<string, number>> {
   if (collections.length === 0) {
     return {};
   }
 
-  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const names = ${JSON.stringify(collections)}; const counts = {}; for (const name of names) counts[name] = dbx.getCollection(name).countDocuments({}); print(JSON.stringify(counts));`;
-  const output = await runMongoShell(env, script, options);
-
-  return JSON.parse(output || "{}") as Record<string, number>;
+  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const names = ${JSON.stringify(collections)}; const __dbhResult = {}; for (const name of names) __dbhResult[name] = dbx.getCollection(name).countDocuments({});`;
+  return runMongoShellResult(
+    env,
+    script,
+    (output, marker) =>
+      parseMongoShellCollectionCounts(output, marker, collections),
+    options
+  );
 }
 
 export async function dropCollections(

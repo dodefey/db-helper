@@ -1,12 +1,120 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { EnvironmentConfig } from "../src/config/types.js";
 
 import {
   combineRemoteTransportErrors,
   parseArchiveCollections,
+  parseMongoShellCollectionCounts,
+  parseMongoShellCollectionList,
+  parseMongoShellResult,
+  listCollections,
   RemoteOperationError,
   translateRemoteProcessError
 } from "../src/lib/mongo.js";
+
+const RESULT_MARKER = "__DBH_MONGOSH_RESULT__test__";
+
+test("parseMongoShellCollectionList ignores diagnostics around a tagged result", () => {
+  assert.deepEqual(
+    parseMongoShellCollectionList(
+      "Warning: mongosh diagnostic\n" +
+        `${RESULT_MARKER}["orders","customers"]\n` +
+        "post-result diagnostic",
+      RESULT_MARKER
+    ),
+    ["orders", "customers"]
+  );
+});
+
+test("parseMongoShellCollectionCounts ignores diagnostics around a tagged result", () => {
+  assert.deepEqual(
+    parseMongoShellCollectionCounts(
+      `Warning: mongosh diagnostic\n${RESULT_MARKER}{"orders":5,"customers":2}`,
+      RESULT_MARKER,
+      ["orders", "customers"]
+    ),
+    { orders: 5, customers: 2 }
+  );
+});
+
+test("parseMongoShellResult fails closed for missing, duplicate, or malformed results", () => {
+  assert.throws(
+    () => parseMongoShellResult("Warning only", RESULT_MARKER),
+    /no tagged machine-readable result/
+  );
+  assert.throws(
+    () =>
+      parseMongoShellResult(
+        `${RESULT_MARKER}{"orders":1}\n${RESULT_MARKER}{"orders":1}`,
+        RESULT_MARKER
+      ),
+    /multiple tagged machine-readable results/
+  );
+  assert.throws(
+    () => parseMongoShellResult(`${RESULT_MARKER}{invalid}`, RESULT_MARKER),
+    /malformed tagged machine-readable result/
+  );
+});
+
+test("parseMongoShellCollectionCounts fails closed for incomplete or invalid counts", () => {
+  assert.throws(
+    () =>
+      parseMongoShellCollectionCounts(
+        `${RESULT_MARKER}{"orders":5}`,
+        RESULT_MARKER,
+        ["orders", "customers"]
+      ),
+    /incomplete or ambiguous collection counts/
+  );
+  assert.throws(
+    () =>
+      parseMongoShellCollectionCounts(
+        `${RESULT_MARKER}{"orders":-1}`,
+        RESULT_MARKER,
+        ["orders"]
+      ),
+    /invalid count for orders/
+  );
+});
+
+test("listCollections preserves a nonzero mongosh failure", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "db-helper-mongosh-failure-"));
+  const mongoshPath = path.join(root, "mongosh");
+  await writeFile(
+    mongoshPath,
+    "#!/bin/sh\nprintf 'shell failed\\n' >&2\nexit 7\n",
+    "utf8"
+  );
+  await chmod(mongoshPath, 0o755);
+
+  const env: EnvironmentConfig = {
+    id: "test",
+    name: "test",
+    label: "Test",
+    kind: "local",
+    host: "localhost",
+    mongoHost: "localhost",
+    mongoPort: 27017,
+    databaseName: "test",
+    mongoUser: "user",
+    mongoPassword: "pass",
+    authSource: "admin",
+    isProduction: false
+  };
+
+  try {
+    await assert.rejects(
+      listCollections(env, { outputMode: "quiet", env: { PATH: root } }),
+      /Command failed \(7\): mongosh/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
 
 test("parseArchiveCollections recognizes mongorestore dry-run restore targets", () => {
   const output = [
