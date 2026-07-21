@@ -61,10 +61,62 @@ export class RemoteOperationError extends Error {
   }
 }
 
-function mongoUri(env: EnvironmentConfig): string {
+function mongoUriForScope(
+  env: EnvironmentConfig,
+  scope: "database" | "server"
+): string {
   const host = env.mongoHost || env.host;
   const params = new URLSearchParams({ authSource: env.authSource });
-  return `mongodb://${encodeURIComponent(env.mongoUser)}:${encodeURIComponent(env.mongoPassword)}@${host}:${env.mongoPort}/${env.databaseName}?${params.toString()}`;
+  const databasePath = scope === "database" ? `/${env.databaseName}` : "";
+  return `mongodb://${encodeURIComponent(env.mongoUser)}:${encodeURIComponent(env.mongoPassword)}@${host}:${env.mongoPort}${databasePath}?${params.toString()}`;
+}
+
+export function mongoDatabaseUri(env: EnvironmentConfig): string {
+  return mongoUriForScope(env, "database");
+}
+
+export function mongoServerUri(env: EnvironmentConfig): string {
+  return mongoUriForScope(env, "server");
+}
+
+export function buildRestoreNamespaceContract(
+  env: EnvironmentConfig,
+  options: { sourceDatabaseName: string; collection?: string }
+): { sourceNamespace: string; targetNamespace: string; args: string[] } {
+  if (options.collection !== undefined) {
+    if (!options.collection.trim() || options.collection.includes("*")) {
+      throw new Error(
+        `Collection name cannot be represented as an exact namespace filter: ${options.collection}`
+      );
+    }
+  }
+  const sourceNamespace = options.collection
+    ? `${options.sourceDatabaseName}.${options.collection}`
+    : `${options.sourceDatabaseName}.*`;
+  const targetNamespace = options.collection
+    ? `${env.databaseName}.${options.collection}`
+    : `${env.databaseName}.*`;
+
+  if (options.sourceDatabaseName === env.databaseName) {
+    return {
+      sourceNamespace,
+      targetNamespace,
+      args: options.collection ? ["--nsInclude", sourceNamespace] : []
+    };
+  }
+
+  return {
+    sourceNamespace,
+    targetNamespace,
+    args: [
+      "--nsInclude",
+      sourceNamespace,
+      "--nsFrom",
+      sourceNamespace,
+      "--nsTo",
+      targetNamespace
+    ]
+  };
 }
 
 function remoteArchivePath(
@@ -325,16 +377,20 @@ async function runMongoShell(
     shouldStreamSubprocessOutput(options.outputMode ?? "verbose");
 
   if (env.kind === "local") {
-    return runCommand("mongosh", [mongoUri(env), "--quiet", "--eval", script], {
-      streamOutput,
-      signal: options.signal,
-      env: options.env
-    });
+    return runCommand(
+      "mongosh",
+      [mongoDatabaseUri(env), "--quiet", "--eval", script],
+      {
+        streamOutput,
+        signal: options.signal,
+        env: options.env
+      }
+    );
   }
 
   return runRemote(
     env,
-    `mongosh ${JSON.stringify(mongoUri(env))} --quiet --eval ${JSON.stringify(script)}`,
+    `mongosh ${JSON.stringify(mongoDatabaseUri(env))} --quiet --eval ${JSON.stringify(script)}`,
     streamOutput,
     options.signal,
     options
@@ -586,7 +642,12 @@ export async function createArchiveBackup(
   if (env.kind === "local") {
     await runCommand(
       "mongodump",
-      ["--uri", mongoUri(env), "--gzip", `--archive=${destinationFile}`],
+      [
+        "--uri",
+        mongoDatabaseUri(env),
+        "--gzip",
+        `--archive=${destinationFile}`
+      ],
       { streamOutput, signal: options.signal }
     );
     return;
@@ -598,7 +659,7 @@ export async function createArchiveBackup(
   try {
     await runRemote(
       env,
-      `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`,
+      `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoDatabaseUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`,
       streamOutput,
       options.signal,
       options
@@ -646,7 +707,7 @@ export async function restoreArchiveToEnvironment(
   appConfig: AppConfig,
   archiveFile: string,
   options: {
-    sourceDatabaseName?: string;
+    sourceDatabaseName: string;
     collection?: string;
     drop: boolean;
     outputMode?: OutputMode;
@@ -657,29 +718,16 @@ export async function restoreArchiveToEnvironment(
   const streamOutput = shouldStreamSubprocessOutput(
     options.outputMode ?? "verbose"
   );
-  const baseArgs = ["--uri", mongoUri(env), "--gzip"];
+  const baseArgs = ["--uri", mongoServerUri(env), "--gzip"];
   if (options.drop) {
     baseArgs.push("--drop");
   }
-  if (options.sourceDatabaseName) {
-    if (options.collection) {
-      const sourceNamespace = `${options.sourceDatabaseName}.${options.collection}`;
-      const targetNamespace = `${env.databaseName}.${options.collection}`;
-      baseArgs.push("--nsInclude", sourceNamespace);
-      baseArgs.push("--nsFrom", sourceNamespace);
-      baseArgs.push("--nsTo", targetNamespace);
-    } else if (options.sourceDatabaseName !== env.databaseName) {
-      baseArgs.push("--nsInclude", `${options.sourceDatabaseName}.*`);
-      baseArgs.push("--nsFrom", `${options.sourceDatabaseName}.*`);
-      baseArgs.push("--nsTo", `${env.databaseName}.*`);
-    }
-  }
-  if (options.collection) {
-    const namespace = `${env.databaseName}.${options.collection}`;
-    if (!options.sourceDatabaseName) {
-      baseArgs.push("--nsInclude", namespace);
-    }
-  }
+  baseArgs.push(
+    ...buildRestoreNamespaceContract(env, {
+      sourceDatabaseName: options.sourceDatabaseName,
+      collection: options.collection
+    }).args
+  );
 
   if (env.kind === "local") {
     await runCommand(
@@ -767,12 +815,18 @@ export async function inspectArchiveCollections(
     remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
   }
 ): Promise<string[]> {
-  const baseArgs = ["--uri", mongoUri(env), "--gzip", "--dryRun", "--verbose"];
-  if (options.sourceDatabaseName !== env.databaseName) {
-    baseArgs.push("--nsInclude", `${options.sourceDatabaseName}.*`);
-    baseArgs.push("--nsFrom", `${options.sourceDatabaseName}.*`);
-    baseArgs.push("--nsTo", `${env.databaseName}.*`);
-  }
+  const baseArgs = [
+    "--uri",
+    mongoServerUri(env),
+    "--gzip",
+    "--dryRun",
+    "--verbose"
+  ];
+  baseArgs.push(
+    ...buildRestoreNamespaceContract(env, {
+      sourceDatabaseName: options.sourceDatabaseName
+    }).args
+  );
 
   if (env.kind === "local") {
     const output = await runCommandViaShell(

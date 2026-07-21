@@ -146,7 +146,7 @@ Completion notes:
 
 ## Phase 3: Centralize Restore URI And Namespace Contracts
 
-Status: pending
+Status: complete
 
 Make low-level restore argument construction explicit and independently testable.
 
@@ -176,6 +176,17 @@ Make low-level restore argument construction explicit and independently testable
 - prove local and remote command rendering consume the same namespace contract
 - prove unsafe or ambiguous collection filter names fail before subprocess execution
 - preserve credential redaction in rendered commands and logs
+
+Completion notes:
+
+- Added explicit database-scoped and server-scoped Mongo URI builders.
+- Restore and archive inspection now use server-scoped URIs; shell and dump
+  operations retain database-scoped URIs.
+- Added one tested namespace-contract builder covering full/collection and
+  same-database/cross-database restore mappings.
+- Made `sourceDatabaseName` required for archive restore operations.
+- Validation passed: `npm run lint`, focused Mongo tests (15),
+  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
 
 ## Phase 4: Add One-Pass Archive Preflight And Mutation State Reporting
 

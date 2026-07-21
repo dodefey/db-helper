@@ -7,6 +7,9 @@ import { EnvironmentConfig } from "../src/config/types.js";
 
 import {
   combineRemoteTransportErrors,
+  buildRestoreNamespaceContract,
+  mongoDatabaseUri,
+  mongoServerUri,
   parseArchiveCollections,
   parseMongoShellCollectionCounts,
   parseMongoShellCollectionList,
@@ -17,6 +20,88 @@ import {
 } from "../src/lib/mongo.js";
 
 const RESULT_MARKER = "__DBH_MONGOSH_RESULT__test__";
+
+const TEST_ENV: EnvironmentConfig = {
+  id: "test",
+  name: "test",
+  label: "Test",
+  kind: "local",
+  host: "localhost",
+  mongoHost: "mongo.example",
+  mongoPort: 27017,
+  databaseName: "target_db",
+  mongoUser: "user@example.com",
+  mongoPassword: "pass word",
+  authSource: "admin",
+  isProduction: false
+};
+
+test("mongo URI builders distinguish database and server scope", () => {
+  assert.match(
+    mongoDatabaseUri(TEST_ENV),
+    /@mongo\.example:27017\/target_db\?/
+  );
+  assert.match(mongoServerUri(TEST_ENV), /@mongo\.example:27017\?/);
+  assert.doesNotMatch(mongoServerUri(TEST_ENV), /target_db/);
+});
+
+test("restore namespace contract covers full and collection scope", () => {
+  assert.deepEqual(
+    buildRestoreNamespaceContract(TEST_ENV, {
+      sourceDatabaseName: "target_db"
+    }),
+    {
+      sourceNamespace: "target_db.*",
+      targetNamespace: "target_db.*",
+      args: []
+    }
+  );
+  assert.deepEqual(
+    buildRestoreNamespaceContract(TEST_ENV, {
+      sourceDatabaseName: "target_db",
+      collection: "orders"
+    }).args,
+    ["--nsInclude", "target_db.orders"]
+  );
+  assert.deepEqual(
+    buildRestoreNamespaceContract(TEST_ENV, {
+      sourceDatabaseName: "archive_db"
+    }).args,
+    [
+      "--nsInclude",
+      "archive_db.*",
+      "--nsFrom",
+      "archive_db.*",
+      "--nsTo",
+      "target_db.*"
+    ]
+  );
+  assert.deepEqual(
+    buildRestoreNamespaceContract(TEST_ENV, {
+      sourceDatabaseName: "archive_db",
+      collection: "orders"
+    }).args,
+    [
+      "--nsInclude",
+      "archive_db.orders",
+      "--nsFrom",
+      "archive_db.orders",
+      "--nsTo",
+      "target_db.orders"
+    ]
+  );
+});
+
+test("restore namespace contract rejects wildcard collection filters", () => {
+  assert.throws(
+    () =>
+      buildRestoreNamespaceContract(TEST_ENV, {
+        sourceDatabaseName: "archive_db",
+        collection: "orders*"
+      }),
+    /cannot be represented as an exact namespace filter/
+  );
+});
 
 test("parseMongoShellCollectionList ignores diagnostics around a tagged result", () => {
   assert.deepEqual(
