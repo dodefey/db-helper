@@ -155,6 +155,12 @@ By default, the CLI looks for configuration in this order:
 
 You can always override that with `--config <path>`.
 
+To check the installed executable version without loading configuration:
+
+```bash
+dbh --version
+```
+
 ## Install
 
 ```bash
@@ -267,6 +273,14 @@ dbh config --help
 dbh backup --help
 dbh sync --help
 dbh restore --help
+```
+
+Global flags:
+
+```text
+--config <path>  use a specific config file
+--log            retain the run debug log
+--version        print the executable version
 ```
 
 ## Backup

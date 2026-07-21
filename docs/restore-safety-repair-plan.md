@@ -510,6 +510,8 @@ Completion notes:
 - `npm run test:restore-integration` now passes against a disposable local
   `mongod` with mongod 7.0.34 and MongoDB Database Tools 100.16.1.
 - No version cut, release branch promotion, tag, or publish was performed.
+- Follow-up `dbh --version` reporting is implemented separately from the restore
+  repair scope.
 
 ## Acceptance Criteria
 
@@ -533,7 +535,6 @@ Completion notes:
 
 ## Deferred Work
 
-- `dbh --version` or `dbh version`
 - broader `doctor` filesystem, free-space, state-directory, or supported-tool-range checks
 - public restore `--dry-run` or `--explain`
 - machine-readable `--json` command results

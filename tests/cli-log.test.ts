@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { TOOL_VERSION } from "../src/version.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -162,6 +163,10 @@ test("cli preserves failure logs and reports the path without --log", async () =
 test("cli prints grouped help without loading config", async () => {
   const cwd = path.resolve(".");
 
+  const version = await runCli(["--version"], cwd);
+  assert.equal(version.stdout, `dbh ${TOOL_VERSION}\n`);
+  assert.equal(version.stderr, "");
+
   const configHelp = await runCli(["config", "--help"], cwd);
   assert.match(configHelp.stdout, /dbh config/);
   assert.match(configHelp.stdout, /Purpose:/);
@@ -192,4 +197,7 @@ test("cli prints grouped help without loading config", async () => {
     restoreHelp.stdout,
     /Targets marked isProduction require --force-production-restore/
   );
+
+  const help = await runCli(["--help"], cwd);
+  assert.match(help.stdout, /--version/);
 });

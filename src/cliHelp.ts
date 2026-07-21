@@ -4,6 +4,7 @@ export function printHelp(recommendedUserConfigPath: string): void {
 Global flags:
   --config <path>
   --log
+  --version
 
 Default config search:
   ./config.json

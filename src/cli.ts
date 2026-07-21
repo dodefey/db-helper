@@ -29,6 +29,7 @@ import { syncDatabase } from "./commands/sync.js";
 import { createCommandInvocationContext } from "./lib/invocationContext.js";
 import { parseOutputMode } from "./lib/output.js";
 import { createRunLogger, getRunLogger, setRunLogger } from "./lib/runLog.js";
+import { TOOL_VERSION } from "./version.js";
 
 type ParsedArgs = {
   positional: string[];
@@ -96,6 +97,11 @@ function resolveEnvironment(
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  if (args.flags.version === true && args.positional.length === 0) {
+    process.stdout.write(`dbh ${TOOL_VERSION}\n`);
+    return;
+  }
+
   const [command, subcommand, third] = args.positional;
   const keepDebugLog = getBooleanFlag(args.flags, "log");
   const commandName = command || "help";
