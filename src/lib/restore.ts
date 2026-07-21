@@ -9,7 +9,13 @@ import {
   ensureBackupArtifacts,
   readBackup
 } from "./backups.js";
-import { RemoteOperationError, restoreArchiveToEnvironment } from "./mongo.js";
+import {
+  dropCollections,
+  inspectArchiveCollections,
+  listCollections,
+  RemoteOperationError,
+  restoreArchiveToEnvironment
+} from "./mongo.js";
 import { verifyRestore } from "./verify.js";
 import { backupCreate } from "../commands/backup.js";
 import {
@@ -25,6 +31,9 @@ export interface RunRestoreDependencies {
   archivePathForBackup: typeof archivePathForBackup;
   backupCreate: typeof backupCreate;
   restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
+  inspectArchiveCollections?: typeof inspectArchiveCollections;
+  listCollections?: typeof listCollections;
+  dropCollections?: typeof dropCollections;
   verifyRestore: typeof verifyRestore;
   installInterruptHandler: (onInterrupt: () => void) => () => void;
   writeStdout: (message: string) => void;
@@ -36,6 +45,9 @@ const DEFAULT_RUN_RESTORE_DEPENDENCIES: RunRestoreDependencies = {
   archivePathForBackup,
   backupCreate,
   restoreArchiveToEnvironment,
+  inspectArchiveCollections,
+  listCollections,
+  dropCollections,
   verifyRestore,
   installInterruptHandler: (onInterrupt) => {
     const handler = (): void => onInterrupt();
@@ -49,6 +61,7 @@ type RestorePhase =
   | "backup_validation"
   | "pre_restore_backup"
   | "restore"
+  | "prune"
   | "verify";
 
 function isInterruptedError(error: unknown): boolean {
@@ -87,7 +100,9 @@ function formatRestoreFailure(options: {
         ? "pre-restore backup"
         : options.phase === "restore"
           ? "restore"
-          : "verify";
+          : options.phase === "prune"
+            ? "prune"
+            : "verify";
 
   const statusLine = options.interrupted
     ? `Restore interrupted during ${phaseLabel} for ${options.backup} -> ${options.to}.`
@@ -128,7 +143,7 @@ function cleanupLineForFailure(
     return "Temporary restore artifact cleanup was attempted but may not have completed.";
   }
 
-  if (phase === "verify") {
+  if (phase === "prune" || phase === "verify") {
     return "Temporary restore artifact cleanup was already attempted before verification began.";
   }
 
@@ -139,6 +154,19 @@ function getRemoteTempPath(error: unknown): string | undefined {
   return error instanceof RemoteOperationError
     ? error.remoteTempPath
     : undefined;
+}
+
+function filterRestoreCollections(collections: string[]): string[] {
+  return collections.filter((collection) => !collection.startsWith("system."));
+}
+
+function collectionSetDifference(left: string[], right: string[]): string[] {
+  const rightSet = new Set(right);
+  return left.filter((collection) => !rightSet.has(collection)).sort();
+}
+
+function manifestCollectionsFromBackup(backup: BackupRecord): string[] {
+  return filterRestoreCollections(backup.manifest.collectionList).sort();
 }
 
 function formatRestoreVerificationFailure(
@@ -209,6 +237,36 @@ export async function runRestoreFull(
       input.backup
     );
 
+    const manifestCollections = manifestCollectionsFromBackup(backup);
+    const inspectedArchiveCollections = dependencies.inspectArchiveCollections
+      ? filterRestoreCollections(
+          await dependencies.inspectArchiveCollections(
+            target,
+            appConfig,
+            dependencies.archivePathForBackup(
+              appConfig.backupRoot,
+              input.backup
+            ),
+            {
+              sourceDatabaseName: backup.manifest.databaseName,
+              outputMode: input.outputMode,
+              signal: abortController.signal,
+              remotePreflightSession: context.remotePreflightSession
+            }
+          )
+        )
+      : manifestCollections;
+    if (
+      inspectedArchiveCollections.length !== manifestCollections.length ||
+      inspectedArchiveCollections.some(
+        (collection, index) => collection !== manifestCollections[index]
+      )
+    ) {
+      throw new Error(
+        `Archive inspection does not match backup manifest. Missing from archive: ${collectionSetDifference(manifestCollections, inspectedArchiveCollections).join(", ") || "none"}. Unexpected in archive: ${collectionSetDifference(inspectedArchiveCollections, manifestCollections).join(", ") || "none"}.`
+      );
+    }
+
     if (target.isProduction && !input.skipPreBackup) {
       currentPhase = "pre_restore_backup";
       runLogger.info("restore", "Creating pre-restore backup", {
@@ -253,6 +311,32 @@ export async function runRestoreFull(
       }
     );
 
+    const targetCollections = dependencies.listCollections
+      ? filterRestoreCollections(
+          await dependencies.listCollections(target, {
+            outputMode: input.outputMode,
+            signal: abortController.signal,
+            remotePreflightSession: context.remotePreflightSession
+          })
+        )
+      : [];
+    const targetOnlyCollections = collectionSetDifference(
+      targetCollections,
+      inspectedArchiveCollections
+    );
+    if (dependencies.dropCollections && targetOnlyCollections.length > 0) {
+      currentPhase = "prune";
+      runLogger.info("restore", "Dropping target-only collections", {
+        to: input.to,
+        collections: targetOnlyCollections
+      });
+      await dependencies.dropCollections(target, targetOnlyCollections, {
+        outputMode: input.outputMode,
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
+      });
+    }
+
     currentPhase = "verify";
     runLogger.info("restore", "Verifying restored target", {
       backup: input.backup,
@@ -270,12 +354,18 @@ export async function runRestoreFull(
         remotePreflightSession: context.remotePreflightSession
       }
     );
+    const unexpectedCollections = collectionSetDifference(
+      filterRestoreCollections(verification.collectionsPresent),
+      manifestCollections
+    );
     if (
       verification.missingCollections.length > 0 ||
-      verification.countMismatches.length > 0
+      verification.countMismatches.length > 0 ||
+      unexpectedCollections.length > 0
     ) {
       throw new Error(
-        formatRestoreVerificationFailure(backup, input.to, verification)
+        `${formatRestoreVerificationFailure(backup, input.to, verification)}\n` +
+          `Unexpected collections: ${unexpectedCollections.join(", ") || "none"}`
       );
     }
     if (printSummary) {

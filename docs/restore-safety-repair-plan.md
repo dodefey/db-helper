@@ -236,7 +236,7 @@ Progress notes:
 
 ## Phase 5: Make Full Restore An Exact Target Replacement
 
-Status: pending
+Status: complete
 
 Extend `runRestoreFull` in `src/lib/restore.ts` using the validated archive collection set returned by Phase 4.
 
@@ -270,6 +270,17 @@ Implementation details:
 - final verification reports unexpected collections that survive or appear after pruning
 - collection restore and collection sync never enter the full-prune path
 - existing production pre-backup, confirmation, interruption, and cleanup behavior remains covered
+
+Completion notes:
+
+- Full restore now validates the inspected archive collection set against the
+  manifest before production pre-backup or target mutation.
+- After restore, target-only normal-user collections are computed and dropped;
+  internal `system.*` collections are excluded.
+- Final verification now rejects missing, count-mismatched, and unexpected
+  normal-user collections before reporting success.
+- Validation passed: `npm run lint`, `npm test` (132 tests),
+  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
 
 ## Phase 6: Add Collection-Scoped Post-Restore Verification
 
