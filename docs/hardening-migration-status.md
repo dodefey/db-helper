@@ -58,6 +58,13 @@ The following workflows have been manually smoke-tested against the real local o
 - `restore --verbose`
 - `restore --quiet`
 
+The disposable lifecycle gate in `scripts/restore-integration.ts` now adds
+real archive-backed backup creation, interrupted restore and retry recovery,
+diagnostic stdout before tagged shell results, and retains the full restore,
+collection restore, sync, namespace-isolation, sentinel-preservation, and
+redaction matrix. It runs locally with `npm run test:restore-integration` and
+is required by the repository CI workflow.
+
 Important restore notes from live testing:
 
 - full restore had to be corrected to always use destructive replacement semantics

@@ -1,0 +1,43 @@
+name: Restore integration
+
+on:
+  push:
+    branches: [development, main]
+  pull_request:
+
+jobs:
+  disposable-lifecycle:
+    name: Disposable Mongo lifecycle
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install MongoDB server
+        run: |
+          curl -fsSL https://www.mongodb.org/static/pgp/server-8.0.asc \
+            | sudo gpg --dearmor -o /usr/share/keyrings/mongodb-server-8.0.gpg
+          echo "deb [ arch=amd64,arm64 signed-by=/usr/share/keyrings/mongodb-server-8.0.gpg ] https://repo.mongodb.org/apt/ubuntu noble/mongodb-org/8.0 multiverse" \
+            | sudo tee /etc/apt/sources.list.d/mongodb-org-8.0.list
+          sudo apt-get update
+          sudo apt-get install -y mongodb-org-server
+
+      - name: Install MongoDB Database Tools 100.16.1
+        run: |
+          curl -fsSL -o /tmp/mongodb-database-tools.tgz \
+            https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2404-x86_64-100.16.1.tgz
+          tar -xzf /tmp/mongodb-database-tools.tgz -C /tmp
+          sudo cp /tmp/mongodb-database-tools-*/bin/* /usr/local/bin/
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run disposable lifecycle gate
+        run: npm run test:restore-integration

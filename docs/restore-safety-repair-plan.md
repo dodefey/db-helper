@@ -544,6 +544,8 @@ Completion notes:
 - failure output distinguishes pre-mutation failure, mutation failure, prune failure, and verification failure
 - local and remote paths share one tested namespace and inspection contract
 - real archive-backed tests prove collection isolation and full-restore exact replacement
+- disposable lifecycle integration covers backup, restore, sync, interruption/recovery,
+  diagnostic shell output, namespace isolation, and redaction; the same gate runs in CI
 - README and changelog match the shipped behavior
 - formatting, lint, unit tests, typechecking, build, integration tests, packaging inspection, and real smoke tests pass
 
@@ -553,7 +555,6 @@ Completion notes:
 - index metadata in backup manifests and post-restore index parity verification
 - document-level hashes or content-equivalence verification for arbitrary production collections
 - automatic scoped collection preimage backups
-- full backup/sync/recover/interruption lifecycle CI beyond the regression matrix above
 - transactional rollback guarantees
 - merge or multi-collection restore modes
 

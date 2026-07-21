@@ -545,3 +545,19 @@ The manifest includes the backup name, source environment, database name, timest
 ## Recovery Guide
 
 See [RECOVERY.md](./RECOVERY.md) for the operator-focused restore flows.
+
+## Disposable lifecycle integration test
+
+The real-Mongo regression gate exercises backup creation, full and collection
+restore, full and collection sync, interrupted backup/restore/sync recovery,
+diagnostic `mongosh` output, namespace isolation, and redacted run logs:
+
+```bash
+npm run test:restore-integration
+```
+
+It requires `mongod`, `mongosh`, `mongodump`, and `mongorestore` on `PATH`.
+The CI job provisions MongoDB server 8.0 and Database Tools 100.16.1; local
+runs should use the same or newer supported tools. The fixture creates a
+temporary authenticated server, credentials, port, and filesystem and removes
+them when the run exits.

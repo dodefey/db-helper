@@ -15,6 +15,8 @@ import {
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import { runBackupCreate } from "../src/lib/backup.js";
+import { removeBackupArtifacts, readBackup } from "../src/lib/backups.js";
 
 const execFileAsync = promisify(execFile);
 const requiredBinaries = ["mongod", "mongosh", "mongodump", "mongorestore"];
@@ -207,6 +209,7 @@ async function main(): Promise<void> {
     const { runRestoreCollection, runRestoreFull } =
       await import("../src/lib/restore.js");
     const { runSync } = await import("../src/lib/sync.js");
+    const { listCollections } = await import("../src/lib/mongo.js");
     const { createRunLogger, setRunLogger } =
       await import("../src/lib/runLog.js");
     const env = {
@@ -248,6 +251,60 @@ async function main(): Promise<void> {
         archiveFile: "dump.archive.gz"
       })
     );
+
+    // Exercise the production backup lifecycle against the same disposable
+    // authenticated server used by the restore and sync scenarios.
+    const generatedBackupName = `integration-generated-${randomUUID()}`;
+    const backupLogger = await createRunLogger({
+      commandName: "restore-integration-backup",
+      logRoot: root
+    });
+    setRunLogger(backupLogger);
+    let generatedBackupSummary = "";
+    let generatedBackupRecord;
+    try {
+      generatedBackupSummary = await captureStdout(async () => {
+        generatedBackupRecord = await runBackupCreate(appConfig, {
+          from: env.id,
+          backupName: generatedBackupName,
+          tags: ["integration"],
+          outputMode: "default"
+        });
+      });
+      await backupLogger.finalizeFailure();
+    } finally {
+      setRunLogger();
+    }
+    if (!generatedBackupRecord) {
+      throw new Error("Production backup integration did not return a record.");
+    }
+    const generatedManifest = await readBackup(root, generatedBackupName);
+    await access(
+      path.join(generatedManifest.path, generatedManifest.manifest.archiveFile)
+    );
+    if (
+      !generatedBackupSummary.includes(
+        `Backup complete: ${generatedBackupName}`
+      ) ||
+      JSON.stringify(generatedManifest.manifest.collectionList) !==
+        JSON.stringify(["empty", "orders", "unrelated"]) ||
+      generatedManifest.manifest.collectionCounts.orders !== 2 ||
+      generatedManifest.manifest.tags[0] !== "integration"
+    ) {
+      throw new Error(
+        `Production backup lifecycle regression: ${JSON.stringify({
+          summary: generatedBackupSummary,
+          manifest: generatedManifest.manifest
+        })}`
+      );
+    }
+    const generatedBackupLog = await readFile(backupLogger.logPath, "utf8");
+    if (generatedBackupLog.includes(password)) {
+      throw new Error(
+        "Production backup run log exposed the generated password."
+      );
+    }
+    await removeBackupArtifacts(root, generatedBackupName);
     const runCollectionScenario = async (
       targetEnv: typeof env,
       collection: string,
@@ -834,11 +891,222 @@ exec "$DBH_REAL_MONGODUMP" "$@"
         `Sync temporary archives were not cleaned up: ${leftoverSyncArchives.join(", ")}`
       );
     }
+
+    // Interrupt a real restore subprocess, verify the conservative trust
+    // message, then rerun the same archive and prove exact recovery.
+    const restoreInterruptRoot = path.join(root, "restore-interrupt-shim");
+    await mkdir(restoreInterruptRoot);
+    const restoreReady = path.join(restoreInterruptRoot, "mongorestore.ready");
+    const restoreRelease = path.join(
+      restoreInterruptRoot,
+      "mongorestore.release"
+    );
+    const realMongorestore = (
+      await execFileAsync("sh", ["-lc", "command -v mongorestore"])
+    ).stdout.trim();
+    const mongorestoreShim = path.join(restoreInterruptRoot, "mongorestore");
+    await writeFile(
+      mongorestoreShim,
+      `#!/bin/sh
+case " $* " in
+  *" --dryRun "*) exec "$DBH_REAL_MONGORESTORE" "$@" ;;
+esac
+trap 'exit 130' INT TERM
+printf ready > "$DBH_RESTORE_READY"
+while [ ! -f "$DBH_RESTORE_RELEASE" ]; do sleep 0.02; done
+exec "$DBH_REAL_MONGORESTORE" "$@"
+`,
+      "utf8"
+    );
+    await chmod(mongorestoreShim, 0o755);
+    const restoreInterruptTarget = {
+      ...env,
+      id: "restore_interrupt",
+      name: "restore_interrupt",
+      databaseName: "restore_interrupt"
+    };
+    await mongoEval(
+      uri,
+      "const target=db.getSiblingDB('restore_interrupt'); target.dropDatabase(); target.target_only.insertOne({_id:'keep'}); target.getCollection('system.js').insertOne({_id:'keep',value:'function(){return true;}'});"
+    );
+    const restoreOriginalPath = process.env.PATH;
+    const restoreOriginalReady = process.env.DBH_RESTORE_READY;
+    const restoreOriginalRelease = process.env.DBH_RESTORE_RELEASE;
+    const restoreOriginalBinary = process.env.DBH_REAL_MONGORESTORE;
+    process.env.PATH = `${restoreInterruptRoot}:${restoreOriginalPath ?? ""}`;
+    process.env.DBH_RESTORE_READY = restoreReady;
+    process.env.DBH_RESTORE_RELEASE = restoreRelease;
+    process.env.DBH_REAL_MONGORESTORE = realMongorestore;
+    const restoreInterruptLogger = await createRunLogger({
+      commandName: "restore-integration-interrupted-restore",
+      logRoot: root
+    });
+    setRunLogger(restoreInterruptLogger);
+    let restoreInterruptedError: unknown;
+    let restoreInterruptedSummary = "";
+    const interruptedRestoreRun = captureStdout(async () => {
+      try {
+        await runRestoreFull(
+          {
+            ...appConfig,
+            environments: { restore_interrupt: restoreInterruptTarget }
+          },
+          {
+            backup: backupName,
+            to: restoreInterruptTarget.id,
+            skipPreBackup: true,
+            outputMode: "default"
+          }
+        );
+      } catch (error) {
+        restoreInterruptedError = error;
+      }
+    });
+    try {
+      await waitForFile(restoreReady);
+      process.emit("SIGINT");
+      restoreInterruptedSummary = await interruptedRestoreRun;
+      await restoreInterruptLogger.finalizeFailure();
+    } finally {
+      await writeFile(restoreRelease, "release", "utf8");
+      setRunLogger();
+      process.env.PATH = restoreOriginalPath;
+      if (restoreOriginalReady === undefined)
+        delete process.env.DBH_RESTORE_READY;
+      else process.env.DBH_RESTORE_READY = restoreOriginalReady;
+      if (restoreOriginalRelease === undefined)
+        delete process.env.DBH_RESTORE_RELEASE;
+      else process.env.DBH_RESTORE_RELEASE = restoreOriginalRelease;
+      if (restoreOriginalBinary === undefined)
+        delete process.env.DBH_REAL_MONGORESTORE;
+      else process.env.DBH_REAL_MONGORESTORE = restoreOriginalBinary;
+    }
+    if (!(restoreInterruptedError instanceof Error)) {
+      throw new Error(
+        "Interrupted restore integration run unexpectedly succeeded."
+      );
+    }
+    if (
+      !restoreInterruptedError.message.includes(
+        "Restore interrupted during restore"
+      ) ||
+      !restoreInterruptedError.message.includes("may be dirty") ||
+      !restoreInterruptedSummary.includes("Starting restore")
+    ) {
+      throw new Error(
+        `Interrupted restore output was not truthful: ${restoreInterruptedError.message}\n${restoreInterruptedSummary}`
+      );
+    }
+    const interruptedRestoreState = await mongoJson<{
+      targetOnlyCount: number;
+      userCollections: string[];
+      systemPreserved: number;
+    }>(
+      uri,
+      "(()=>{const dbx=db.getSiblingDB('restore_interrupt');const users=dbx.getCollectionNames().filter(name=>!name.startsWith('system.')).sort();return {targetOnlyCount:dbx.target_only.countDocuments({}),userCollections:users,systemPreserved:dbx.getCollection('system.js').countDocuments({_id:'keep'})};})()"
+    );
+    if (
+      interruptedRestoreState.targetOnlyCount !== 1 ||
+      JSON.stringify(interruptedRestoreState.userCollections) !==
+        JSON.stringify(["target_only"]) ||
+      interruptedRestoreState.systemPreserved !== 1
+    ) {
+      throw new Error(
+        `Interrupted restore modified the target unexpectedly: ${JSON.stringify(interruptedRestoreState)}`
+      );
+    }
+    const interruptedRestoreLog = await readFile(
+      restoreInterruptLogger.logPath,
+      "utf8"
+    );
+    if (
+      !interruptedRestoreLog.includes('"phase":"restore"') ||
+      !interruptedRestoreLog.includes(
+        '"targetTrustState":"may be partially modified"'
+      ) ||
+      interruptedRestoreLog.includes(password)
+    ) {
+      throw new Error(
+        "Interrupted restore log did not retain truthful redacted state."
+      );
+    }
+    await runRestoreFull(
+      {
+        ...appConfig,
+        environments: { restore_interrupt: restoreInterruptTarget }
+      },
+      {
+        backup: backupName,
+        to: restoreInterruptTarget.id,
+        skipPreBackup: true,
+        outputMode: "quiet"
+      }
+    );
+    const recoveredRestoreState = await mongoJson<{
+      userCollections: string[];
+      counts: Record<string, number>;
+      systemPreserved: number;
+    }>(
+      uri,
+      "(()=>{const dbx=db.getSiblingDB('restore_interrupt');const users=dbx.getCollectionNames().filter(name=>!name.startsWith('system.')).sort();return {userCollections:users,counts:Object.fromEntries(users.map(name=>[name,dbx.getCollection(name).countDocuments({})])),systemPreserved:dbx.getCollection('system.js').countDocuments({_id:'keep'})};})()"
+    );
+    if (
+      JSON.stringify(recoveredRestoreState.userCollections) !==
+        JSON.stringify(["empty", "orders", "unrelated"]) ||
+      JSON.stringify(recoveredRestoreState.counts) !==
+        JSON.stringify({ empty: 0, orders: 2, unrelated: 1 }) ||
+      recoveredRestoreState.systemPreserved !== 1
+    ) {
+      throw new Error(
+        `Interrupted restore recovery regression: ${JSON.stringify(recoveredRestoreState)}`
+      );
+    }
+
+    // Prove the tagged-result parser survives diagnostic stdout from mongosh.
+    const diagnosticRoot = path.join(root, "mongosh-diagnostic-shim");
+    await mkdir(diagnosticRoot);
+    const realMongosh = (
+      await execFileAsync("sh", ["-lc", "command -v mongosh"])
+    ).stdout.trim();
+    const mongoshShim = path.join(diagnosticRoot, "mongosh");
+    await writeFile(
+      mongoshShim,
+      `#!/bin/sh
+printf 'Warning: integration diagnostic before tagged result\\n' >&1
+exec "$DBH_REAL_MONGOSH" "$@"
+`,
+      "utf8"
+    );
+    await chmod(mongoshShim, 0o755);
+    const diagnosticOriginalPath = process.env.PATH;
+    const diagnosticOriginalBinary = process.env.DBH_REAL_MONGOSH;
+    process.env.PATH = `${diagnosticRoot}:${diagnosticOriginalPath ?? ""}`;
+    process.env.DBH_REAL_MONGOSH = realMongosh;
+    try {
+      const diagnosticOutput: string[] = [];
+      await listCollections(env, {
+        outputMode: "verbose",
+        writeStdout: (message) => diagnosticOutput.push(message)
+      });
+      if (
+        !diagnosticOutput.some((line) =>
+          line.includes("integration diagnostic")
+        ) ||
+        diagnosticOutput.join("").includes(password)
+      ) {
+        throw new Error("Diagnostic mongosh output was not surfaced safely.");
+      }
+    } finally {
+      process.env.PATH = diagnosticOriginalPath;
+      if (diagnosticOriginalBinary === undefined)
+        delete process.env.DBH_REAL_MONGOSH;
+      else process.env.DBH_REAL_MONGOSH = diagnosticOriginalBinary;
+    }
     process.stdout.write(
       `Restore integration tools:\n${Object.entries(versions)
         .map(([name, version]) => `  ${name}: ${version.split("\n")[0]}`)
         .join("\n")}\nDisposable mongod: 127.0.0.1:${port}\n` +
-        "Authenticated archive-backed collection/full restore and sync regressions passed.\n"
+        "Authenticated archive-backed backup, restore, sync, interruption, and diagnostic regressions passed.\n"
     );
   } finally {
     mongod.kill("SIGTERM");
