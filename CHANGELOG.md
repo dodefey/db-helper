@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- fixed full restore so archive inspection happens before mutation and target-only normal-user collections are removed before exact final verification
+- fixed collection restore so namespace selection is isolated to the requested collection and post-restore presence/count verification is required, including valid empty collections
+- fixed `mongosh` verification parsing so warnings and diagnostics cannot corrupt machine-readable collection or count results
+- added explicit restore lifecycle outcomes and an archive-backed integration harness for regression coverage
+
 ## 0.2.0
 
 - changed `config.json` to support arbitrary named environments instead of requiring fixed `development`, `test`, and `production` keys

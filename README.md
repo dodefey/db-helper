@@ -348,7 +348,7 @@ Debug log retention:
 
 `sync` is the command for replacing one configured database with another environment. It also supports syncing one named collection between configured environments.
 
-It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. An interrupted restore can still leave the target in a dirty state.
+It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. Full sync inspects the archive before mutation and verifies the final collection set; an interrupted restore can still leave the target in a dirty state.
 
 ### Usage
 
@@ -434,7 +434,7 @@ Operator expectations:
 
 `restore` is the command for applying a named backup to a target environment. In practice, it is most useful when you want to recover any configured environment from a known-good backup, or when you need to restore one collection without replacing the full database.
 
-It is a backup-to-target recovery workflow, not a merge tool. `restore full` validates the named backup, replaces the target with drop enabled, verifies the result, and enforces stronger safeguards for environments marked `isProduction: true`. `restore collection` restores only one named collection from the backup with drop enabled.
+It is a backup-to-target recovery workflow, not a merge tool. Before mutation, restore inspects the archive and confirms its normal-user collection set matches the manifest. `restore full` then replaces the target with drop enabled, removes target-only normal-user collections, verifies the exact final set and counts, and enforces stronger safeguards for environments marked `isProduction: true`. `restore collection` preflights and restores only one named collection, then verifies that collection's presence and count; unrelated target collections remain untouched.
 
 ### Usage
 
@@ -462,7 +462,7 @@ dbh restore collection --backup 2026-03-16T10-30-00-production --collection orde
 dbh restore full --backup 2026-03-16T10-30-00-production --to production --force-production-restore
 ```
 
-If `restore` is interrupted during `restore` or `verify`, treat the target as dirty. The safe recovery path is to rerun the restore from a known-good backup or restore the target again before trusting it.
+If `restore` is interrupted during restore, pruning, or verification, follow the reported target-trust state. A target marked partially modified or requiring independent verification must be rerun from a known-good backup before it is trusted.
 
 ### Restore API
 
