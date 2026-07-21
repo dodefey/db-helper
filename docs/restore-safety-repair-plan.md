@@ -190,7 +190,7 @@ Completion notes:
 
 ## Phase 4: Add One-Pass Archive Preflight And Mutation State Reporting
 
-Status: pending
+Status: complete
 
 Refactor archive restore transport so namespace inspection and mutation share one staged artifact and expose precise lifecycle state to orchestration.
 
@@ -220,6 +220,19 @@ Refactor archive restore transport so namespace inspection and mutation share on
 - accept a recognized empty archive only with an empty manifest
 - prove remote preflight and restore reuse one staged path and perform one cleanup sequence
 - prove mutation-state transitions for preflight failure, mutation failure, mutation success, and cleanup failure
+
+Progress notes:
+
+- Added structured dry-run mapping/completion parsing and fail-closed
+  completion enforcement to archive inspection.
+- Added mutation-state callbacks for local and remote restore subprocesses,
+  including the post-subprocess/pre-cleanup success boundary.
+- Added parser coverage for selected mappings, archive-prelude noise, and
+  missing completion signals.
+- Restore transport now runs dry-run preflight immediately before mutation;
+  remote targets reuse one staged upload for inspection, restore, and cleanup.
+- Validation passed: `npm run lint`, `npm test` (132 tests),
+  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
 
 ## Phase 5: Make Full Restore An Exact Target Replacement
 

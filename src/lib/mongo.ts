@@ -576,6 +576,88 @@ export function parseArchiveCollections(
   return [...names].sort();
 }
 
+export type ArchiveMutationState =
+  | "not_started"
+  | "in_progress"
+  | "subprocess_succeeded";
+
+export interface ArchiveInspectionResult {
+  mappings: Array<{ sourceNamespace: string; targetNamespace: string }>;
+  collections: string[];
+  completed: boolean;
+}
+
+function validateArchiveInspectionScope(
+  inspection: ArchiveInspectionResult,
+  env: EnvironmentConfig,
+  options: { sourceDatabaseName: string; collection?: string }
+): void {
+  if (!options.collection) {
+    return;
+  }
+  const expectedSource = `${options.sourceDatabaseName}.${options.collection}`;
+  const expectedTarget = `${env.databaseName}.${options.collection}`;
+  if (
+    inspection.mappings.length !== 1 ||
+    inspection.mappings[0]?.sourceNamespace !== expectedSource ||
+    inspection.mappings[0]?.targetNamespace !== expectedTarget
+  ) {
+    throw new Error(
+      `Archive inspection did not select exactly ${expectedSource} -> ${expectedTarget}.`
+    );
+  }
+}
+
+export function parseArchiveInspection(
+  output: string,
+  sourceDatabaseName: string,
+  targetDatabaseName: string
+): ArchiveInspectionResult {
+  const normalizedOutput = output.replace(/`/g, "");
+  const mappings = new Map<
+    string,
+    { sourceNamespace: string; targetNamespace: string }
+  >();
+  const mappingPattern =
+    /^.*found collection (?:metadata from )?([^\s]+) to restore to ([^\s]+).*$/gm;
+
+  for (const match of normalizedOutput.matchAll(mappingPattern)) {
+    const sourceNamespace = match[1];
+    const targetNamespace = match[2];
+    const [sourceDatabase] = sourceNamespace.split(".");
+    const [targetDatabase] = targetNamespace.split(".");
+    if (
+      sourceDatabase === sourceDatabaseName &&
+      targetDatabase === targetDatabaseName
+    ) {
+      const key = `${sourceNamespace}\u0000${targetNamespace}`;
+      mappings.set(key, { sourceNamespace, targetNamespace });
+    }
+  }
+
+  const completed =
+    /\d+ document\(s\) restored successfully\.\s*\d+ document\(s\) failed to restore\./i.test(
+      normalizedOutput
+    ) || /dry run completed successfully/i.test(normalizedOutput);
+  if (!completed) {
+    throw new Error(
+      "Archive inspection did not report a recognized completion signal."
+    );
+  }
+
+  return {
+    mappings: [...mappings.values()].sort((a, b) =>
+      a.sourceNamespace.localeCompare(b.sourceNamespace)
+    ),
+    collections: [...mappings.values()]
+      .map(({ targetNamespace }) =>
+        targetNamespace.slice(targetDatabaseName.length + 1)
+      )
+      .sort(),
+    completed
+  };
+}
+
 export async function listCollections(
   env: EnvironmentConfig,
   options: MongoShellOptions = {}
@@ -712,6 +794,7 @@ export async function restoreArchiveToEnvironment(
     drop: boolean;
     outputMode?: OutputMode;
     signal?: AbortSignal;
+    onMutationState?: (state: ArchiveMutationState) => void;
     remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
   }
 ): Promise<void> {
@@ -729,12 +812,33 @@ export async function restoreArchiveToEnvironment(
     }).args
   );
 
+  const inspectionArgs = [
+    ...baseArgs.filter((arg) => arg !== "--drop"),
+    "--dryRun",
+    "--verbose"
+  ];
+
   if (env.kind === "local") {
+    const inspectionOutput = await runCommandViaShell(
+      `mongorestore ${inspectionArgs
+        .concat(`--archive=${archiveFile}`)
+        .map((arg) => JSON.stringify(arg))
+        .join(" ")}`,
+      { signal: options.signal }
+    );
+    const inspection = parseArchiveInspection(
+      inspectionOutput,
+      options.sourceDatabaseName,
+      env.databaseName
+    );
+    validateArchiveInspectionScope(inspection, env, options);
+    options.onMutationState?.("in_progress");
     await runCommand(
       "mongorestore",
       [...baseArgs, `--archive=${archiveFile}`],
       { streamOutput, signal: options.signal }
     );
+    options.onMutationState?.("subprocess_succeeded");
     return;
   }
 
@@ -751,6 +855,23 @@ export async function restoreArchiveToEnvironment(
     );
     await copyToRemote(env, archiveFile, remotePath, options.signal, options);
     const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
+    const remoteInspectionArgs = [...inspectionArgs, `--archive=${remotePath}`];
+    const inspectionOutput = await runRemote(
+      env,
+      `mongorestore ${remoteInspectionArgs
+        .map((arg) => JSON.stringify(arg))
+        .join(" ")} 2>&1`,
+      false,
+      options.signal,
+      options
+    );
+    const inspection = parseArchiveInspection(
+      inspectionOutput,
+      options.sourceDatabaseName,
+      env.databaseName
+    );
+    validateArchiveInspectionScope(inspection, env, options);
+    options.onMutationState?.("in_progress");
     await runRemote(
       env,
       `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
@@ -758,6 +879,7 @@ export async function restoreArchiveToEnvironment(
       options.signal,
       options
     );
+    options.onMutationState?.("subprocess_succeeded");
   } catch (error) {
     primaryError = error;
   }
@@ -836,11 +958,11 @@ export async function inspectArchiveCollections(
         .join(" ")}`,
       { signal: options.signal }
     );
-    return parseArchiveCollections(
+    return parseArchiveInspection(
       output,
       options.sourceDatabaseName,
       env.databaseName
-    );
+    ).collections;
   }
 
   const remotePath = remoteArchivePath(appConfig, env);
@@ -896,11 +1018,11 @@ export async function inspectArchiveCollections(
     throw cleanupError;
   }
 
-  return parseArchiveCollections(
+  return parseArchiveInspection(
     output,
     options.sourceDatabaseName,
     env.databaseName
-  );
+  ).collections;
 }
 
 export function createLocalTempFile(

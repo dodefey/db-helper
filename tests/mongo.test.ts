@@ -10,6 +10,7 @@ import {
   buildRestoreNamespaceContract,
   mongoDatabaseUri,
   mongoServerUri,
+  parseArchiveInspection,
   parseArchiveCollections,
   parseMongoShellCollectionCounts,
   parseMongoShellCollectionList,
@@ -100,6 +101,36 @@ test("restore namespace contract rejects wildcard collection filters", () => {
         collection: "orders*"
       }),
     /cannot be represented as an exact namespace filter/
+  );
+});
+
+test("parseArchiveInspection returns exact mappings and requires completion", () => {
+  const result = parseArchiveInspection(
+    [
+      "archive prelude archive_db.unrelated",
+      "found collection archive_db.orders bson to restore to target_db.orders",
+      "found collection metadata from archive_db.orders to restore to target_db.orders",
+      "2 document(s) restored successfully. 0 document(s) failed to restore."
+    ].join("\n"),
+    "archive_db",
+    "target_db"
+  );
+  assert.deepEqual(result.collections, ["orders"]);
+  assert.deepEqual(result.mappings, [
+    {
+      sourceNamespace: "archive_db.orders",
+      targetNamespace: "target_db.orders"
+    }
+  ]);
+  assert.equal(result.completed, true);
+  assert.throws(
+    () =>
+      parseArchiveInspection(
+        "found collection archive_db.orders",
+        "archive_db",
+        "target_db"
+      ),
+    /recognized completion signal/
   );
 });
 
