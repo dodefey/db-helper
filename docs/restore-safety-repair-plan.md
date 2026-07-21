@@ -441,6 +441,9 @@ Completion notes:
   now run through the same disposable authenticated lifecycle and assert exact
   replacement, namespace scope, unrelated-collection preservation, redaction,
   and temporary-archive cleanup.
+- Added deterministic real-subprocess sync interruption coverage by pausing the
+  real `mongodump`, sending `SIGINT`, and asserting dump-phase reporting,
+  unchanged target state, redacted logs, and temporary-archive cleanup.
 - Portable unit tests remain separate from this required integration gate.
 
 ## Phase 9: Reconcile User Documentation And Unreleased History

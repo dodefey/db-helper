@@ -2,6 +2,8 @@ import { execFile, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import {
+  access,
+  chmod,
   copyFile,
   mkdir,
   mkdtemp,
@@ -16,6 +18,21 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 const requiredBinaries = ["mongod", "mongosh", "mongodump", "mongorestore"];
+
+async function waitForFile(file: string, timeoutMs = 10_000): Promise<void> {
+  const startedAt = Date.now();
+  for (;;) {
+    try {
+      await access(file);
+      return;
+    } catch {
+      if (Date.now() - startedAt >= timeoutMs) {
+        throw new Error(`Timed out waiting for integration marker ${file}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
+}
 
 async function requireBinary(binary: string): Promise<string> {
   try {
@@ -505,6 +522,12 @@ async function main(): Promise<void> {
       name: "sync_collection_target",
       databaseName: "sync_collection_target"
     };
+    const syncInterruptTarget = {
+      ...env,
+      id: "sync_interrupt_target",
+      name: "sync_interrupt_target",
+      databaseName: "sync_interrupt_target"
+    };
     const syncSameSource = {
       ...env,
       id: "sync_same_source",
@@ -519,7 +542,7 @@ async function main(): Promise<void> {
     };
     await mongoEval(
       uri,
-      "const source=db.getSiblingDB('sync_source'); source.dropDatabase(); source.orders.insertMany([{_id:1,n:1},{_id:2,n:2}]); source.orders.createIndex({n:1},{name:'orders_n'}); source.createCollection('unrelated',{validator:{keep:{$eq:true}}}); source.unrelated.insertOne({_id:'source',keep:true}); source.unrelated.createIndex({keep:1},{name:'unrelated_n'}); source.createCollection('empty',{collation:{locale:'en',strength:2}}); source.empty.createIndex({n:1},{name:'empty_n'}); const full=db.getSiblingDB('sync_full_target'); full.dropDatabase(); full.target_only.insertOne({_id:'remove'}); full.getCollection('system.js').insertOne({_id:'keep',value:'function(){return true;}'}); const scoped=db.getSiblingDB('sync_collection_target'); scoped.dropDatabase(); scoped.orders.insertOne({_id:'old',n:-1}); scoped.orders.createIndex({n:1},{name:'old_orders_n'}); scoped.unrelated.insertOne({_id:'keep',keep:true}); scoped.unrelated.createIndex({keep:1},{name:'keep_index'}); const same=db.getSiblingDB('sync_same_db'); same.dropDatabase(); same.orders.insertMany([{_id:1,n:1},{_id:2,n:2}]); same.orders.createIndex({n:1},{name:'orders_n'}); same.unrelated.insertOne({_id:'keep',keep:true}); same.unrelated.createIndex({keep:1},{name:'keep_index'});"
+      "const source=db.getSiblingDB('sync_source'); source.dropDatabase(); source.orders.insertMany([{_id:1,n:1},{_id:2,n:2}]); source.orders.createIndex({n:1},{name:'orders_n'}); source.createCollection('unrelated',{validator:{keep:{$eq:true}}}); source.unrelated.insertOne({_id:'source',keep:true}); source.unrelated.createIndex({keep:1},{name:'unrelated_n'}); source.createCollection('empty',{collation:{locale:'en',strength:2}}); source.empty.createIndex({n:1},{name:'empty_n'}); const full=db.getSiblingDB('sync_full_target'); full.dropDatabase(); full.target_only.insertOne({_id:'remove'}); full.getCollection('system.js').insertOne({_id:'keep',value:'function(){return true;}'}); const scoped=db.getSiblingDB('sync_collection_target'); scoped.dropDatabase(); scoped.orders.insertOne({_id:'old',n:-1}); scoped.orders.createIndex({n:1},{name:'old_orders_n'}); scoped.unrelated.insertOne({_id:'keep',keep:true}); scoped.unrelated.createIndex({keep:1},{name:'keep_index'}); const interrupt=db.getSiblingDB('sync_interrupt_target'); interrupt.dropDatabase(); interrupt.target_only.insertOne({_id:'keep'}); const same=db.getSiblingDB('sync_same_db'); same.dropDatabase(); same.orders.insertMany([{_id:1,n:1},{_id:2,n:2}]); same.orders.createIndex({n:1},{name:'orders_n'}); same.unrelated.insertOne({_id:'keep',keep:true}); same.unrelated.createIndex({keep:1},{name:'keep_index'});"
     );
     const runSyncScenario = async (
       targetEnv: typeof syncFullTarget,
@@ -688,6 +711,119 @@ async function main(): Promise<void> {
         `Same-database collection sync regression: ${JSON.stringify(
           sameCollectionSyncOutput
         )}`
+      );
+    }
+    const interruptRoot = path.join(root, "interrupt-shim");
+    await mkdir(interruptRoot);
+    const interruptReady = path.join(interruptRoot, "mongodump.ready");
+    const interruptRelease = path.join(interruptRoot, "mongodump.release");
+    const realMongodump = (
+      await execFileAsync("sh", ["-lc", "command -v mongodump"])
+    ).stdout.trim();
+    const mongodumpShim = path.join(interruptRoot, "mongodump");
+    await writeFile(
+      mongodumpShim,
+      `#!/bin/sh
+trap 'exit 130' INT TERM
+printf ready > "$DBH_INTERRUPT_READY"
+while [ ! -f "$DBH_INTERRUPT_RELEASE" ]; do sleep 0.02; done
+exec "$DBH_REAL_MONGODUMP" "$@"
+`,
+      "utf8"
+    );
+    await chmod(mongodumpShim, 0o755);
+    const originalPath = process.env.PATH;
+    const originalReady = process.env.DBH_INTERRUPT_READY;
+    const originalRelease = process.env.DBH_INTERRUPT_RELEASE;
+    const originalRealMongodump = process.env.DBH_REAL_MONGODUMP;
+    process.env.PATH = `${interruptRoot}:${originalPath ?? ""}`;
+    process.env.DBH_INTERRUPT_READY = interruptReady;
+    process.env.DBH_INTERRUPT_RELEASE = interruptRelease;
+    process.env.DBH_REAL_MONGODUMP = realMongodump;
+    const interruptLogger = await createRunLogger({
+      commandName: "sync-integration-interrupted-dump",
+      logRoot: root
+    });
+    setRunLogger(interruptLogger);
+    let interruptedError: unknown;
+    let interruptedSummary = "";
+    const interruptedRun = captureStdout(async () => {
+      try {
+        await runSync(
+          {
+            ...appConfig,
+            environments: {
+              sync_source: syncSource,
+              [syncInterruptTarget.id]: syncInterruptTarget
+            }
+          },
+          {
+            from: "sync_source",
+            to: syncInterruptTarget.id,
+            outputMode: "default"
+          }
+        );
+      } catch (error) {
+        interruptedError = error;
+      }
+    });
+    try {
+      await waitForFile(interruptReady);
+      process.emit("SIGINT");
+      interruptedSummary = await interruptedRun;
+      await interruptLogger.finalizeFailure();
+    } finally {
+      await writeFile(interruptRelease, "release", "utf8");
+      setRunLogger();
+      process.env.PATH = originalPath;
+      if (originalReady === undefined) delete process.env.DBH_INTERRUPT_READY;
+      else process.env.DBH_INTERRUPT_READY = originalReady;
+      if (originalRelease === undefined)
+        delete process.env.DBH_INTERRUPT_RELEASE;
+      else process.env.DBH_INTERRUPT_RELEASE = originalRelease;
+      if (originalRealMongodump === undefined)
+        delete process.env.DBH_REAL_MONGODUMP;
+      else process.env.DBH_REAL_MONGODUMP = originalRealMongodump;
+    }
+    if (!(interruptedError instanceof Error)) {
+      throw new Error(
+        "Interrupted sync integration run unexpectedly succeeded."
+      );
+    }
+    if (
+      !interruptedError.message.includes("Sync interrupted during dump") ||
+      !interruptedError.message.includes("Target database was not modified") ||
+      !interruptedSummary.includes("Cleaning up sync temp artifacts")
+    ) {
+      throw new Error(
+        `Interrupted sync output was not truthful: ${interruptedError.message}\n${interruptedSummary}`
+      );
+    }
+    const interruptedTargetState = await mongoJson<{
+      targetOnlyCount: number;
+      userCollections: string[];
+    }>(
+      uri,
+      "(()=>{const dbx=db.getSiblingDB('sync_interrupt_target');const users=dbx.getCollectionNames().filter(name=>!name.startsWith('system.')).sort();return {targetOnlyCount:dbx.target_only.countDocuments({}),userCollections:users};})()"
+    );
+    if (
+      interruptedTargetState.targetOnlyCount !== 1 ||
+      JSON.stringify(interruptedTargetState.userCollections) !==
+        JSON.stringify(["target_only"])
+    ) {
+      throw new Error(
+        `Interrupted sync modified the target unexpectedly: ${JSON.stringify(
+          interruptedTargetState
+        )}`
+      );
+    }
+    const interruptedLog = await readFile(interruptLogger.logPath, "utf8");
+    if (
+      !interruptedLog.includes('"phase":"dump"') ||
+      interruptedLog.includes(password)
+    ) {
+      throw new Error(
+        "Interrupted sync log did not retain the dump phase or was not redacted."
       );
     }
     const leftoverSyncArchives = (await readdir(root)).filter(
