@@ -6,6 +6,8 @@
 - fixed collection restore so namespace selection is isolated to the requested collection and post-restore presence/count verification is required, including valid empty collections
 - fixed `mongosh` verification parsing so warnings and diagnostics cannot corrupt machine-readable collection or count results
 - added explicit restore lifecycle outcomes and an archive-backed integration harness for regression coverage
+- changed full restore and full sync to prepare, inspect, mutate, and clean up one owned archive session so remote archives are uploaded and dry-run exactly once
+- fixed cleanup-only restore and sync failures so successful mutation and verification states remain visible instead of being reported as database-operation failures
 
 ## 0.2.0
 

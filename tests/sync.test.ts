@@ -6,7 +6,11 @@ import {
   EnvironmentId
 } from "../src/config/types.js";
 import { syncDatabase, SyncDependencies } from "../src/commands/sync.js";
-import { RemoteOperationError } from "../src/lib/mongo.js";
+import {
+  ArchivePreflightError,
+  PreparedArchiveRestoreSession,
+  RemoteOperationError
+} from "../src/lib/mongo.js";
 import { parseOutputMode } from "../src/lib/output.js";
 import { runSync, RunSyncDependencies } from "../src/lib/sync.js";
 import { createCommandInvocationContext } from "../src/lib/invocationContext.js";
@@ -197,6 +201,47 @@ function createRunSyncDependencies(
         sourceDatabaseName: options.sourceDatabaseName
       });
       return ["orders", "customers"];
+    },
+    async prepareArchiveRestoreSession(
+      env,
+      appConfig,
+      archiveFile,
+      options
+    ): Promise<PreparedArchiveRestoreSession> {
+      let collections: string[];
+      try {
+        collections = await dependencies.inspectArchiveCollections(
+          env,
+          appConfig,
+          archiveFile,
+          options
+        );
+      } catch (error) {
+        throw new ArchivePreflightError(error);
+      }
+      return {
+        inspection: {
+          mappings: [],
+          collections,
+          completed: true
+        },
+        async restore(restoreOptions): Promise<void> {
+          await dependencies.restoreArchiveToEnvironment(
+            env,
+            appConfig,
+            archiveFile,
+            {
+              sourceDatabaseName: options.sourceDatabaseName,
+              drop: restoreOptions.drop,
+              outputMode: restoreOptions.outputMode,
+              signal: restoreOptions.signal,
+              onMutationState: restoreOptions.onMutationState,
+              remotePreflightSession: options.remotePreflightSession
+            }
+          );
+        },
+        async cleanup(): Promise<void> {}
+      };
     },
     async restoreArchiveToEnvironment(
       env,
@@ -786,7 +831,7 @@ test("runSync does not prune collections that appear in the source during dump",
   ]);
 });
 
-test("runSync refuses to prune when archive inspection finds no collections", async () => {
+test("runSync refuses to restore when archive inspection finds no collections", async () => {
   const { dependencies, calls } = createRunSyncDependencies({
     async inspectArchiveCollections(
       env,
@@ -815,7 +860,7 @@ test("runSync refuses to prune when archive inspection finds no collections", as
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Archive inspection found no restorable collections; refusing to prune development\./
+    /Archive inspection found no restorable collections; refusing to restore development\./
   );
 
   assert.deepEqual(calls.droppedCollections, []);
@@ -841,7 +886,7 @@ test("runSync includes remote temp path for archive inspection transport failure
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync failed during removing target-only collections.*Target database may be dirty\..*Remote temporary archive path: \/tmp\/db-helper\/inspect\.archive\.gz.*SCP transport to gnomebrewshop\.com failed during scp-upload\.\nconnection reset/s
+    /Sync failed during restore.*Target database was not modified\..*SCP transport to gnomebrewshop\.com failed during scp-upload\.\nconnection reset/s
   );
 });
 
@@ -1042,7 +1087,7 @@ test("runSync preserves the original failure when cleanup fails too", async () =
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync failed during restore.*Target database may be dirty\..*Attempted to delete temporary sync artifacts, but cleanup may not have finished\..*restore failed/s
+    /Sync failed during restore.*Target database may be dirty\..*restore failed.*Attempted to delete temporary sync artifacts, but cleanup may not have finished\..*Local temp archive cleanup also failed: cleanup failed/s
   );
 });
 
@@ -1069,7 +1114,7 @@ test("runSync includes remote temp path for remote restore cleanup failures", as
       { from: "production", to: "development", outputMode: "default" },
       dependencies
     ),
-    /Sync failed during restore.*Target database may be dirty\..*Attempted to delete temporary sync artifacts, but cleanup may not have finished\..*Remote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz.*SCP transport to gnomebrewshop\.com failed during scp-upload\.\npermission denied/s
+    /Sync failed during restore.*Target database may be dirty\..*Remote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz.*SCP transport to gnomebrewshop\.com failed during scp-upload\.\npermission denied.*Attempted to delete temporary sync artifacts, but cleanup may not have finished\..*Local temp archive cleanup also failed: cleanup failed/s
   );
 });
 
@@ -1129,4 +1174,204 @@ test("runSync writes success and failure events to the run log", async () => {
   });
   assert.match(failure.logContent, /\[sync\] Sync workflow failed/);
   assert.match(failure.logContent, /dump failed/);
+});
+
+test("runSync full uses one prepared session for inspection, mutation, and cleanup", async () => {
+  const events: string[] = [];
+  const { dependencies } = createRunSyncDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      events.push("prepare");
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(options): Promise<void> {
+          events.push("restore");
+          options.onMutationState?.("in_progress");
+          options.onMutationState?.("subprocess_succeeded");
+        },
+        async cleanup(): Promise<void> {
+          events.push("cleanup");
+        }
+      };
+    },
+    async inspectArchiveCollections(): Promise<string[]> {
+      throw new Error("legacy inspection should not run");
+    },
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new Error("legacy restore should not run");
+    },
+    async verifyRestore(_env, manifest) {
+      events.push("verify");
+      return {
+        collectionsPresent: manifest.collectionList,
+        missingCollections: [],
+        countMismatches: []
+      };
+    }
+  });
+
+  await runSync(
+    buildAppConfig(false),
+    { from: "production", to: "development", outputMode: "quiet" },
+    dependencies
+  );
+
+  assert.deepEqual(events, ["prepare", "restore", "verify", "cleanup"]);
+});
+
+test("runSync reports verified trust when prepared-session cleanup alone fails", async () => {
+  const { dependencies } = createRunSyncDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(options): Promise<void> {
+          options.onMutationState?.("in_progress");
+          options.onMutationState?.("subprocess_succeeded");
+        },
+        async cleanup(): Promise<void> {
+          throw new Error("remote cleanup failed");
+        }
+      };
+    }
+  });
+  const result = await withTestRunLogger("sync-cleanup", async () => {
+    await assert.rejects(
+      runSync(
+        buildAppConfig(false),
+        { from: "production", to: "development", outputMode: "quiet" },
+        dependencies
+      ),
+      /Sync failed during cleanup.*Target database passed sync verification; only temporary artifact cleanup failed/s
+    );
+  });
+
+  assert.match(result.logContent, /"targetTrustState":"verified"/);
+});
+
+test("runSync preserves prepared cleanup path when local cleanup also fails", async () => {
+  const { dependencies } = createRunSyncDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(options): Promise<void> {
+          options.onMutationState?.("in_progress");
+          options.onMutationState?.("subprocess_succeeded");
+        },
+        async cleanup(): Promise<void> {
+          throw new RemoteOperationError({
+            code: "remoteCleanupFailed",
+            host: "development.example.com",
+            operation: "remote-cleanup",
+            remoteTempPath: "/tmp/db-helper/prepared-sync.archive.gz",
+            details: "remote prepared cleanup failed"
+          });
+        }
+      };
+    },
+    async verifyRestore() {
+      return {
+        collectionsPresent: ["orders"],
+        missingCollections: ["customers"],
+        countMismatches: []
+      };
+    },
+    async unlink(): Promise<void> {
+      throw new Error("local archive cleanup failed");
+    }
+  });
+
+  const result = await withTestRunLogger(
+    "sync-verification-cleanup",
+    async () => {
+      await assert.rejects(
+        runSync(
+          buildAppConfig(false),
+          { from: "production", to: "development", outputMode: "quiet" },
+          dependencies
+        ),
+        /Sync failed during verify.*Remote temporary archive path: \/tmp\/db-helper\/prepared-sync\.archive\.gz.*Remote archive cleanup also failed: remote prepared cleanup failed.*Local temp archive cleanup also failed: local archive cleanup failed/s
+      );
+    }
+  );
+
+  assert.match(result.logContent, /"phase":"verify"/);
+  assert.match(result.logContent, /"cleanupFailed":true/);
+  assert.match(
+    result.logContent,
+    /"remoteTempPath":"\/tmp\/db-helper\/prepared-sync\.archive\.gz"/
+  );
+  assert.match(
+    result.logContent,
+    /"targetTrustState":"requires independent verification"/
+  );
+});
+
+test("runSync fails truthfully when local archive cleanup follows successful verification", async () => {
+  const { dependencies } = createRunSyncDependencies({
+    async unlink(): Promise<void> {
+      throw new Error("local cleanup failed");
+    }
+  });
+
+  await assert.rejects(
+    runSync(
+      buildAppConfig(false),
+      { from: "production", to: "development", outputMode: "quiet" },
+      dependencies
+    ),
+    /Sync failed during cleanup.*Target database passed sync verification; only temporary artifact cleanup failed.*local cleanup failed/s
+  );
+});
+
+test("runSync collection labels post-mutation remote cleanup failure truthfully", async () => {
+  const { dependencies } = createRunSyncDependencies({
+    async restoreArchiveToEnvironment(
+      _env,
+      _appConfig,
+      _archivePath,
+      options
+    ): Promise<void> {
+      options.onMutationState?.("in_progress");
+      options.onMutationState?.("subprocess_succeeded");
+      throw new RemoteOperationError({
+        code: "remoteCleanupFailed",
+        host: "development.example.com",
+        operation: "remote-cleanup",
+        remoteTempPath: "/tmp/db-helper/collection-sync.archive.gz",
+        details: "Remote cleanup failed on development.example.com."
+      });
+    }
+  });
+  const result = await withTestRunLogger(
+    "sync-collection-cleanup",
+    async () => {
+      await assert.rejects(
+        runSync(
+          buildAppConfig(false),
+          {
+            from: "production",
+            to: "development",
+            collection: "orders",
+            outputMode: "quiet"
+          },
+          dependencies
+        ),
+        /Sync failed during cleanup.*Target database may be dirty/s
+      );
+    }
+  );
+
+  assert.match(result.logContent, /"phase":"cleanup"/);
+  assert.match(result.logContent, /"restoreSubprocess":"succeeded"/);
 });

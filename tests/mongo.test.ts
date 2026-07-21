@@ -15,6 +15,8 @@ import {
   parseMongoShellCollectionCounts,
   parseMongoShellCollectionList,
   parseMongoShellResult,
+  prepareArchiveRestoreSession,
+  PrepareArchiveRestoreDependencies,
   listCollections,
   RemoteOperationError,
   translateRemoteProcessError
@@ -373,4 +375,77 @@ test("combineRemoteTransportErrors preserves primary failure and remote temp pat
     combined.details,
     /Remote temporary archive cleanup failed: Remote cleanup failed on gnomebrewshop\.com/
   );
+});
+
+test("prepared remote archive session uploads, dry-runs, mutates, and cleans exactly once", async () => {
+  const events: string[] = [];
+  const remoteEnvironment: EnvironmentConfig = {
+    ...TEST_ENV,
+    kind: "remote",
+    id: "remote",
+    name: "remote",
+    host: "remote.example.com"
+  };
+  const dependencies: PrepareArchiveRestoreDependencies = {
+    async runRemote(_env, command): Promise<string> {
+      if (command.startsWith("mkdir")) {
+        events.push("mkdir");
+        return "";
+      }
+      if (command.includes("--dryRun")) {
+        events.push("dry-run");
+        return [
+          "found collection archive_db.orders bson to restore to target_db.orders",
+          "found collection metadata from archive_db.orders to restore to target_db.orders",
+          "2 document(s) restored successfully. 0 document(s) failed to restore."
+        ].join("\n");
+      }
+      events.push("mutation");
+      return "";
+    },
+    async copyToRemote(): Promise<void> {
+      events.push("upload");
+    },
+    async cleanupRemoteArchive(): Promise<void> {
+      events.push("cleanup");
+    },
+    async runCommandViaShell(): Promise<string> {
+      throw new Error("local shell should not run");
+    },
+    async runCommand() {
+      throw new Error("local restore should not run");
+    }
+  };
+
+  const session = await prepareArchiveRestoreSession(
+    remoteEnvironment,
+    {
+      backupRoot: "/tmp/backups",
+      tempRoot: "/tmp/db-helper",
+      authSource: "admin",
+      defaultDropOnRestore: true,
+      environments: { remote: remoteEnvironment }
+    },
+    "/tmp/source.archive.gz",
+    { sourceDatabaseName: "archive_db", outputMode: "quiet" },
+    dependencies
+  );
+  const mutationStates: string[] = [];
+  await session.restore({
+    drop: true,
+    outputMode: "quiet",
+    onMutationState: (state) => mutationStates.push(state)
+  });
+  await session.cleanup();
+  await session.cleanup();
+
+  assert.deepEqual(events, [
+    "mkdir",
+    "upload",
+    "dry-run",
+    "mutation",
+    "cleanup"
+  ]);
+  assert.deepEqual(mutationStates, ["in_progress", "subprocess_succeeded"]);
+  assert.deepEqual(session.inspection.collections, ["orders"]);
 });

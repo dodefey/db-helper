@@ -135,7 +135,7 @@ function remoteArchivePath(
   );
 }
 
-async function cleanupRemoteArchive(
+export async function cleanupRemoteArchive(
   env: EnvironmentConfig,
   remotePath: string,
   invocation?: RemoteInvocationOptions
@@ -587,11 +587,62 @@ export type ArchiveMutationState =
   | "in_progress"
   | "subprocess_succeeded";
 
+export class ArchivePreflightError extends Error {
+  constructor(cause: unknown) {
+    super(
+      cause instanceof Error && cause.message
+        ? cause.message
+        : "Archive preflight failed.",
+      { cause: cause instanceof Error ? cause : undefined }
+    );
+    this.name = "ArchivePreflightError";
+  }
+}
+
+export function isArchivePreflightError(error: unknown): boolean {
+  let current = error;
+  const visited = new Set<unknown>();
+  while (current instanceof Error && !visited.has(current)) {
+    if (current instanceof ArchivePreflightError) return true;
+    visited.add(current);
+    current = current.cause;
+  }
+  return false;
+}
+
 export interface ArchiveInspectionResult {
   mappings: Array<{ sourceNamespace: string; targetNamespace: string }>;
   collections: string[];
   completed: boolean;
 }
+
+export interface PreparedArchiveRestoreSession {
+  readonly inspection: ArchiveInspectionResult;
+  restore(options: {
+    drop: boolean;
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+    onMutationState?: (state: ArchiveMutationState) => void;
+  }): Promise<void>;
+  cleanup(): Promise<void>;
+}
+
+export interface PrepareArchiveRestoreDependencies {
+  runRemote: typeof runRemote;
+  copyToRemote: typeof copyToRemote;
+  cleanupRemoteArchive: typeof cleanupRemoteArchive;
+  runCommandViaShell: typeof runCommandViaShell;
+  runCommand: typeof runCommand;
+}
+
+const DEFAULT_PREPARE_ARCHIVE_RESTORE_DEPENDENCIES: PrepareArchiveRestoreDependencies =
+  {
+    runRemote,
+    copyToRemote,
+    cleanupRemoteArchive,
+    runCommandViaShell,
+    runCommand
+  };
 
 function validateArchiveInspectionScope(
   inspection: ArchiveInspectionResult,
@@ -804,116 +855,170 @@ export async function restoreArchiveToEnvironment(
     remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
   }
 ): Promise<void> {
-  const streamOutput = shouldStreamSubprocessOutput(
-    options.outputMode ?? "verbose"
-  );
-  const baseArgs = ["--uri", mongoServerUri(env), "--gzip"];
-  if (options.drop) {
-    baseArgs.push("--drop");
-  }
-  baseArgs.push(
-    ...buildRestoreNamespaceContract(env, {
-      sourceDatabaseName: options.sourceDatabaseName,
-      collection: options.collection
-    }).args
-  );
-
-  const inspectionArgs = [
-    ...baseArgs.filter((arg) => arg !== "--drop"),
-    "--dryRun",
-    "--verbose"
-  ];
-
-  if (env.kind === "local") {
-    const inspectionOutput = await runCommandViaShell(
-      `mongorestore ${inspectionArgs
-        .concat(`--archive=${archiveFile}`)
-        .map((arg) => JSON.stringify(arg))
-        .join(" ")}`,
-      { signal: options.signal }
-    );
-    const inspection = parseArchiveInspection(
-      inspectionOutput,
-      options.sourceDatabaseName,
-      env.databaseName
-    );
-    validateArchiveInspectionScope(inspection, env, options);
-    options.onMutationState?.("in_progress");
-    await runCommand(
-      "mongorestore",
-      [...baseArgs, `--archive=${archiveFile}`],
-      { streamOutput, signal: options.signal }
-    );
-    options.onMutationState?.("subprocess_succeeded");
-    return;
-  }
-
-  const remotePath = remoteArchivePath(appConfig, env);
+  let session: PreparedArchiveRestoreSession | undefined;
   let primaryError: unknown;
   let cleanupError: unknown;
   try {
-    await runRemote(
-      env,
-      `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
-      streamOutput,
-      options.signal,
-      options
-    );
-    await copyToRemote(env, archiveFile, remotePath, options.signal, options);
-    const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
-    const remoteInspectionArgs = [...inspectionArgs, `--archive=${remotePath}`];
-    const inspectionOutput = await runRemote(
-      env,
-      `mongorestore ${remoteInspectionArgs
-        .map((arg) => JSON.stringify(arg))
-        .join(" ")} 2>&1`,
-      false,
-      options.signal,
-      options
-    );
-    const inspection = parseArchiveInspection(
-      inspectionOutput,
-      options.sourceDatabaseName,
-      env.databaseName
-    );
-    validateArchiveInspectionScope(inspection, env, options);
-    options.onMutationState?.("in_progress");
-    await runRemote(
-      env,
-      `mongorestore ${remoteArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
-      streamOutput,
-      options.signal,
-      options
-    );
-    options.onMutationState?.("subprocess_succeeded");
+    session = await prepareArchiveRestoreSession(env, appConfig, archiveFile, {
+      sourceDatabaseName: options.sourceDatabaseName,
+      collection: options.collection,
+      outputMode: options.outputMode,
+      signal: options.signal,
+      remotePreflightSession: options.remotePreflightSession
+    });
+    await session.restore(options);
   } catch (error) {
     primaryError = error;
   }
-  try {
-    await cleanupRemoteArchive(env, remotePath, options);
-  } catch (error) {
-    cleanupError = error;
+  if (session) {
+    try {
+      await session.cleanup();
+    } catch (error) {
+      cleanupError = error;
+    }
   }
 
   if (primaryError && cleanupError) {
-    throw combineRemoteTransportErrors(primaryError, cleanupError, remotePath);
+    throw combineRemoteTransportErrors(
+      primaryError,
+      cleanupError,
+      cleanupError instanceof RemoteOperationError
+        ? (cleanupError.remoteTempPath ?? "unknown")
+        : "unknown"
+    );
   }
   if (primaryError) {
-    if (primaryError instanceof RemoteOperationError) {
-      throw new RemoteOperationError({
-        code: primaryError.code,
-        host: primaryError.host,
-        operation: primaryError.operation,
-        remoteTempPath: primaryError.remoteTempPath ?? remotePath,
-        interrupted: primaryError.interrupted,
-        details: primaryError.details,
-        cause: primaryError
-      });
-    }
     throw primaryError;
   }
   if (cleanupError) {
     throw cleanupError;
+  }
+}
+
+export async function prepareArchiveRestoreSession(
+  env: EnvironmentConfig,
+  appConfig: AppConfig,
+  archiveFile: string,
+  options: {
+    sourceDatabaseName: string;
+    collection?: string;
+    outputMode?: OutputMode;
+    signal?: AbortSignal;
+    remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+  },
+  dependencies: PrepareArchiveRestoreDependencies = DEFAULT_PREPARE_ARCHIVE_RESTORE_DEPENDENCIES
+): Promise<PreparedArchiveRestoreSession> {
+  const namespaceArgs = buildRestoreNamespaceContract(env, options).args;
+  const archivePath =
+    env.kind === "remote" ? remoteArchivePath(appConfig, env) : archiveFile;
+  const inspectionArgs = [
+    "--uri",
+    mongoServerUri(env),
+    "--gzip",
+    ...namespaceArgs,
+    "--dryRun",
+    "--verbose",
+    `--archive=${archivePath}`
+  ];
+  let staged = false;
+  let cleaned = false;
+  let restored = false;
+
+  try {
+    if (env.kind === "remote") {
+      await dependencies.runRemote(
+        env,
+        `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
+        false,
+        options.signal,
+        options
+      );
+      staged = true;
+      await dependencies.copyToRemote(
+        env,
+        archiveFile,
+        archivePath,
+        options.signal,
+        options
+      );
+    }
+    const inspectionOutput =
+      env.kind === "remote"
+        ? await dependencies.runRemote(
+            env,
+            `mongorestore ${inspectionArgs.map((arg) => JSON.stringify(arg)).join(" ")} 2>&1`,
+            false,
+            options.signal,
+            options
+          )
+        : await dependencies.runCommandViaShell(
+            `mongorestore ${inspectionArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
+            { signal: options.signal }
+          );
+    const inspection = parseArchiveInspection(
+      inspectionOutput,
+      options.sourceDatabaseName,
+      env.databaseName
+    );
+    validateArchiveInspectionScope(inspection, env, options);
+
+    return {
+      inspection,
+      async restore(restoreOptions): Promise<void> {
+        if (cleaned) throw new Error("Prepared archive session is closed.");
+        if (restored)
+          throw new Error("Prepared archive session was already restored.");
+        restored = true;
+        const restoreArgs = ["--uri", mongoServerUri(env), "--gzip"];
+        if (restoreOptions.drop) restoreArgs.push("--drop");
+        restoreArgs.push(...namespaceArgs, `--archive=${archivePath}`);
+        restoreOptions.onMutationState?.("in_progress");
+        if (env.kind === "remote") {
+          await dependencies.runRemote(
+            env,
+            `mongorestore ${restoreArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
+            shouldStreamSubprocessOutput(
+              restoreOptions.outputMode ?? options.outputMode ?? "verbose"
+            ),
+            restoreOptions.signal ?? options.signal,
+            options
+          );
+        } else {
+          await dependencies.runCommand("mongorestore", restoreArgs, {
+            streamOutput: shouldStreamSubprocessOutput(
+              restoreOptions.outputMode ?? options.outputMode ?? "verbose"
+            ),
+            signal: restoreOptions.signal ?? options.signal
+          });
+        }
+        restoreOptions.onMutationState?.("subprocess_succeeded");
+      },
+      async cleanup(): Promise<void> {
+        if (cleaned) return;
+        cleaned = true;
+        if (env.kind === "remote" && staged) {
+          await dependencies.cleanupRemoteArchive(env, archivePath, options);
+        }
+      }
+    };
+  } catch (error) {
+    let cleanupError: unknown;
+    if (env.kind === "remote" && staged) {
+      try {
+        await dependencies.cleanupRemoteArchive(env, archivePath, options);
+      } catch (cleanupFailure) {
+        cleanupError = cleanupFailure;
+      }
+    }
+    const preflightError = new ArchivePreflightError(error);
+    if (cleanupError) {
+      throw combineRemoteTransportErrors(
+        preflightError,
+        cleanupError,
+        archivePath
+      );
+    }
+    throw preflightError;
   }
 }
 
@@ -943,92 +1048,18 @@ export async function inspectArchiveCollections(
     remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
   }
 ): Promise<string[]> {
-  const baseArgs = [
-    "--uri",
-    mongoServerUri(env),
-    "--gzip",
-    "--dryRun",
-    "--verbose"
-  ];
-  baseArgs.push(
-    ...buildRestoreNamespaceContract(env, {
-      sourceDatabaseName: options.sourceDatabaseName
-    }).args
-  );
-
-  if (env.kind === "local") {
-    const output = await runCommandViaShell(
-      `mongorestore ${baseArgs
-        .concat(`--archive=${archiveFile}`)
-        .map((arg) => JSON.stringify(arg))
-        .join(" ")}`,
-      { signal: options.signal }
-    );
-    return parseArchiveInspection(
-      output,
-      options.sourceDatabaseName,
-      env.databaseName
-    ).collections;
-  }
-
-  const remotePath = remoteArchivePath(appConfig, env);
-  let primaryError: unknown;
-  let cleanupError: unknown;
-  let output = "";
+  let session: PreparedArchiveRestoreSession | undefined;
   try {
-    await runRemote(
+    session = await prepareArchiveRestoreSession(
       env,
-      `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
-      false,
-      options.signal,
+      appConfig,
+      archiveFile,
       options
     );
-    await copyToRemote(env, archiveFile, remotePath, options.signal, options);
-    const remoteArgs = [...baseArgs, `--archive=${remotePath}`];
-    output = await runRemote(
-      env,
-      `mongorestore ${remoteArgs
-        .map((arg) => JSON.stringify(arg))
-        .join(" ")} 2>&1`,
-      false,
-      options.signal,
-      options
-    );
-  } catch (error) {
-    primaryError = error;
+    return session.inspection.collections;
+  } finally {
+    await session?.cleanup();
   }
-  try {
-    await cleanupRemoteArchive(env, remotePath, options);
-  } catch (error) {
-    cleanupError = error;
-  }
-
-  if (primaryError && cleanupError) {
-    throw combineRemoteTransportErrors(primaryError, cleanupError, remotePath);
-  }
-  if (primaryError) {
-    if (primaryError instanceof RemoteOperationError) {
-      throw new RemoteOperationError({
-        code: primaryError.code,
-        host: primaryError.host,
-        operation: primaryError.operation,
-        remoteTempPath: primaryError.remoteTempPath ?? remotePath,
-        interrupted: primaryError.interrupted,
-        details: primaryError.details,
-        cause: primaryError
-      });
-    }
-    throw primaryError;
-  }
-  if (cleanupError) {
-    throw cleanupError;
-  }
-
-  return parseArchiveInspection(
-    output,
-    options.sourceDatabaseName,
-    env.databaseName
-  ).collections;
 }
 
 export function createLocalTempFile(

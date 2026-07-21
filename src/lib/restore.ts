@@ -10,9 +10,13 @@ import {
   readBackup
 } from "./backups.js";
 import {
+  ArchiveMutationState,
+  combineRemoteTransportErrors,
   dropCollections,
-  inspectArchiveCollections,
+  isArchivePreflightError,
   listCollections,
+  prepareArchiveRestoreSession,
+  PreparedArchiveRestoreSession,
   RemoteOperationError,
   restoreArchiveToEnvironment
 } from "./mongo.js";
@@ -31,9 +35,9 @@ export interface RunRestoreDependencies {
   archivePathForBackup: typeof archivePathForBackup;
   backupCreate: typeof backupCreate;
   restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
-  inspectArchiveCollections?: typeof inspectArchiveCollections;
-  listCollections?: typeof listCollections;
-  dropCollections?: typeof dropCollections;
+  prepareArchiveRestoreSession: typeof prepareArchiveRestoreSession;
+  listCollections: typeof listCollections;
+  dropCollections: typeof dropCollections;
   verifyRestore: typeof verifyRestore;
   installInterruptHandler: (onInterrupt: () => void) => () => void;
   writeStdout: (message: string) => void;
@@ -45,7 +49,7 @@ const DEFAULT_RUN_RESTORE_DEPENDENCIES: RunRestoreDependencies = {
   archivePathForBackup,
   backupCreate,
   restoreArchiveToEnvironment,
-  inspectArchiveCollections,
+  prepareArchiveRestoreSession,
   listCollections,
   dropCollections,
   verifyRestore,
@@ -62,10 +66,24 @@ type RestorePhase =
   | "pre_restore_backup"
   | "restore"
   | "prune"
-  | "verify";
+  | "verify"
+  | "cleanup";
 
 type RestoreSubprocessState = "not_started" | "succeeded" | "failed";
 type RestorePostMutationState = "not_started" | "succeeded" | "failed";
+
+function targetTrustState(input: {
+  restoreSubprocess: RestoreSubprocessState;
+  prune: RestorePostMutationState;
+  verification: RestorePostMutationState;
+}): string {
+  if (input.verification === "succeeded") return "verified";
+  if (input.restoreSubprocess === "not_started") return "unchanged";
+  if (input.prune === "failed" || input.verification === "failed") {
+    return "requires independent verification";
+  }
+  return "may be partially modified";
+}
 
 function isInterruptedError(error: unknown): boolean {
   return (
@@ -108,15 +126,25 @@ function formatRestoreFailure(options: {
           ? "restore"
           : options.phase === "prune"
             ? "prune"
-            : "verify";
+            : options.phase === "verify"
+              ? "verify"
+              : "cleanup";
 
   const statusLine = options.interrupted
     ? `Restore interrupted during ${phaseLabel} for ${options.backup} -> ${options.to}.`
     : `Restore failed during ${phaseLabel} for ${options.backup} -> ${options.to}.`;
 
-  const targetLine = options.targetMayBeDirty
-    ? "Target database may be dirty. Restore it from a known good backup or rerun restore before trusting it."
-    : "Target database was not modified.";
+  const trustState = targetTrustState({
+    restoreSubprocess: options.restoreSubprocess,
+    prune: options.prune,
+    verification: options.verification
+  });
+  const targetLine =
+    trustState === "verified"
+      ? "Target database restore verification succeeded; only temporary artifact cleanup failed."
+      : options.targetMayBeDirty
+        ? "Target database may be dirty. Restore it from a known good backup or rerun restore before trusting it."
+        : "Target database was not modified.";
 
   const lines = [statusLine, targetLine];
 
@@ -138,43 +166,45 @@ function formatRestoreFailure(options: {
   lines.push(`Post-restore pruning: ${options.prune}`);
   lines.push(`Post-restore verification: ${options.verification}`);
   lines.push(
-    `Target trust state: ${
-      options.verification === "succeeded"
-        ? "verified"
-        : options.restoreSubprocess === "not_started"
-          ? "unchanged"
-          : options.prune === "failed" || options.verification === "failed"
-            ? "requires independent verification"
-            : "may be partially modified"
-    }`
+    `Target trust state: ${targetTrustState({
+      restoreSubprocess: options.restoreSubprocess,
+      prune: options.prune,
+      verification: options.verification
+    })}`
   );
 
   return lines.join("\n");
 }
 
 function cleanupLineForFailure(
-  phase: RestorePhase,
-  target: EnvironmentConfig
+  target: EnvironmentConfig,
+  cleanupFailed: boolean
 ): string | undefined {
-  if (target.kind !== "remote") {
+  if (target.kind !== "remote" || !cleanupFailed) {
     return undefined;
   }
+  return "Temporary restore artifact cleanup was attempted but may not have completed.";
+}
 
-  if (phase === "restore") {
-    return "Temporary restore artifact cleanup was attempted but may not have completed.";
-  }
-
-  if (phase === "prune" || phase === "verify") {
-    return "Temporary restore artifact cleanup was already attempted before verification began.";
-  }
-
-  return undefined;
+function hasRemoteCleanupFailure(error: unknown): boolean {
+  return (
+    error instanceof RemoteOperationError &&
+    (error.code === "remoteCleanupFailed" ||
+      error.details.includes("Remote temporary archive cleanup failed:"))
+  );
 }
 
 function getRemoteTempPath(error: unknown): string | undefined {
-  return error instanceof RemoteOperationError
-    ? error.remoteTempPath
-    : undefined;
+  let current = error;
+  const visited = new Set<unknown>();
+  while (current instanceof Error && !visited.has(current)) {
+    if (current instanceof RemoteOperationError && current.remoteTempPath) {
+      return current.remoteTempPath;
+    }
+    visited.add(current);
+    current = current.cause;
+  }
+  return undefined;
 }
 
 function filterRestoreCollections(collections: string[]): string[] {
@@ -234,6 +264,7 @@ export async function runRestoreFull(
   let restoreSubprocess: RestoreSubprocessState = "not_started";
   let pruneState: RestorePostMutationState = "not_started";
   let verificationState: RestorePostMutationState = "not_started";
+  let preparedSession: PreparedArchiveRestoreSession | undefined;
   const printSummary = input.outputMode !== "quiet";
   const target = appConfig.environments[input.to];
   const removeInterruptHandler = dependencies.installInterruptHandler(() => {
@@ -262,24 +293,24 @@ export async function runRestoreFull(
     );
 
     const manifestCollections = manifestCollectionsFromBackup(backup);
-    const inspectedArchiveCollections = dependencies.inspectArchiveCollections
-      ? filterRestoreCollections(
-          await dependencies.inspectArchiveCollections(
-            target,
-            appConfig,
-            dependencies.archivePathForBackup(
-              appConfig.backupRoot,
-              input.backup
-            ),
-            {
-              sourceDatabaseName: backup.manifest.databaseName,
-              outputMode: input.outputMode,
-              signal: abortController.signal,
-              remotePreflightSession: context.remotePreflightSession
-            }
-          )
-        )
-      : manifestCollections;
+    const archivePath = dependencies.archivePathForBackup(
+      appConfig.backupRoot,
+      input.backup
+    );
+    preparedSession = await dependencies.prepareArchiveRestoreSession(
+      target,
+      appConfig,
+      archivePath,
+      {
+        sourceDatabaseName: backup.manifest.databaseName,
+        outputMode: input.outputMode,
+        signal: abortController.signal,
+        remotePreflightSession: context.remotePreflightSession
+      }
+    );
+    const inspectedArchiveCollections = filterRestoreCollections(
+      preparedSession.inspection.collections
+    );
     if (
       inspectedArchiveCollections.length !== manifestCollections.length ||
       inspectedArchiveCollections.some(
@@ -314,7 +345,6 @@ export async function runRestoreFull(
     }
 
     currentPhase = "restore";
-    targetMayBeDirty = true;
     runLogger.info("restore", "Restoring target database", {
       backup: input.backup,
       to: input.to
@@ -322,34 +352,30 @@ export async function runRestoreFull(
     if (printSummary) {
       dependencies.writeStdout(`Restoring target ${input.to}...\n`);
     }
-    await dependencies.restoreArchiveToEnvironment(
-      target,
-      appConfig,
-      dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
-      {
-        sourceDatabaseName: backup.manifest.databaseName,
-        drop: true,
+    const restoreOptions = {
+      sourceDatabaseName: backup.manifest.databaseName,
+      drop: true,
+      outputMode: input.outputMode,
+      signal: abortController.signal,
+      onMutationState: (state: ArchiveMutationState) => {
+        if (state === "in_progress") targetMayBeDirty = true;
+      }
+    };
+    await preparedSession.restore(restoreOptions);
+    restoreSubprocess = "succeeded";
+
+    const targetCollections = filterRestoreCollections(
+      await dependencies.listCollections(target, {
         outputMode: input.outputMode,
         signal: abortController.signal,
         remotePreflightSession: context.remotePreflightSession
-      }
+      })
     );
-    restoreSubprocess = "succeeded";
-
-    const targetCollections = dependencies.listCollections
-      ? filterRestoreCollections(
-          await dependencies.listCollections(target, {
-            outputMode: input.outputMode,
-            signal: abortController.signal,
-            remotePreflightSession: context.remotePreflightSession
-          })
-        )
-      : [];
     const targetOnlyCollections = collectionSetDifference(
       targetCollections,
       inspectedArchiveCollections
     );
-    if (dependencies.dropCollections && targetOnlyCollections.length > 0) {
+    if (targetOnlyCollections.length > 0) {
       currentPhase = "prune";
       runLogger.info("restore", "Dropping target-only collections", {
         to: input.to,
@@ -395,6 +421,9 @@ export async function runRestoreFull(
       );
     }
     verificationState = "succeeded";
+    currentPhase = "cleanup";
+    await preparedSession?.cleanup();
+    preparedSession = undefined;
     if (printSummary) {
       dependencies.writeStdout(
         `Restore complete: ${input.backup} -> ${input.to}\n`
@@ -404,8 +433,27 @@ export async function runRestoreFull(
       backup: input.backup,
       to: input.to
     });
-  } catch (error) {
-    if (currentPhase === "restore") restoreSubprocess = "failed";
+  } catch (caughtError) {
+    let error = caughtError;
+    let cleanupFailed = hasRemoteCleanupFailure(caughtError);
+    if (preparedSession) {
+      try {
+        await preparedSession.cleanup();
+      } catch (cleanupError) {
+        cleanupFailed = true;
+        error = combineRemoteTransportErrors(
+          error,
+          cleanupError,
+          cleanupError instanceof RemoteOperationError
+            ? (cleanupError.remoteTempPath ?? "unknown")
+            : "unknown"
+        );
+      }
+    }
+    if (currentPhase === "restore" && !isArchivePreflightError(error)) {
+      restoreSubprocess = "failed";
+      targetMayBeDirty = true;
+    }
     if (currentPhase === "prune") pruneState = "failed";
     if (currentPhase === "verify") verificationState = "failed";
     runLogger.error("restore", "Restore full workflow failed", {
@@ -413,6 +461,15 @@ export async function runRestoreFull(
       to: input.to,
       phase: currentPhase,
       interrupted: isInterruptedError(error),
+      scope: "full",
+      restoreSubprocess,
+      prune: pruneState,
+      verification: verificationState,
+      targetTrustState: targetTrustState({
+        restoreSubprocess,
+        prune: pruneState,
+        verification: verificationState
+      }),
       error: getErrorDetails(error)
     });
     throw new Error(
@@ -422,14 +479,14 @@ export async function runRestoreFull(
         phase: currentPhase,
         targetMayBeDirty,
         interrupted: isInterruptedError(error),
-        cleanupLine: cleanupLineForFailure(currentPhase, target),
+        cleanupLine: cleanupLineForFailure(target, cleanupFailed),
         remoteTempPath: getRemoteTempPath(error),
         details: getErrorDetails(error),
         restoreSubprocess,
         prune: pruneState,
         verification: verificationState
       }),
-      { cause: error }
+      { cause: caughtError }
     );
   } finally {
     runLogger.debug("restore", "Removing restore interrupt handler", {
@@ -501,7 +558,6 @@ export async function runRestoreCollection(
     }
 
     currentPhase = "restore";
-    targetMayBeDirty = true;
     runLogger.info("restore", "Restoring collection into target", {
       backup: input.backup,
       collection: input.collection,
@@ -522,6 +578,12 @@ export async function runRestoreCollection(
         drop: true,
         outputMode: input.outputMode,
         signal: abortController.signal,
+        onMutationState: (state: ArchiveMutationState) => {
+          if (state === "in_progress") targetMayBeDirty = true;
+          if (state === "subprocess_succeeded") {
+            restoreSubprocess = "succeeded";
+          }
+        },
         remotePreflightSession: context.remotePreflightSession
       }
     );
@@ -574,7 +636,21 @@ export async function runRestoreCollection(
       to: input.to
     });
   } catch (error) {
-    if (currentPhase === "restore") restoreSubprocess = "failed";
+    if (
+      currentPhase === "restore" &&
+      restoreSubprocess === "succeeded" &&
+      hasRemoteCleanupFailure(error)
+    ) {
+      currentPhase = "cleanup";
+    }
+    if (
+      currentPhase === "restore" &&
+      restoreSubprocess !== "succeeded" &&
+      !isArchivePreflightError(error)
+    ) {
+      restoreSubprocess = "failed";
+      targetMayBeDirty = true;
+    }
     if (currentPhase === "verify") verificationState = "failed";
     runLogger.error("restore", "Restore collection workflow failed", {
       backup: input.backup,
@@ -582,6 +658,15 @@ export async function runRestoreCollection(
       to: input.to,
       phase: currentPhase,
       interrupted: isInterruptedError(error),
+      scope: "collection",
+      restoreSubprocess,
+      prune: pruneState,
+      verification: verificationState,
+      targetTrustState: targetTrustState({
+        restoreSubprocess,
+        prune: pruneState,
+        verification: verificationState
+      }),
       error: getErrorDetails(error)
     });
     throw new Error(
@@ -591,7 +676,10 @@ export async function runRestoreCollection(
         phase: currentPhase,
         targetMayBeDirty,
         interrupted: isInterruptedError(error),
-        cleanupLine: cleanupLineForFailure(currentPhase, target),
+        cleanupLine: cleanupLineForFailure(
+          target,
+          hasRemoteCleanupFailure(error)
+        ),
         remoteTempPath: getRemoteTempPath(error),
         details: getErrorDetails(error),
         restoreSubprocess,

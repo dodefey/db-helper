@@ -2,12 +2,16 @@ import { constants as fsConstants } from "node:fs";
 import { access, unlink } from "node:fs/promises";
 import { AppConfig, BackupManifest, EnvironmentId } from "../config/types.js";
 import {
+  ArchiveMutationState,
   createArchiveBackup,
   createLocalTempFile,
   dropCollections,
   getCollectionCounts,
   inspectArchiveCollections,
+  isArchivePreflightError,
   listCollections,
+  prepareArchiveRestoreSession,
+  PreparedArchiveRestoreSession,
   RemoteOperationError,
   restoreArchiveToEnvironment
 } from "./mongo.js";
@@ -32,6 +36,7 @@ export interface RunSyncDependencies {
   listCollections: typeof listCollections;
   getCollectionCounts: typeof getCollectionCounts;
   inspectArchiveCollections: typeof inspectArchiveCollections;
+  prepareArchiveRestoreSession: typeof prepareArchiveRestoreSession;
   restoreArchiveToEnvironment: typeof restoreArchiveToEnvironment;
   dropCollections: typeof dropCollections;
   verifyRestore: typeof verifyRestore;
@@ -107,6 +112,7 @@ const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
   listCollections,
   getCollectionCounts,
   inspectArchiveCollections,
+  prepareArchiveRestoreSession,
   restoreArchiveToEnvironment,
   dropCollections,
   verifyRestore,
@@ -121,10 +127,15 @@ type SyncPhase =
   | "verify"
   | "cleanup";
 
+const CLEANUP_FAILURE_STATUS =
+  "Attempted to delete temporary sync artifacts, but cleanup may not have finished.";
+
 class SyncPhaseError extends Error {
   readonly phase: SyncPhase;
   readonly targetMayBeDirty: boolean;
+  readonly targetVerified: boolean;
   readonly cleanupFailed: boolean;
+  readonly cleanupError?: unknown;
   readonly interrupted: boolean;
   readonly cause?: unknown;
 
@@ -132,7 +143,9 @@ class SyncPhaseError extends Error {
     phase: SyncPhase;
     message: string;
     targetMayBeDirty: boolean;
+    targetVerified?: boolean;
     cleanupFailed?: boolean;
+    cleanupError?: unknown;
     interrupted?: boolean;
     cause?: unknown;
   }) {
@@ -140,7 +153,9 @@ class SyncPhaseError extends Error {
     this.name = "SyncPhaseError";
     this.phase = input.phase;
     this.targetMayBeDirty = input.targetMayBeDirty;
+    this.targetVerified = input.targetVerified ?? false;
     this.cleanupFailed = input.cleanupFailed ?? false;
+    this.cleanupError = input.cleanupError;
     this.interrupted = input.interrupted ?? false;
     this.cause = input.cause;
   }
@@ -160,6 +175,7 @@ function formatSyncFailure(input: {
   collection?: string;
   phase: SyncPhase;
   targetMayBeDirty: boolean;
+  targetVerified?: boolean;
   details: string;
   cleanupFailed?: boolean;
   interrupted?: boolean;
@@ -172,9 +188,11 @@ function formatSyncFailure(input: {
         ? "removing target-only collections"
         : input.phase;
   const actionLabel = input.interrupted ? "interrupted" : "failed";
-  const targetStatus = input.targetMayBeDirty
-    ? `Target database may be dirty. Restore it from a known good backup or rerun sync before trusting it.`
-    : `Target database was not modified.`;
+  const targetStatus = input.targetVerified
+    ? "Target database passed sync verification; only temporary artifact cleanup failed."
+    : input.targetMayBeDirty
+      ? `Target database may be dirty. Restore it from a known good backup or rerun sync before trusting it.`
+      : `Target database was not modified.`;
   const cleanupStatus = input.cleanupFailed
     ? "Attempted to delete temporary sync artifacts, but cleanup may not have finished."
     : input.interrupted
@@ -213,9 +231,24 @@ function isInterruptedError(error: unknown): boolean {
 }
 
 function getRemoteTempPath(error: unknown): string | undefined {
-  return error instanceof RemoteOperationError
-    ? error.remoteTempPath
-    : undefined;
+  let current = error;
+  const visited = new Set<unknown>();
+  while (current instanceof Error && !visited.has(current)) {
+    if (current instanceof RemoteOperationError && current.remoteTempPath) {
+      return current.remoteTempPath;
+    }
+    visited.add(current);
+    current = current.cause;
+  }
+  return undefined;
+}
+
+function isRemoteCleanupFailure(error: unknown): boolean {
+  return (
+    error instanceof RemoteOperationError &&
+    (error.code === "remoteCleanupFailed" ||
+      error.details.includes("Remote temporary archive cleanup failed:"))
+  );
 }
 
 function filterSyncCollections(collections: string[]): string[] {
@@ -259,12 +292,15 @@ export async function runSync(
   let countProgressActive = false;
   let countProgressLastWidth = 0;
   let syncSucceeded = false;
+  let verificationSucceeded = false;
+  let restoreSubprocessSucceeded = false;
   let currentPhase: SyncPhase = "source_metadata";
   let targetMayBeDirty = false;
   let primaryError: SyncPhaseError | undefined;
   let verificationCollectionList: string[] = [];
   let expectedCollections = new Set<string>();
   let tempArchive = "";
+  let preparedSession: PreparedArchiveRestoreSession | undefined;
 
   try {
     runLogger.info("sync", "Sync workflow started", {
@@ -341,78 +377,103 @@ export async function runSync(
         remotePreflightSession: context.remotePreflightSession
       });
     }
+    if (!input.collection) {
+      currentPhase = "restore";
+      runLogger.info("sync", "Preparing target archive restore", {
+        to: input.to
+      });
+      preparedSession = await dependencies.prepareArchiveRestoreSession(
+        target,
+        appConfig,
+        tempArchive,
+        {
+          sourceDatabaseName: source.databaseName,
+          outputMode: input.outputMode,
+          signal: abortController.signal,
+          remotePreflightSession: context.remotePreflightSession
+        }
+      );
+      const inspectedArchiveCollections = filterSyncCollections(
+        preparedSession.inspection.collections
+      );
+      if (
+        verificationCollectionList.length > 0 &&
+        inspectedArchiveCollections.length === 0
+      ) {
+        throw new Error(
+          `Archive inspection found no restorable collections; refusing to restore ${input.to}.`
+        );
+      }
+      expectedCollections = new Set(inspectedArchiveCollections);
+    }
     if (printSummary) {
       currentPhase = "restore";
-      targetMayBeDirty = true;
       runLogger.info("sync", "Restoring target environment", {
         to: input.to,
         collection: input.collection
       });
       await dependencies.runWithElapsedStatus(
         `Restoring target ${input.collection ? `${input.to}.${input.collection}` : input.to}...`,
-        () =>
-          dependencies.restoreArchiveToEnvironment(
-            target,
-            appConfig,
-            tempArchive,
-            {
-              sourceDatabaseName: source.databaseName,
-              collection: input.collection,
-              drop: true,
-              outputMode: input.outputMode,
-              signal: abortController.signal,
-              remotePreflightSession: context.remotePreflightSession
-            }
-          )
+        () => {
+          const restoreOptions = {
+            sourceDatabaseName: source.databaseName,
+            collection: input.collection,
+            drop: true,
+            outputMode: input.outputMode,
+            signal: abortController.signal,
+            onMutationState: (state: ArchiveMutationState) => {
+              if (state === "in_progress") targetMayBeDirty = true;
+              if (state === "subprocess_succeeded") {
+                restoreSubprocessSucceeded = true;
+              }
+            },
+            remotePreflightSession: context.remotePreflightSession
+          };
+          return preparedSession
+            ? preparedSession.restore(restoreOptions)
+            : dependencies.restoreArchiveToEnvironment(
+                target,
+                appConfig,
+                tempArchive,
+                restoreOptions
+              );
+        }
       );
     } else {
       currentPhase = "restore";
-      targetMayBeDirty = true;
       runLogger.info("sync", "Restoring target environment", {
         to: input.to,
         collection: input.collection
       });
-      await dependencies.restoreArchiveToEnvironment(
-        target,
-        appConfig,
-        tempArchive,
-        {
-          sourceDatabaseName: source.databaseName,
-          collection: input.collection,
-          drop: true,
-          outputMode: input.outputMode,
-          signal: abortController.signal,
-          remotePreflightSession: context.remotePreflightSession
-        }
-      );
-    }
-    if (!input.collection) {
-      currentPhase = "prune";
-      runLogger.info("sync", "Inspecting archive before prune", {
-        to: input.to
-      });
-      const inspectedArchiveCollections = filterSyncCollections(
-        await dependencies.inspectArchiveCollections(
+      const restoreOptions = {
+        sourceDatabaseName: source.databaseName,
+        collection: input.collection,
+        drop: true,
+        outputMode: input.outputMode,
+        signal: abortController.signal,
+        onMutationState: (state: ArchiveMutationState) => {
+          if (state === "in_progress") targetMayBeDirty = true;
+          if (state === "subprocess_succeeded") {
+            restoreSubprocessSucceeded = true;
+          }
+        },
+        remotePreflightSession: context.remotePreflightSession
+      };
+      if (preparedSession) {
+        await preparedSession.restore(restoreOptions);
+      } else {
+        await dependencies.restoreArchiveToEnvironment(
           target,
           appConfig,
           tempArchive,
-          {
-            sourceDatabaseName: source.databaseName,
-            outputMode: input.outputMode,
-            signal: abortController.signal,
-            remotePreflightSession: context.remotePreflightSession
-          }
-        )
-      );
-      const expectedCollections = new Set(inspectedArchiveCollections);
-      if (
-        verificationCollectionList.length > 0 &&
-        inspectedArchiveCollections.length === 0
-      ) {
-        throw new Error(
-          `Archive inspection found no restorable collections; refusing to prune ${input.to}.`
+          restoreOptions
         );
       }
+    }
+    restoreSubprocessSucceeded = true;
+    targetMayBeDirty = true;
+    if (!input.collection) {
+      currentPhase = "prune";
       const targetCollections = filterSyncCollections(
         await dependencies.listCollections(target, {
           outputMode: input.outputMode,
@@ -519,26 +580,33 @@ export async function runSync(
         })
       });
     }
-    syncSucceeded = true;
     runLogger.info("sync", "Sync verification succeeded", {
       to: input.to,
       verifiedCollectionCount: verificationCollectionList.length
     });
+    verificationSucceeded = true;
+    currentPhase = "cleanup";
+    await preparedSession?.cleanup();
+    preparedSession = undefined;
+    syncSucceeded = true;
   } catch (error) {
-    runLogger.error("sync", "Sync workflow failed", {
-      from: input.from,
-      to: input.to,
-      collection: input.collection,
-      phase: currentPhase,
-      interrupted: interrupted || isInterruptedError(error),
-      error: getErrorDetails(error)
-    });
+    if (
+      currentPhase === "restore" &&
+      restoreSubprocessSucceeded &&
+      isRemoteCleanupFailure(error)
+    ) {
+      currentPhase = "cleanup";
+    }
+    if (currentPhase === "restore" && !isArchivePreflightError(error)) {
+      targetMayBeDirty = true;
+    }
     if (error instanceof SyncPhaseError) {
       primaryError = error;
     } else {
       primaryError = new SyncPhaseError({
         phase: currentPhase,
         targetMayBeDirty,
+        targetVerified: verificationSucceeded,
         interrupted: interrupted || isInterruptedError(error),
         cause: error,
         message: formatSyncFailure({
@@ -547,6 +615,7 @@ export async function runSync(
           collection: input.collection,
           phase: currentPhase,
           targetMayBeDirty,
+          targetVerified: verificationSucceeded,
           interrupted: interrupted || isInterruptedError(error),
           remoteTempPath: getRemoteTempPath(error),
           details: getErrorDetails(error)
@@ -555,6 +624,51 @@ export async function runSync(
     }
   } finally {
     removeInterruptHandler();
+  }
+  if (preparedSession) {
+    try {
+      await preparedSession.cleanup();
+    } catch (cleanupError) {
+      if (primaryError) {
+        primaryError = new SyncPhaseError({
+          phase: primaryError.phase,
+          targetMayBeDirty: primaryError.targetMayBeDirty,
+          targetVerified: primaryError.targetVerified,
+          cleanupFailed: true,
+          cleanupError,
+          interrupted: primaryError.interrupted,
+          cause: primaryError.cause,
+          message:
+            `${primaryError.message}\n` +
+            `${primaryError.cleanupFailed ? "" : `${CLEANUP_FAILURE_STATUS}\n`}` +
+            `${getRemoteTempPath(cleanupError) ? `Remote temporary archive path: ${getRemoteTempPath(cleanupError)}\n` : ""}` +
+            `Remote archive cleanup also failed: ${getErrorDetails(cleanupError)}`
+        });
+      } else {
+        primaryError = new SyncPhaseError({
+          phase: "cleanup",
+          targetMayBeDirty,
+          targetVerified: verificationSucceeded,
+          cleanupFailed: true,
+          cleanupError,
+          interrupted,
+          cause: cleanupError,
+          message: formatSyncFailure({
+            from: input.from,
+            to: input.to,
+            collection: input.collection,
+            phase: "cleanup",
+            targetMayBeDirty,
+            targetVerified: verificationSucceeded,
+            interrupted,
+            remoteTempPath: getRemoteTempPath(cleanupError),
+            details: getErrorDetails(cleanupError),
+            cleanupFailed: true
+          })
+        });
+      }
+    }
+    preparedSession = undefined;
   }
   if (countProgressActive) {
     dependencies.writeStdout("\n");
@@ -578,29 +692,24 @@ export async function runSync(
         primaryError = new SyncPhaseError({
           phase: primaryError.phase,
           targetMayBeDirty: primaryError.targetMayBeDirty,
+          targetVerified: primaryError.targetVerified,
           cleanupFailed: true,
+          cleanupError: primaryError.cleanupError ?? error,
           interrupted: primaryError.interrupted,
           cause: primaryError.cause,
-          message: formatSyncFailure({
-            from: input.from,
-            to: input.to,
-            collection: input.collection,
-            phase: primaryError.phase,
-            targetMayBeDirty: primaryError.targetMayBeDirty,
-            interrupted: primaryError.interrupted,
-            remoteTempPath: getRemoteTempPath(
-              primaryError.cause ?? primaryError
-            ),
-            details: getErrorDetails(primaryError.cause ?? primaryError),
-            cleanupFailed: true
-          })
+          message:
+            `${primaryError.message}\n` +
+            `${primaryError.cleanupFailed ? "" : `${CLEANUP_FAILURE_STATUS}\n`}` +
+            `Local temp archive cleanup also failed: ${getErrorDetails(error)}`
         });
-      } else if (!syncSucceeded) {
+      } else {
         primaryError = new SyncPhaseError({
           phase: "cleanup",
           targetMayBeDirty,
+          targetVerified: verificationSucceeded,
           cause: error,
           cleanupFailed: true,
+          cleanupError: error,
           interrupted,
           message: formatSyncFailure({
             from: input.from,
@@ -608,6 +717,7 @@ export async function runSync(
             collection: input.collection,
             phase: "cleanup",
             targetMayBeDirty,
+            targetVerified: verificationSucceeded,
             interrupted,
             remoteTempPath: getRemoteTempPath(error),
             details: getErrorDetails(error),
@@ -618,6 +728,28 @@ export async function runSync(
     }
   }
   if (primaryError) {
+    runLogger.error("sync", "Sync workflow failed", {
+      from: input.from,
+      to: input.to,
+      collection: input.collection,
+      phase: primaryError.phase,
+      interrupted: primaryError.interrupted,
+      cleanupFailed: primaryError.cleanupFailed,
+      targetTrustState: primaryError.targetVerified
+        ? "verified"
+        : primaryError.targetMayBeDirty
+          ? "requires independent verification"
+          : "unchanged",
+      restoreSubprocess: restoreSubprocessSucceeded
+        ? "succeeded"
+        : primaryError.targetMayBeDirty
+          ? "failed"
+          : "not_started",
+      remoteTempPath:
+        getRemoteTempPath(primaryError.cleanupError) ??
+        getRemoteTempPath(primaryError.cause),
+      error: primaryError.message
+    });
     throw primaryError;
   }
   if (printSummary && syncSucceeded) {

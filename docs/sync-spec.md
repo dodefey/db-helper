@@ -134,8 +134,8 @@ fails verification must still be treated as a failed sync.
 1. validate the source and target path
 2. confirm with the operator unless `--yes` is provided
 3. create a temporary archive from the source database
-4. restore that archive into the target database with drop enabled
-5. inspect the archive before authorizing target-only pruning
+4. prepare and inspect the effective archive namespace mapping before target mutation
+5. restore that same prepared archive into the target database with drop enabled
 6. remove target-only normal user collections
 7. verify the exact target collection set and collection counts
 8. clean up temporary artifacts

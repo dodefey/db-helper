@@ -17,7 +17,11 @@ import {
   RunRestoreDependencies
 } from "../src/lib/restore.js";
 import { createCommandInvocationContext } from "../src/lib/invocationContext.js";
-import { RemoteOperationError } from "../src/lib/mongo.js";
+import {
+  ArchivePreflightError,
+  PreparedArchiveRestoreSession,
+  RemoteOperationError
+} from "../src/lib/mongo.js";
 import { withTestRunLogger } from "./run-log-helpers.js";
 
 function buildEnvironment(id: EnvironmentId): EnvironmentConfig {
@@ -238,6 +242,38 @@ function createRunRestoreDependencies(
       calls.backupCreates.push({ ...input, context });
       return buildBackupRecord("production");
     },
+    async prepareArchiveRestoreSession(
+      env,
+      appConfig,
+      archivePath,
+      options
+    ): Promise<PreparedArchiveRestoreSession> {
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(restoreOptions): Promise<void> {
+          restoreOptions.onMutationState?.("in_progress");
+          await dependencies.restoreArchiveToEnvironment(
+            env,
+            appConfig,
+            archivePath,
+            {
+              sourceDatabaseName: options.sourceDatabaseName,
+              drop: restoreOptions.drop,
+              outputMode: restoreOptions.outputMode,
+              signal: restoreOptions.signal,
+              onMutationState: restoreOptions.onMutationState,
+              remotePreflightSession: options.remotePreflightSession
+            }
+          );
+          restoreOptions.onMutationState?.("subprocess_succeeded");
+        },
+        async cleanup(): Promise<void> {}
+      };
+    },
     async restoreArchiveToEnvironment(
       env,
       _appConfig,
@@ -254,6 +290,10 @@ function createRunRestoreDependencies(
         session: options.remotePreflightSession
       });
     },
+    async listCollections(): Promise<string[]> {
+      return ["customers", "orders"];
+    },
+    async dropCollections(): Promise<void> {},
     async verifyRestore(
       env,
       _manifest,
@@ -597,7 +637,7 @@ test("runRestoreFull reports dirty-target risk when interrupted during restore",
   );
 });
 
-test("runRestoreFull reports remote cleanup attempt when interrupted during restore", async () => {
+test("runRestoreFull preserves remote interruption details during restore", async () => {
   const appConfig = buildAppConfig();
   appConfig.environments.development = buildRemoteEnvironment("development");
   const { dependencies } = createRunRestoreDependencies({
@@ -626,7 +666,7 @@ test("runRestoreFull reports remote cleanup attempt when interrupted during rest
         },
         dependencies
       ),
-    /Restore interrupted during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nTemporary restore artifact cleanup was attempted but may not have completed\.\nRemote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz\nThe restore was interrupted by the operator\./
+    /Restore interrupted during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nRemote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz\nThe restore was interrupted by the operator\./
   );
 });
 
@@ -795,7 +835,7 @@ test("runRestoreFull includes remote temp path for remote transport failures", a
         },
         dependencies
       ),
-    /Restore failed during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nTemporary restore artifact cleanup was attempted but may not have completed\.\nRemote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz\nSCP transport to development\.example\.com failed during scp-upload\.\npermission denied/
+    /Restore failed during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nRemote temporary archive path: \/tmp\/db-helper\/restore\.archive\.gz\nSCP transport to development\.example\.com failed during scp-upload\.\npermission denied/
   );
 });
 
@@ -906,4 +946,363 @@ test("runRestoreFull writes success and failure events to the run log", async ()
   });
   assert.match(failure.logContent, /\[restore\] Restore full workflow failed/);
   assert.match(failure.logContent, /restore failed/);
+});
+
+test("runRestoreFull owns one prepared session through verification and cleanup", async () => {
+  const events: string[] = [];
+  const { dependencies } = createRunRestoreDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      events.push("prepare");
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(options): Promise<void> {
+          events.push("restore");
+          options.onMutationState?.("in_progress");
+          options.onMutationState?.("subprocess_succeeded");
+        },
+        async cleanup(): Promise<void> {
+          events.push("cleanup");
+        }
+      };
+    },
+    async restoreArchiveToEnvironment(): Promise<void> {
+      throw new Error("legacy restore should not run");
+    },
+    async verifyRestore() {
+      events.push("verify");
+      return {
+        collectionsPresent: ["customers", "orders"],
+        missingCollections: [],
+        countMismatches: []
+      };
+    }
+  });
+
+  await runRestoreFull(
+    buildAppConfig(),
+    {
+      backup: "backup-name",
+      to: "development",
+      skipPreBackup: true,
+      outputMode: "quiet"
+    },
+    dependencies
+  );
+
+  assert.deepEqual(events, ["prepare", "restore", "verify", "cleanup"]);
+});
+
+test("runRestoreFull accepts a recognized empty backup and removes all target user collections", async () => {
+  const events: string[] = [];
+  const dropped: string[][] = [];
+  const emptyBackup: BackupRecord = {
+    ...buildBackupRecord(),
+    manifest: {
+      ...buildBackupRecord().manifest,
+      collectionList: [],
+      collectionCounts: {}
+    }
+  };
+  const { dependencies } = createRunRestoreDependencies({
+    async readBackup(): Promise<BackupRecord> {
+      return emptyBackup;
+    },
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      events.push("prepare");
+      return {
+        inspection: { mappings: [], collections: [], completed: true },
+        async restore(options): Promise<void> {
+          events.push("restore");
+          options.onMutationState?.("in_progress");
+          options.onMutationState?.("subprocess_succeeded");
+        },
+        async cleanup(): Promise<void> {
+          events.push("cleanup");
+        }
+      };
+    },
+    async listCollections(): Promise<string[]> {
+      return ["stale", "system.js"];
+    },
+    async dropCollections(_env, collections): Promise<void> {
+      events.push("prune");
+      dropped.push(collections);
+    },
+    async verifyRestore() {
+      events.push("verify");
+      return {
+        collectionsPresent: ["system.js"],
+        missingCollections: [],
+        countMismatches: []
+      };
+    }
+  });
+
+  await runRestoreFull(
+    buildAppConfig(),
+    {
+      backup: "backup-name",
+      to: "development",
+      skipPreBackup: true,
+      outputMode: "quiet"
+    },
+    dependencies
+  );
+
+  assert.deepEqual(events, [
+    "prepare",
+    "restore",
+    "prune",
+    "verify",
+    "cleanup"
+  ]);
+  assert.deepEqual(dropped, [["stale"]]);
+});
+
+test("runRestoreFull cleans a prepared session after verification failure without masking the primary error", async () => {
+  const { dependencies } = createRunRestoreDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(options): Promise<void> {
+          options.onMutationState?.("in_progress");
+          options.onMutationState?.("subprocess_succeeded");
+        },
+        async cleanup(): Promise<void> {
+          throw new Error("cleanup transport failed");
+        }
+      };
+    },
+    async verifyRestore(): Promise<never> {
+      throw new Error("verification primary failed");
+    }
+  });
+
+  await assert.rejects(
+    runRestoreFull(
+      buildAppConfig(),
+      {
+        backup: "backup-name",
+        to: "development",
+        skipPreBackup: true,
+        outputMode: "quiet"
+      },
+      dependencies
+    ),
+    /verification primary failed.*Remote temporary archive cleanup failed: cleanup transport failed/s
+  );
+});
+
+test("runRestoreFull reports verified trust when only prepared-session cleanup fails", async () => {
+  const appConfig = buildAppConfig();
+  appConfig.environments.development = buildRemoteEnvironment("development");
+  const { dependencies } = createRunRestoreDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(options): Promise<void> {
+          options.onMutationState?.("in_progress");
+          options.onMutationState?.("subprocess_succeeded");
+        },
+        async cleanup(): Promise<void> {
+          throw new RemoteOperationError({
+            code: "remoteCleanupFailed",
+            host: "development.example.com",
+            operation: "remote-cleanup",
+            remoteTempPath: "/tmp/db-helper/prepared.archive.gz",
+            details: "Remote temporary archive cleanup failed: ssh unavailable"
+          });
+        }
+      };
+    }
+  });
+  const result = await withTestRunLogger("restore-cleanup", async () => {
+    await assert.rejects(
+      runRestoreFull(
+        appConfig,
+        {
+          backup: "backup-name",
+          to: "development",
+          skipPreBackup: true,
+          outputMode: "quiet"
+        },
+        dependencies
+      ),
+      /Restore failed during cleanup.*Target database restore verification succeeded; only temporary artifact cleanup failed/s
+    );
+  });
+
+  assert.match(result.logContent, /"verification":"succeeded"/);
+  assert.match(result.logContent, /"targetTrustState":"verified"/);
+});
+
+test("runRestoreFull records an unchanged trust state when prepared-session preflight fails", async () => {
+  const { dependencies } = createRunRestoreDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      throw new ArchivePreflightError(new Error("dry run rejected"));
+    }
+  });
+  const result = await withTestRunLogger("restore-preflight", async () => {
+    await assert.rejects(
+      runRestoreFull(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          to: "development",
+          skipPreBackup: true,
+          outputMode: "quiet"
+        },
+        dependencies
+      ),
+      /Target database was not modified/
+    );
+  });
+
+  assert.match(result.logContent, /"restoreSubprocess":"not_started"/);
+  assert.match(result.logContent, /"targetTrustState":"unchanged"/);
+});
+
+test("runRestoreFull cleans a prepared session when the production pre-backup fails", async () => {
+  const events: string[] = [];
+  const { dependencies } = createRunRestoreDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      events.push("prepare");
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(): Promise<void> {
+          events.push("restore");
+        },
+        async cleanup(): Promise<void> {
+          events.push("cleanup");
+        }
+      };
+    },
+    async backupCreate(): Promise<BackupRecord> {
+      events.push("pre-backup");
+      throw new Error("pre-backup primary failed");
+    }
+  });
+
+  await assert.rejects(
+    runRestoreFull(
+      buildAppConfig(false, "live"),
+      {
+        backup: "backup-name",
+        to: "live",
+        skipPreBackup: false,
+        outputMode: "quiet"
+      },
+      dependencies
+    ),
+    /pre-backup primary failed/
+  );
+  assert.deepEqual(events, ["prepare", "pre-backup", "cleanup"]);
+});
+
+test("runRestoreFull logs partial-modification trust after prepared mutation failure and cleans once", async () => {
+  const events: string[] = [];
+  const { dependencies } = createRunRestoreDependencies({
+    async prepareArchiveRestoreSession(): Promise<PreparedArchiveRestoreSession> {
+      return {
+        inspection: {
+          mappings: [],
+          collections: ["customers", "orders"],
+          completed: true
+        },
+        async restore(options): Promise<void> {
+          events.push("restore");
+          options.onMutationState?.("in_progress");
+          throw new Error("mutation primary failed");
+        },
+        async cleanup(): Promise<void> {
+          events.push("cleanup");
+        }
+      };
+    }
+  });
+  const result = await withTestRunLogger("restore-mutation", async () => {
+    await assert.rejects(
+      runRestoreFull(
+        buildAppConfig(),
+        {
+          backup: "backup-name",
+          to: "development",
+          skipPreBackup: true,
+          outputMode: "quiet"
+        },
+        dependencies
+      ),
+      /mutation primary failed/
+    );
+  });
+
+  assert.deepEqual(events, ["restore", "cleanup"]);
+  assert.match(result.logContent, /"restoreSubprocess":"failed"/);
+  assert.match(
+    result.logContent,
+    /"targetTrustState":"may be partially modified"/
+  );
+});
+
+test("runRestoreCollection preserves subprocess success when only remote cleanup fails", async () => {
+  const appConfig = buildAppConfig();
+  appConfig.environments.development = buildRemoteEnvironment("development");
+  const { dependencies } = createRunRestoreDependencies({
+    async restoreArchiveToEnvironment(
+      _env,
+      _appConfig,
+      _archivePath,
+      options
+    ): Promise<void> {
+      options.onMutationState?.("in_progress");
+      options.onMutationState?.("subprocess_succeeded");
+      throw new RemoteOperationError({
+        code: "remoteCleanupFailed",
+        host: "development.example.com",
+        operation: "remote-cleanup",
+        remoteTempPath: "/tmp/db-helper/collection.archive.gz",
+        details: "Remote cleanup failed on development.example.com."
+      });
+    }
+  });
+  const result = await withTestRunLogger(
+    "restore-collection-cleanup",
+    async () => {
+      await assert.rejects(
+        runRestoreCollection(
+          appConfig,
+          {
+            backup: "backup-name",
+            collection: "orders",
+            to: "development",
+            outputMode: "quiet"
+          },
+          dependencies
+        ),
+        /Restore subprocess: succeeded.*Post-restore verification: not_started/s
+      );
+    }
+  );
+
+  assert.match(result.logContent, /"restoreSubprocess":"succeeded"/);
+  assert.match(
+    result.logContent,
+    /"targetTrustState":"may be partially modified"/
+  );
 });

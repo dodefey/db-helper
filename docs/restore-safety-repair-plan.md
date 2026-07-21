@@ -2,7 +2,7 @@
 
 ```text
 Date: 2026-07-21 (America/Chicago)
-Status: Proposed for review
+Status: Implementation complete; pending commit and release review
 Branch baseline: development
 Target release: 0.2.1
 Sequence: repository contracts first, shared Mongo safety primitives second, restore and sync orchestration third, real lifecycle proof fourth
@@ -229,10 +229,20 @@ Progress notes:
   including the post-subprocess/pre-cleanup success boundary.
 - Added parser coverage for selected mappings, archive-prelude noise, and
   missing completion signals.
-- Restore transport now runs dry-run preflight immediately before mutation;
-  remote targets reuse one staged upload for inspection, restore, and cleanup.
-- Validation passed: `npm run lint`, `npm test` (132 tests),
-  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
+- Added an opaque prepared-archive session that owns one dry run, one optional
+  remote upload, one mutation, and one idempotent cleanup.
+- Full restore and full sync now use the prepared inspection result before
+  mutation and retain the same staged artifact through verification and cleanup.
+- Convenience collection restore and archive-inspection APIs retain their
+  existing command-facing behavior while using the same session lifecycle.
+- Cleanup failures retain the primary preflight, mutation, prune, or verification
+  failure and do not change a preflight failure into a dirty-target report.
+- Full restore now requires prepared inspection, target collection listing, and
+  target-only pruning dependencies; dependency injection cannot bypass the
+  safety contract.
+- Full sync now also requires its prepared-session dependency and has no
+  restore-then-reinspect fallback; injected callers use the same pre-mutation
+  inspection contract as the default CLI path.
 
 ## Phase 5: Make Full Restore An Exact Target Replacement
 
@@ -279,6 +289,9 @@ Completion notes:
   internal `system.*` collections are excluded.
 - Final verification now rejects missing, count-mismatched, and unexpected
   normal-user collections before reporting success.
+- Added the recognized-empty regression proving an empty manifest plus completed
+  empty inspection prunes all normal-user target collections while retaining
+  `system.*` collections.
 - Validation passed: `npm run lint`, `npm test` (132 tests),
   `npm run typecheck`, `npm run format:check`, and `git diff --check`.
 
@@ -304,8 +317,15 @@ Completion notes:
 - Verification receives a one-collection manifest and runs after mutation,
   including valid zero-count collections.
 - Collection success output is emitted only after scoped verification passes.
-- Validation passed: `npm run lint`, `npm test` (133 tests),
-  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
+- Added explicit prepared-session coverage for preflight unchanged state,
+  mutation state, verification failure, primary-error precedence, and cleanup.
+- Structured failure logs assert `restoreSubprocess` and `targetTrustState`
+  fields for pre-mutation failure.
+- Collection restore and collection sync preserve a successful mutation state
+  when only remote archive cleanup fails, and label that failure as cleanup.
+- Sync structured failure logging now occurs after prepared and local cleanup
+  attempts, so combined primary/cleanup failures retain cleanup state and the
+  remote temporary path.
 
 ### Phase 6 tests
 
@@ -389,18 +409,6 @@ Required scenarios:
 3. Empty requested collection with an unrelated populated collection.
 4. Full restore with a target-only normal user collection, proving it is removed.
 
-Completion notes:
-
-- Added `npm run test:restore-integration`, a dedicated disposable-`mongod`
-  harness with temporary-root/port allocation, tool-version diagnostics, and
-  guaranteed child-process/artifact cleanup.
-- The harness exercises a real gzip archive through the production restore
-  helper and fails explicitly when required MongoDB binaries or the archive
-  regression itself fail.
-- Portable unit tests remain separate from this environment-dependent gate.
-- Standard validation passed: `npm run lint`, `npm test` (133 tests),
-  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
-
 5. Cross-database full restore with a target-only collection, proving namespace remap and pruning both use the intended target database.
 6. Full restore with an internal `system.*` fixture where technically practical, proving internal filtering rather than attempting destructive system collection manipulation.
 
@@ -416,6 +424,20 @@ For full scenarios, prove:
 - every target-only normal user collection is removed
 - no unexpected normal user collection remains
 - final counts match the manifest
+
+Completion notes:
+
+- The harness bootstraps generated credentials through the localhost exception,
+  restarts MongoDB with authentication enabled, and waits for an authenticated
+  readiness probe.
+- Every collection scenario runs through `runRestoreCollection`; same- and
+  cross-database cases assert exact requested documents, preserved unrelated
+  documents/indexes/options, empty-collection metadata/indexes, scoped summaries
+  and namespace mappings, post-restore verification, and credential redaction.
+- Same- and cross-database full cases assert exact user-collection sets and
+  counts, target-only pruning, namespace remapping, and preservation of a
+  technically practical `system.js` fixture.
+- Portable unit tests remain separate from this required integration gate.
 
 ## Phase 9: Reconcile User Documentation And Unreleased History
 
@@ -483,7 +505,7 @@ Also run `npm run build` before packaging so compiled output is proved independe
 
 Completion notes:
 
-- `npm run format:check`, `npm run lint`, `npm test` (133 tests),
+- `npm run format:check`, `npm run lint`, `npm test` (148 tests),
   `npm run typecheck`, and `npm run build` all pass.
 - `npm run test:restore-integration` now passes against a disposable local
   `mongod` with mongod 7.0.34 and MongoDB Database Tools 100.16.1.
