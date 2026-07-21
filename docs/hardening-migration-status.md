@@ -128,12 +128,14 @@ Recommended follow-up:
 
 ### 3. Doctor output polish
 
-`doctor` is correct, but its output is still more primitive than `backup`, `sync`, and `restore`.
+`doctor` now reports validated MongoDB tool floors, mongosh state-directory
+usability, free-space blockers, and warning summaries while preserving its
+simple output contract.
 
 Recommended follow-up:
 
-- decide whether doctor should adopt the same output-mode model
-- otherwise leave it alone and treat it as intentionally simpler
+- consider adopting the same output-mode model as the destructive workflows if
+  richer diagnostics become necessary
 
 ### 4. Standalone CLI usability
 

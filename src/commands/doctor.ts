@@ -1,5 +1,8 @@
-import { access } from "node:fs/promises";
+import { access, mkdir, statfs, unlink, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { homedir } from "node:os";
+import path from "node:path";
 import {
   AppConfig,
   EnvironmentConfig,
@@ -23,8 +26,15 @@ const REQUIRED_BINARIES = [
   "scp"
 ] as const;
 
-type DoctorStatus = "pass" | "fail";
+type DoctorStatus = "pass" | "warn" | "fail";
 type DoctorScope = "global" | "backupRoot" | "tempRoot" | EnvironmentId;
+
+const MIN_FREE_SPACE_BYTES = 1024 * 1024 * 1024;
+const TOOL_VERSION_FLOORS: Record<string, [number, number, number]> = {
+  mongosh: [2, 9, 2],
+  mongodump: [100, 16, 1],
+  mongorestore: [100, 16, 1]
+};
 
 interface DoctorCheckResult {
   check: string;
@@ -41,6 +51,8 @@ export interface DoctorDependencies {
   ensureBinary: (name: string) => Promise<string>;
   assertWritable: (path: string) => Promise<void>;
   assertReadable: (path: string) => Promise<void>;
+  getFreeSpace: (path: string) => Promise<number>;
+  probeMongoShellState: () => Promise<string>;
   ensureRemotePreflight: (
     context: CommandInvocationContext,
     env: EnvironmentConfig
@@ -63,6 +75,24 @@ const DEFAULT_DOCTOR_DEPENDENCIES: DoctorDependencies = {
     return version;
   },
   assertWritable,
+  async getFreeSpace(path: string): Promise<number> {
+    const stats = await statfs(path);
+    return stats.bavail * stats.bsize;
+  },
+  async probeMongoShellState(): Promise<string> {
+    const stateDirectory =
+      process.env.MONGOSH_CONFIG_DIR ||
+      path.join(homedir(), ".mongodb", "mongosh");
+    await mkdir(stateDirectory, { recursive: true });
+    await access(stateDirectory, constants.R_OK | constants.W_OK);
+    const probePath = path.join(
+      stateDirectory,
+      `.dbh-doctor-${randomUUID()}.probe`
+    );
+    await writeFile(probePath, "doctor probe\n", { flag: "wx" });
+    await unlink(probePath);
+    return stateDirectory;
+  },
   async assertReadable(path: string): Promise<void> {
     await access(path, constants.R_OK);
   },
@@ -101,6 +131,54 @@ function formatDoctorLine(result: DoctorCheckResult): string {
   return `${label}${scope} ${result.check}: ${result.message}\n`;
 }
 
+function formatBytes(bytes: number): string {
+  return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+}
+
+function firstVersionLine(output: string): string {
+  return output.split(/\r?\n/, 1)[0]?.trim() || output.trim();
+}
+
+function parseVersion(
+  output: string,
+  binary: string
+): [number, number, number] {
+  const match = output.match(/(?:^|\s|v)(\d+)\.(\d+)(?:\.(\d+))?/);
+  if (!match) {
+    throw new Error(
+      `Could not parse ${binary} version from ${firstVersionLine(output)}`
+    );
+  }
+  return [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)];
+}
+
+function compareVersions(
+  actual: [number, number, number],
+  minimum: [number, number, number]
+): number {
+  for (let index = 0; index < minimum.length; index += 1) {
+    if (actual[index] !== minimum[index]) {
+      return actual[index] - minimum[index];
+    }
+  }
+  return 0;
+}
+
+function assertSupportedVersion(binary: string, output: string): string {
+  const minimum = TOOL_VERSION_FLOORS[binary];
+  const display = firstVersionLine(output);
+  if (!minimum) {
+    return display;
+  }
+  const actual = parseVersion(output, binary);
+  if (compareVersions(actual, minimum) < 0) {
+    throw new Error(
+      `${binary} version ${actual.join(".")} is below the supported minimum ${minimum.join(".")}`
+    );
+  }
+  return display;
+}
+
 async function runCheck(
   results: DoctorCheckResult[],
   result: Omit<DoctorCheckResult, "status" | "message">,
@@ -124,6 +202,27 @@ async function runCheck(
   }
 }
 
+async function runWarningCheck(
+  results: DoctorCheckResult[],
+  result: Omit<DoctorCheckResult, "status" | "message">,
+  operation: () => Promise<string | void>
+): Promise<void> {
+  try {
+    const message = await operation();
+    results.push({
+      ...result,
+      status: "pass",
+      message: message || "ok"
+    });
+  } catch (error) {
+    results.push({
+      ...result,
+      status: "warn",
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
 function hasMongoCredentials(env: EnvironmentConfig): boolean {
   return Boolean(env.mongoUser && env.mongoPassword);
 }
@@ -143,7 +242,8 @@ export async function runDoctor(
     await runCheck(
       results,
       { check: `binary ${binary}`, scope: "global" },
-      () => dependencies.ensureBinary(binary)
+      async () =>
+        assertSupportedVersion(binary, await dependencies.ensureBinary(binary))
     );
   }
 
@@ -152,6 +252,37 @@ export async function runDoctor(
   );
   await runCheck(results, { check: "writable", scope: "tempRoot" }, () =>
     dependencies.assertWritable(appConfig.tempRoot)
+  );
+  await runCheck(
+    results,
+    { check: "free space", scope: "backupRoot" },
+    async () => {
+      const available = await dependencies.getFreeSpace(appConfig.backupRoot);
+      if (available < MIN_FREE_SPACE_BYTES) {
+        throw new Error(
+          `${formatBytes(available)} available; minimum is ${formatBytes(MIN_FREE_SPACE_BYTES)}`
+        );
+      }
+      return `${formatBytes(available)} available`;
+    }
+  );
+  await runCheck(
+    results,
+    { check: "free space", scope: "tempRoot" },
+    async () => {
+      const available = await dependencies.getFreeSpace(appConfig.tempRoot);
+      if (available < MIN_FREE_SPACE_BYTES) {
+        throw new Error(
+          `${formatBytes(available)} available; minimum is ${formatBytes(MIN_FREE_SPACE_BYTES)}`
+        );
+      }
+      return `${formatBytes(available)} available`;
+    }
+  );
+  await runWarningCheck(
+    results,
+    { check: "mongosh state", scope: "global" },
+    () => dependencies.probeMongoShellState()
   );
 
   for (const env of Object.values(appConfig.environments)) {
@@ -199,6 +330,7 @@ export async function runDoctor(
   }
 
   const failures = results.filter((result) => result.status === "fail");
+  const warnings = results.filter((result) => result.status === "warn");
   if (failures.length > 0) {
     runLogger.warn("doctor", "Doctor checks completed with failures", {
       failureCount: failures.length,
@@ -214,6 +346,21 @@ export async function runDoctor(
     throw new DoctorCommandError(
       `Doctor checks failed: ${failures.length} issue(s).`
     );
+  }
+
+  if (warnings.length > 0) {
+    runLogger.warn("doctor", "Doctor checks passed with warnings", {
+      warningCount: warnings.length,
+      warnings: warnings.map((warning) => ({
+        check: warning.check,
+        scope: warning.scope,
+        message: warning.message
+      }))
+    });
+    dependencies.writeStdout(
+      `Doctor checks passed with ${warnings.length} warning(s).\n`
+    );
+    return;
   }
 
   runLogger.info("doctor", "Doctor checks passed");

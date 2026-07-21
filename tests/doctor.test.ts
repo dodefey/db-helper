@@ -60,6 +60,13 @@ function buildAppConfig(
   };
 }
 
+function doctorVersion(name: string): string {
+  if (name === "mongosh") return "mongosh 2.9.2";
+  if (name === "mongodump") return "mongodump version: 100.16.1";
+  if (name === "mongorestore") return "mongorestore version: 100.16.1";
+  return `${name} version 1.0.0`;
+}
+
 function createDoctorDependencies(
   overrides: Partial<DoctorDependencies> = {}
 ): {
@@ -68,7 +75,9 @@ function createDoctorDependencies(
     output: string[];
     binaries: string[];
     writablePaths: string[];
+    freeSpacePaths: string[];
     readablePaths: string[];
+    stateProbes: number;
     preflight: EnvironmentId[];
     connectivity: EnvironmentId[];
   };
@@ -77,7 +86,9 @@ function createDoctorDependencies(
     output: [] as string[],
     binaries: [] as string[],
     writablePaths: [] as string[],
+    freeSpacePaths: [] as string[],
     readablePaths: [] as string[],
+    stateProbes: 0,
     preflight: [] as EnvironmentId[],
     connectivity: [] as EnvironmentId[]
   };
@@ -85,10 +96,18 @@ function createDoctorDependencies(
   const dependencies: DoctorDependencies = {
     async ensureBinary(name: string): Promise<string> {
       calls.binaries.push(name);
-      return `${name} version 1.0.0`;
+      return doctorVersion(name);
     },
     async assertWritable(path: string): Promise<void> {
       calls.writablePaths.push(path);
+    },
+    async getFreeSpace(path: string): Promise<number> {
+      calls.freeSpacePaths.push(path);
+      return 2 * 1024 * 1024 * 1024;
+    },
+    async probeMongoShellState(): Promise<string> {
+      calls.stateProbes += 1;
+      return "/tmp/mongosh";
     },
     async assertReadable(path: string): Promise<void> {
       calls.readablePaths.push(path);
@@ -119,7 +138,7 @@ test("runDoctor reports success when all checks pass", async () => {
   assert.ok(calls.output.includes("Doctor checks passed.\n"));
   assert.ok(
     calls.output.some((line) =>
-      line.includes("PASS binary mongodump: mongodump version 1.0.0")
+      line.includes("PASS binary mongodump: mongodump version: 100.16.1")
     )
   );
   assert.ok(
@@ -147,7 +166,7 @@ test("runDoctor reports binary failure and continues", async () => {
       if (name === "mongosh") {
         throw new Error("missing binary");
       }
-      return `${name} version 1.0.0`;
+      return doctorVersion(name);
     }
   });
 
@@ -166,6 +185,124 @@ test("runDoctor reports binary failure and continues", async () => {
   assert.deepEqual(calls.preflight, []);
   assert.ok(calls.output.some((line) => line.includes("FAIL binary mongosh")));
   assert.deepEqual(calls.connectivity, ["development", "test", "production"]);
+});
+
+test("runDoctor rejects MongoDB tools below the supported floor", async () => {
+  const { dependencies, calls } = createDoctorDependencies({
+    async ensureBinary(name: string): Promise<string> {
+      calls.binaries.push(name);
+      return name === "mongodump"
+        ? "mongodump version: 100.15.9"
+        : doctorVersion(name);
+    }
+  });
+
+  await assert.rejects(
+    runDoctor(buildAppConfig(), dependencies),
+    /1 issue\(s\)/
+  );
+  assert.ok(
+    calls.output.some((line) =>
+      line.includes("FAIL binary mongodump: mongodump version 100.15.9")
+    )
+  );
+});
+
+test("runDoctor fails closed when a MongoDB tool version is unparseable", async () => {
+  const { dependencies, calls } = createDoctorDependencies({
+    async ensureBinary(name: string): Promise<string> {
+      calls.binaries.push(name);
+      return name === "mongosh"
+        ? "mongosh development build"
+        : doctorVersion(name);
+    }
+  });
+
+  await assert.rejects(
+    runDoctor(buildAppConfig(), dependencies),
+    /1 issue\(s\)/
+  );
+  assert.ok(
+    calls.output.some((line) =>
+      line.includes("FAIL binary mongosh: Could not parse mongosh version")
+    )
+  );
+});
+
+test("runDoctor blocks when a root has less than 1 GiB free", async () => {
+  const { dependencies, calls } = createDoctorDependencies({
+    async getFreeSpace(path: string): Promise<number> {
+      calls.freeSpacePaths.push(path);
+      return path === "/tmp/db-helper" ? 512 * 1024 * 1024 : 2 * 1024 ** 3;
+    }
+  });
+
+  await assert.rejects(
+    runDoctor(buildAppConfig(), dependencies),
+    /1 issue\(s\)/
+  );
+  assert.ok(
+    calls.output.some((line) =>
+      line.includes(
+        "FAIL tempRoot free space: 0.50 GiB available; minimum is 1.00 GiB"
+      )
+    )
+  );
+});
+
+test("runDoctor reports mongosh state problems as warnings", async () => {
+  const { dependencies, calls } = createDoctorDependencies({
+    async probeMongoShellState(): Promise<string> {
+      calls.stateProbes += 1;
+      throw new Error("state directory is not writable");
+    }
+  });
+
+  await runDoctor(buildAppConfig(), dependencies);
+  assert.ok(
+    calls.output.some((line) =>
+      line.includes("WARN mongosh state: state directory is not writable")
+    )
+  );
+  assert.ok(calls.output.includes("Doctor checks passed with 1 warning(s).\n"));
+});
+
+test("runDoctor preserves blockers alongside warnings", async () => {
+  const { dependencies, calls } = createDoctorDependencies({
+    async ensureBinary(name: string): Promise<string> {
+      calls.binaries.push(name);
+      if (name === "mongodump") throw new Error("missing binary");
+      return doctorVersion(name);
+    },
+    async probeMongoShellState(): Promise<string> {
+      calls.stateProbes += 1;
+      throw new Error("state directory is not writable");
+    }
+  });
+
+  await assert.rejects(
+    runDoctor(buildAppConfig(), dependencies),
+    /1 issue\(s\)/
+  );
+  assert.ok(calls.output.some((line) => line.includes("WARN mongosh state")));
+  assert.ok(calls.output.includes("Doctor checks failed: 1 issue(s).\n"));
+});
+
+test("runDoctor warning logs redact credential-like content", async () => {
+  const { dependencies } = createDoctorDependencies({
+    async probeMongoShellState(): Promise<string> {
+      throw new Error(
+        "mongosh state probe failed for mongodb://user:secret-pass@localhost"
+      );
+    }
+  });
+
+  const { logContent } = await withTestRunLogger("doctor-warning", async () => {
+    await runDoctor(buildAppConfig(), dependencies);
+  });
+
+  assert.doesNotMatch(logContent, /secret-pass/);
+  assert.match(logContent, /Doctor checks passed with warnings/);
 });
 
 test("runDoctor reports writable path failures and continues", async () => {
@@ -349,7 +486,7 @@ test("runDoctor reports multiple failures and summarizes the total", async () =>
       if (name === "mongorestore") {
         throw new Error("missing binary");
       }
-      return `${name} version 1.0.0`;
+      return doctorVersion(name);
     },
     async assertReadable(path: string): Promise<void> {
       calls.readablePaths.push(path);

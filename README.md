@@ -140,8 +140,11 @@ dbh config validate
 dbh doctor
 ```
 
-`doctor` reports the installed MongoDB/SSH tool versions and validates MongoDB
-connectivity with a tagged machine-readable ping result.
+`doctor` reports the installed MongoDB/SSH tool versions, validates MongoDB
+connectivity with a tagged machine-readable ping result, checks the mongosh
+state directory, and requires at least 1 GiB of free space in both configured
+backup and temp roots. State-directory problems are reported as warnings;
+unsupported tools, failed probes, and low free space are blockers.
 
 If you already have the old env-file format, import it instead:
 

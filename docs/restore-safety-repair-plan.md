@@ -453,7 +453,7 @@ Status: complete
 - Update the README restore and sync-collection sections with the exact replacement and targeted-isolation guarantees.
 - Document full-restore archive inspection, target-only pruning, collection preflight, and post-restore verification at the operator level.
 - Add `CHANGELOG.md` `Unreleased` entries for all three user-visible safety fixes and the affected `sync collection` seam.
-- Keep broader doctor checks, JSON output, index verification, and preimage backup ideas deferred.
+- Keep JSON output, index verification, and preimage backup ideas deferred.
 - Reconcile touched Markdown with current Prettier rules.
 
 Completion notes:
@@ -515,7 +515,7 @@ Also run `npm run build` before packaging so compiled output is proved independe
 
 Completion notes:
 
-- `npm run format:check`, `npm run lint`, `npm test` (151 tests),
+- `npm run format:check`, `npm run lint`, `npm test` (157 tests),
   `npm run typecheck`, and `npm run build` all pass.
 - `npm run test:restore-integration` now passes against a disposable local
   `mongod` with mongod 7.0.34 and MongoDB Database Tools 100.16.1.
@@ -523,6 +523,9 @@ Completion notes:
 - Follow-up `dbh --version`, `dbh restore full --explain`, doctor diagnostics,
   and sync integration coverage are implemented in separate commits; release
   publication and consumer replays remain outstanding.
+- Doctor now enforces `mongosh >= 2.9.2`, `mongodump >= 100.16.1`, and
+  `mongorestore >= 100.16.1`, plus a 1 GiB free-space floor per configured
+  backup/temp root; mongosh state-directory problems remain warnings.
 
 ## Acceptance Criteria
 
@@ -546,7 +549,6 @@ Completion notes:
 
 ## Deferred Work
 
-- broader `doctor` filesystem, free-space, state-directory, or supported-tool-range checks
 - machine-readable `--json` command results
 - index metadata in backup manifests and post-restore index parity verification
 - document-level hashes or content-equivalence verification for arbitrary production collections
