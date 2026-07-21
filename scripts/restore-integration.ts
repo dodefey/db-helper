@@ -5,6 +5,7 @@ import {
   copyFile,
   mkdir,
   mkdtemp,
+  readdir,
   readFile,
   rm,
   writeFile
@@ -188,6 +189,7 @@ async function main(): Promise<void> {
     ]);
     const { runRestoreCollection, runRestoreFull } =
       await import("../src/lib/restore.js");
+    const { runSync } = await import("../src/lib/sync.js");
     const { createRunLogger, setRunLogger } =
       await import("../src/lib/runLog.js");
     const env = {
@@ -484,11 +486,223 @@ async function main(): Promise<void> {
         `Cross-database full restore regression: ${JSON.stringify(fullOutput)}`
       );
     }
+
+    const syncSource = {
+      ...env,
+      id: "sync_source",
+      name: "sync_source",
+      databaseName: "sync_source"
+    };
+    const syncFullTarget = {
+      ...env,
+      id: "sync_full_target",
+      name: "sync_full_target",
+      databaseName: "sync_full_target"
+    };
+    const syncCollectionTarget = {
+      ...env,
+      id: "sync_collection_target",
+      name: "sync_collection_target",
+      databaseName: "sync_collection_target"
+    };
+    const syncSameSource = {
+      ...env,
+      id: "sync_same_source",
+      name: "sync_same_source",
+      databaseName: "sync_same_db"
+    };
+    const syncSameTarget = {
+      ...env,
+      id: "sync_same_target",
+      name: "sync_same_target",
+      databaseName: "sync_same_db"
+    };
+    await mongoEval(
+      uri,
+      "const source=db.getSiblingDB('sync_source'); source.dropDatabase(); source.orders.insertMany([{_id:1,n:1},{_id:2,n:2}]); source.orders.createIndex({n:1},{name:'orders_n'}); source.createCollection('unrelated',{validator:{keep:{$eq:true}}}); source.unrelated.insertOne({_id:'source',keep:true}); source.unrelated.createIndex({keep:1},{name:'unrelated_n'}); source.createCollection('empty',{collation:{locale:'en',strength:2}}); source.empty.createIndex({n:1},{name:'empty_n'}); const full=db.getSiblingDB('sync_full_target'); full.dropDatabase(); full.target_only.insertOne({_id:'remove'}); full.getCollection('system.js').insertOne({_id:'keep',value:'function(){return true;}'}); const scoped=db.getSiblingDB('sync_collection_target'); scoped.dropDatabase(); scoped.orders.insertOne({_id:'old',n:-1}); scoped.orders.createIndex({n:1},{name:'old_orders_n'}); scoped.unrelated.insertOne({_id:'keep',keep:true}); scoped.unrelated.createIndex({keep:1},{name:'keep_index'}); const same=db.getSiblingDB('sync_same_db'); same.dropDatabase(); same.orders.insertMany([{_id:1,n:1},{_id:2,n:2}]); same.orders.createIndex({n:1},{name:'orders_n'}); same.unrelated.insertOne({_id:'keep',keep:true}); same.unrelated.createIndex({keep:1},{name:'keep_index'});"
+    );
+    const runSyncScenario = async (
+      targetEnv: typeof syncFullTarget,
+      input: { collection?: string },
+      label: string,
+      sourceEnv = syncSource
+    ): Promise<{ summary: string; log: string }> => {
+      const logger = await createRunLogger({
+        commandName: `sync-integration-${label}`,
+        logRoot: root
+      });
+      setRunLogger(logger);
+      let summary: string | undefined;
+      try {
+        summary = await captureStdout(() =>
+          runSync(
+            {
+              ...appConfig,
+              environments: {
+                [sourceEnv.id]: sourceEnv,
+                [targetEnv.id]: targetEnv
+              }
+            },
+            {
+              from: sourceEnv.id,
+              to: targetEnv.id,
+              ...input,
+              outputMode: "default"
+            }
+          )
+        );
+        await logger.finalizeFailure();
+      } finally {
+        setRunLogger();
+      }
+      return {
+        summary: summary ?? "",
+        log: await readFile(logger.logPath, "utf8")
+      };
+    };
+    const fullSync = await runSyncScenario(syncFullTarget, {}, "full");
+    if (
+      !fullSync.summary.includes(
+        "Starting sync sync_source -> sync_full_target"
+      ) ||
+      !fullSync.summary.includes(
+        "Sync sync_source -> sync_full_target complete"
+      ) ||
+      !fullSync.log.includes("mongodump") ||
+      !fullSync.log.includes("mongorestore") ||
+      fullSync.log.includes(password)
+    ) {
+      throw new Error(
+        "Full sync logging or summary was missing, incomplete, or unredacted."
+      );
+    }
+    const fullSyncOutput = await mongoJson<{
+      userCollections: string[];
+      counts: Record<string, number>;
+      orderIndexes: Array<{ name: string }>;
+      unrelatedOptions: Record<string, unknown>;
+      systemPreserved: number;
+    }>(
+      uri,
+      "(()=>{const dbx=db.getSiblingDB('sync_full_target');const users=dbx.getCollectionNames().filter(name=>!name.startsWith('system.')).sort();return {userCollections:users,counts:Object.fromEntries(users.map(name=>[name,dbx.getCollection(name).countDocuments({})])),orderIndexes:dbx.orders.getIndexes(),unrelatedOptions:dbx.getCollectionInfos({name:'unrelated'})[0].options,systemPreserved:dbx.getCollection('system.js').countDocuments({_id:'keep'})};})()"
+    );
+    if (
+      JSON.stringify(fullSyncOutput.userCollections) !==
+        JSON.stringify(["empty", "orders", "unrelated"]) ||
+      JSON.stringify(fullSyncOutput.counts) !==
+        JSON.stringify({ empty: 0, orders: 2, unrelated: 1 }) ||
+      !fullSyncOutput.orderIndexes.some((index) => index.name === "orders_n") ||
+      !JSON.stringify(fullSyncOutput.unrelatedOptions).includes(
+        '"validator"'
+      ) ||
+      fullSyncOutput.systemPreserved !== 1
+    ) {
+      throw new Error(
+        `Full sync regression: ${JSON.stringify(fullSyncOutput)}`
+      );
+    }
+    const originalSyncUnrelated = await mongoJson<unknown>(
+      uri,
+      "(()=>{const dbx=db.getSiblingDB('sync_collection_target');return {docs:dbx.unrelated.find({}).sort({_id:1}).toArray(),indexes:dbx.unrelated.getIndexes(),options:dbx.getCollectionInfos({name:'unrelated'})[0].options};})()"
+    );
+    const collectionSync = await runSyncScenario(
+      syncCollectionTarget,
+      { collection: "orders" },
+      "collection"
+    );
+    if (
+      !collectionSync.summary.includes(
+        "Starting sync sync_source.orders -> sync_collection_target.orders"
+      ) ||
+      collectionSync.summary.includes("Removing target-only collections") ||
+      !collectionSync.log.includes("--nsInclude") ||
+      !collectionSync.log.includes("sync_source.orders") ||
+      !collectionSync.log.includes("--nsTo") ||
+      !collectionSync.log.includes("sync_collection_target.orders") ||
+      collectionSync.log.includes(password)
+    ) {
+      throw new Error(
+        "Collection sync logging or namespace scope was missing, broadened, or unredacted."
+      );
+    }
+    const collectionSyncOutput = await mongoJson<{
+      orders: unknown[];
+      orderIndexes: Array<{ name: string }>;
+      unrelated: unknown;
+    }>(
+      uri,
+      "(()=>{const dbx=db.getSiblingDB('sync_collection_target');return {orders:dbx.orders.find({}).sort({_id:1}).toArray(),orderIndexes:dbx.orders.getIndexes(),unrelated:{docs:dbx.unrelated.find({}).sort({_id:1}).toArray(),indexes:dbx.unrelated.getIndexes(),options:dbx.getCollectionInfos({name:'unrelated'})[0].options}};})()"
+    );
+    if (
+      JSON.stringify(collectionSyncOutput.orders) !==
+        JSON.stringify([
+          { _id: 1, n: 1 },
+          { _id: 2, n: 2 }
+        ]) ||
+      !collectionSyncOutput.orderIndexes.some(
+        (index) => index.name === "orders_n"
+      ) ||
+      JSON.stringify(collectionSyncOutput.unrelated) !==
+        JSON.stringify(originalSyncUnrelated)
+    ) {
+      throw new Error(
+        `Collection sync regression: ${JSON.stringify(collectionSyncOutput)}`
+      );
+    }
+    const sameCollectionSync = await runSyncScenario(
+      syncSameTarget,
+      { collection: "orders" },
+      "same-collection",
+      syncSameSource
+    );
+    if (
+      !sameCollectionSync.summary.includes(
+        "Starting sync sync_same_source.orders -> sync_same_target.orders"
+      ) ||
+      !sameCollectionSync.log.includes("--nsInclude") ||
+      !sameCollectionSync.log.includes("sync_same_db.orders") ||
+      sameCollectionSync.log.includes("--nsTo") ||
+      sameCollectionSync.log.includes(password)
+    ) {
+      throw new Error(
+        "Same-database collection sync namespace scope was missing or broadened."
+      );
+    }
+    const sameCollectionSyncOutput = await mongoJson<{
+      orders: unknown[];
+      unrelated: unknown[];
+    }>(
+      uri,
+      "(()=>{const dbx=db.getSiblingDB('sync_same_db');return {orders:dbx.orders.find({}).sort({_id:1}).toArray(),unrelated:dbx.unrelated.find({}).sort({_id:1}).toArray()};})()"
+    );
+    if (
+      JSON.stringify(sameCollectionSyncOutput.orders) !==
+        JSON.stringify([
+          { _id: 1, n: 1 },
+          { _id: 2, n: 2 }
+        ]) ||
+      JSON.stringify(sameCollectionSyncOutput.unrelated) !==
+        JSON.stringify([{ _id: "keep", keep: true }])
+    ) {
+      throw new Error(
+        `Same-database collection sync regression: ${JSON.stringify(
+          sameCollectionSyncOutput
+        )}`
+      );
+    }
+    const leftoverSyncArchives = (await readdir(root)).filter(
+      (entry) => entry.startsWith("db-helper-") && entry.endsWith(".archive.gz")
+    );
+    if (leftoverSyncArchives.length > 0) {
+      throw new Error(
+        `Sync temporary archives were not cleaned up: ${leftoverSyncArchives.join(", ")}`
+      );
+    }
     process.stdout.write(
       `Restore integration tools:\n${Object.entries(versions)
         .map(([name, version]) => `  ${name}: ${version.split("\n")[0]}`)
         .join("\n")}\nDisposable mongod: 127.0.0.1:${port}\n` +
-        "Authenticated archive-backed collection and full restore regressions passed.\n"
+        "Authenticated archive-backed collection/full restore and sync regressions passed.\n"
     );
   } finally {
     mongod.kill("SIGTERM");
