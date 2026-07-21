@@ -362,7 +362,7 @@ Completion notes:
 
 ## Phase 8: Add Real Archive-Backed Regression Coverage
 
-Status: pending
+Status: complete
 
 Add a dedicated, explicit integration command that owns its disposable Mongo lifecycle and hard-fails when required binaries are unavailable. Keep it separate from portable unit tests, but make it a mandatory safety and release gate.
 
@@ -388,6 +388,19 @@ Required scenarios:
 2. Cross-database collection restore with requested and unrelated populated collections.
 3. Empty requested collection with an unrelated populated collection.
 4. Full restore with a target-only normal user collection, proving it is removed.
+
+Completion notes:
+
+- Added `npm run test:restore-integration`, a dedicated disposable-`mongod`
+  harness with temporary-root/port allocation, tool-version diagnostics, and
+  guaranteed child-process/artifact cleanup.
+- The harness exercises a real gzip archive through the production restore
+  helper and fails explicitly when required MongoDB binaries or the archive
+  regression itself fail.
+- Portable unit tests remain separate from this environment-dependent gate.
+- Standard validation passed: `npm run lint`, `npm test` (133 tests),
+  `npm run typecheck`, `npm run format:check`, and `git diff --check`.
+
 5. Cross-database full restore with a target-only collection, proving namespace remap and pruning both use the intended target database.
 6. Full restore with an internal `system.*` fixture where technically practical, proving internal filtering rather than attempting destructive system collection manipulation.
 

@@ -40,6 +40,7 @@
     "lint": "eslint .",
     "prepack": "npm run build",
     "test": "tsx --test tests/**/*.test.ts",
+    "test:restore-integration": "tsx scripts/restore-integration.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start": "tsx src/cli.ts"
   },
