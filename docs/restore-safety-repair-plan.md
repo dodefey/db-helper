@@ -40,7 +40,7 @@ These decisions should be treated as implementation constraints unless new execu
 - verify collection restore presence and count after mutation
 - apply the shared collection safety repair to `sync collection` as well as `restore collection`
 - keep terminal and run-log lifecycle state explicit about mutation completion versus verification completion
-- do not add a public `--dry-run`, `--explain`, `--json`, version command, broader `doctor`, index-manifest redesign, or automatic collection preimage backup in this patch
+- do not add a public `--dry-run`, `--explain`, `--json`, version command, broader `doctor`, index-manifest redesign, or automatic collection preimage backup in the original repair patch; these remain separate follow-up scope
 
 ## Execution Guardrails
 
@@ -437,6 +437,10 @@ Completion notes:
 - Same- and cross-database full cases assert exact user-collection sets and
   counts, target-only pruning, namespace remapping, and preservation of a
   technically practical `system.js` fixture.
+- Full sync, cross-database collection sync, and same-database collection sync
+  now run through the same disposable authenticated lifecycle and assert exact
+  replacement, namespace scope, unrelated-collection preservation, redaction,
+  and temporary-archive cleanup.
 - Portable unit tests remain separate from this required integration gate.
 
 ## Phase 9: Reconcile User Documentation And Unreleased History
@@ -456,6 +460,9 @@ Completion notes:
   state expectations.
 - Added unreleased changelog entries for restore isolation, full replacement,
   verification framing, lifecycle reporting, and integration coverage.
+- Follow-up work added `dbh --version`, tagged-result and tool-version doctor
+  diagnostics, `restore full --explain`, and full/collection sync integration
+  coverage without changing the original restore-repair boundary.
 - Validation passed: `npm run format:check` and `git diff --check`.
 
 ## Phase 10: Verification And Release Readiness
@@ -505,13 +512,14 @@ Also run `npm run build` before packaging so compiled output is proved independe
 
 Completion notes:
 
-- `npm run format:check`, `npm run lint`, `npm test` (148 tests),
+- `npm run format:check`, `npm run lint`, `npm test` (151 tests),
   `npm run typecheck`, and `npm run build` all pass.
 - `npm run test:restore-integration` now passes against a disposable local
   `mongod` with mongod 7.0.34 and MongoDB Database Tools 100.16.1.
 - No version cut, release branch promotion, tag, or publish was performed.
-- Follow-up `dbh --version` reporting is implemented separately from the restore
-  repair scope.
+- Follow-up `dbh --version`, `dbh restore full --explain`, doctor diagnostics,
+  and sync integration coverage are implemented in separate commits; release
+  publication and consumer replays remain outstanding.
 
 ## Acceptance Criteria
 
@@ -536,7 +544,6 @@ Completion notes:
 ## Deferred Work
 
 - broader `doctor` filesystem, free-space, state-directory, or supported-tool-range checks
-- public restore `--dry-run` or `--explain`
 - machine-readable `--json` command results
 - index metadata in backup manifests and post-restore index parity verification
 - document-level hashes or content-equivalence verification for arbitrary production collections
