@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.2
+
 - fixed `dbh doctor` on macOS by checking SSH and SCP executable availability instead of requiring unsupported version flags
 
 ## 0.2.1
