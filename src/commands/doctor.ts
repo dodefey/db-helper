@@ -1,4 +1,11 @@
-import { access, mkdir, statfs, unlink, writeFile } from "node:fs/promises";
+import {
+  access,
+  mkdir,
+  stat,
+  statfs,
+  unlink,
+  writeFile
+} from "node:fs/promises";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -66,6 +73,10 @@ export interface DoctorDependencies {
 
 const DEFAULT_DOCTOR_DEPENDENCIES: DoctorDependencies = {
   async ensureBinary(name: string): Promise<string> {
+    if (!TOOL_VERSION_FLOORS[name]) {
+      return findExecutable(name);
+    }
+
     const version = await runCommand(name, ["--version"], {
       streamOutput: false
     });
@@ -133,6 +144,26 @@ function formatDoctorLine(result: DoctorCheckResult): string {
 
 function formatBytes(bytes: number): string {
   return `${(bytes / 1024 ** 3).toFixed(2)} GiB`;
+}
+
+async function findExecutable(name: string): Promise<string> {
+  const pathEntries = process.env.PATH
+    ? process.env.PATH.split(path.delimiter)
+    : ["."];
+
+  for (const pathEntry of pathEntries) {
+    const candidate = path.join(pathEntry || ".", name);
+    try {
+      await access(candidate, constants.X_OK);
+      if ((await stat(candidate)).isFile()) {
+        return candidate;
+      }
+    } catch {
+      // Continue searching the remaining PATH entries.
+    }
+  }
+
+  throw new Error(`${name} executable not found on PATH`);
 }
 
 function firstVersionLine(output: string): string {

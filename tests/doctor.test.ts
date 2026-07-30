@@ -159,6 +159,26 @@ test("runDoctor reports success when all checks pass", async () => {
   assert.deepEqual(calls.connectivity, ["development", "test", "production"]);
 });
 
+test("runDoctor accepts availability results for SSH binaries", async () => {
+  const { dependencies, calls } = createDoctorDependencies({
+    async ensureBinary(name: string): Promise<string> {
+      calls.binaries.push(name);
+      return name === "ssh" || name === "scp"
+        ? `/usr/bin/${name}`
+        : doctorVersion(name);
+    }
+  });
+
+  await runDoctor(buildAppConfig(), dependencies);
+
+  assert.ok(
+    calls.output.some((line) => line.includes("PASS binary ssh: /usr/bin/ssh"))
+  );
+  assert.ok(
+    calls.output.some((line) => line.includes("PASS binary scp: /usr/bin/scp"))
+  );
+});
+
 test("runDoctor reports binary failure and continues", async () => {
   const { dependencies, calls } = createDoctorDependencies({
     async ensureBinary(name: string): Promise<string> {

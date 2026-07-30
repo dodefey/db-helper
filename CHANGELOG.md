@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- fixed `dbh doctor` on macOS by checking SSH and SCP executable availability instead of requiring unsupported version flags
+
 ## 0.2.1
 
 - strengthened `dbh doctor` with MongoDB tool-version floors, mongosh state-directory probes, free-space blockers, and warning summaries
