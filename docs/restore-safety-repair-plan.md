@@ -545,7 +545,8 @@ Completion notes:
 - local and remote paths share one tested namespace and inspection contract
 - real archive-backed tests prove collection isolation and full-restore exact replacement
 - disposable lifecycle integration covers backup, restore, sync, interruption/recovery,
-  diagnostic shell output, namespace isolation, and redaction; the same gate runs in CI
+  diagnostic shell output, namespace isolation, and redaction; the gate remains
+  available locally through `npm run test:restore-integration`
 - README and changelog match the shipped behavior
 - formatting, lint, unit tests, typechecking, build, integration tests, packaging inspection, and real smoke tests pass
 
@@ -565,6 +566,8 @@ Completion notes:
   collection restore, full and collection sync, interrupted restore with retry
   recovery, diagnostic shell output, namespace isolation, sentinel preservation,
   exact state assertions, and credential-redacted logs.
+- The former ad hoc GitHub workflow was removed in commit `ede7d92`; GitHub CI
+  policy remains intentionally undecided.
 - Validation passed: `npm run format:check`, `npm run lint`, `npm test` (157
   tests), `npm run typecheck`, `npm run build`, and
   `npm run test:restore-integration`.

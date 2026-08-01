@@ -557,7 +557,6 @@ npm run test:restore-integration
 ```
 
 It requires `mongod`, `mongosh`, `mongodump`, and `mongorestore` on `PATH`.
-The CI job provisions MongoDB server 8.0 and Database Tools 100.16.1; local
-runs should use the same or newer supported tools. The fixture creates a
-temporary authenticated server, credentials, port, and filesystem and removes
-them when the run exits.
+Local runs should use MongoDB server 8.0 and Database Tools 100.16.1 or newer
+supported tools. The fixture creates a temporary authenticated server,
+credentials, port, and filesystem and removes them when the run exits.
