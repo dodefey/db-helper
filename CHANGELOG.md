@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- replaced ESLint and TypeScript ESLint with Oxlint, explicitly preserving the existing recommended-rule policy and TypeScript overrides
+- replaced Prettier with Oxfmt for repository formatting while preserving the existing 80-column configuration
 - updated compatible development dependencies and transitive tooling packages, including ESLint, Prettier, tsx, TypeScript ESLint, and Node 24 types
 
 ## 0.2.2

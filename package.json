@@ -35,9 +35,9 @@
   "scripts": {
     "clean": "rm -rf dist",
     "build": "npm run clean && tsc -p tsconfig.json",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
-    "lint": "eslint .",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check",
+    "lint": "oxlint .",
     "prepack": "npm run build",
     "test": "tsx --test tests/**/*.test.ts",
     "test:restore-integration": "tsx scripts/restore-integration.ts",
@@ -46,12 +46,10 @@
     "start": "tsx src/cli.ts"
   },
   "devDependencies": {
-    "@eslint/js": "^10.0.1",
     "@types/node": "^24.19.2",
-    "eslint": "^10.12.0",
-    "prettier": "^3.9.10",
+    "oxfmt": "^0.73.0",
+    "oxlint": "^1.88.0",
     "tsx": "^4.23.15",
-    "typescript": "^5.9.0",
-    "typescript-eslint": "^8.71.2"
+    "typescript": "^5.9.0"
   }
 }

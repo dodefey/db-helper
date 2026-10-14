@@ -120,7 +120,12 @@ const DEFAULT_RUN_SYNC_DEPENDENCIES: RunSyncDependencies = {
 };
 
 type SyncPhase =
-  "source_metadata" | "dump" | "restore" | "prune" | "verify" | "cleanup";
+  | "source_metadata"
+  | "dump"
+  | "restore"
+  | "prune"
+  | "verify"
+  | "cleanup";
 
 const CLEANUP_FAILURE_STATUS =
   "Attempted to delete temporary sync artifacts, but cleanup may not have finished.";

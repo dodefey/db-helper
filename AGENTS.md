@@ -2,7 +2,7 @@
 
 ## Tooling Checks
 
-- Use Prettier for formatting and ESLint for linting in addition to TypeScript typechecking.
+- Use Oxfmt for formatting, Oxlint for linting, and TypeScript typechecking.
 - Do not run formatters or linters on every small edit. Apply them to files you touched before finishing a change.
 - Any file you touch should be reconciled to current repo standards before you finish the change.
 - For code files, that includes bringing the touched file into compliance with formatting, linting, and adjacent code-quality expectations rather than leaving known standards drift behind in edited sections.

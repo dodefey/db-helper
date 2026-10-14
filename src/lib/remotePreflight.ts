@@ -5,7 +5,9 @@ import { getRunLogger } from "./runLog.js";
 export type RemotePreflightCapability = "hostKeyAccess";
 
 export type RemotePreflightErrorCode =
-  "knownHostsAccess" | "hostNotTrusted" | "preflightFailed";
+  | "knownHostsAccess"
+  | "hostNotTrusted"
+  | "preflightFailed";
 
 export class RemotePreflightError extends Error {
   readonly code: RemotePreflightErrorCode;

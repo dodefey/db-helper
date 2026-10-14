@@ -21,10 +21,15 @@ type MongoShellOptions = {
 };
 
 export type RemoteOperationErrorCode =
-  "sshTransport" | "scpTransport" | "remoteCleanupFailed";
+  | "sshTransport"
+  | "scpTransport"
+  | "remoteCleanupFailed";
 
 export type RemoteOperation =
-  "ssh" | "scp-download" | "scp-upload" | "remote-cleanup";
+  | "ssh"
+  | "scp-download"
+  | "scp-upload"
+  | "remote-cleanup";
 
 export class RemoteOperationError extends Error {
   readonly code: RemoteOperationErrorCode;
@@ -593,7 +598,9 @@ export function parseArchiveCollections(
 }
 
 export type ArchiveMutationState =
-  "not_started" | "in_progress" | "subprocess_succeeded";
+  | "not_started"
+  | "in_progress"
+  | "subprocess_succeeded";
 
 export class ArchivePreflightError extends Error {
   constructor(cause: unknown) {
