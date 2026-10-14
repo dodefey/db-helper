@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- upgraded the TypeScript compiler to 7.0.2 for faster typechecks and builds
 - expanded TypeScript validation to cover tests and scripts alongside application source without emitting test or script files in builds
 - replaced ESLint and TypeScript ESLint with Oxlint, explicitly preserving the existing recommended-rule policy and TypeScript overrides
 - replaced Prettier with Oxfmt for repository formatting while preserving the existing 80-column configuration
