@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- expanded TypeScript validation to cover tests and scripts alongside application source without emitting test or script files in builds
 - replaced ESLint and TypeScript ESLint with Oxlint, explicitly preserving the existing recommended-rule policy and TypeScript overrides
 - replaced Prettier with Oxfmt for repository formatting while preserving the existing 80-column configuration
 - updated compatible development dependencies and transitive tooling packages, including ESLint, Prettier, tsx, TypeScript ESLint, and Node 24 types

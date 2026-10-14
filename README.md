@@ -546,6 +546,19 @@ The manifest includes the backup name, source environment, database name, timest
 
 See [RECOVERY.md](./RECOVERY.md) for the operator-focused restore flows.
 
+## Repository validation
+
+Run the complete repository validation before submitting changes:
+
+```bash
+# check formatting, lint, unit tests, TypeScript, and the distribution build
+npm run validate
+```
+
+`npm run typecheck` checks application source, tests, and scripts through
+`tsconfig.check.json`. The distribution build uses `tsconfig.json` and emits
+application source only.
+
 ## Disposable lifecycle integration test
 
 The real-Mongo regression gate exercises backup creation, full and collection

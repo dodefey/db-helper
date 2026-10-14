@@ -74,6 +74,9 @@ function createDependencies(
   output: string[];
 } {
   const output: string[] = [];
+  const unexpectedDependencyCall = (): never => {
+    throw new Error("Unexpected config command dependency call.");
+  };
 
   return {
     output,
@@ -84,6 +87,11 @@ function createDependencies(
       async loadConfig(): Promise<AppConfig> {
         return buildAppConfig();
       },
+      fileExists: unexpectedDependencyCall,
+      readFile: unexpectedDependencyCall,
+      ensureDirectory: unexpectedDependencyCall,
+      writeFile: unexpectedDependencyCall,
+      promptText: unexpectedDependencyCall,
       writeStdout(message: string): void {
         output.push(message);
       },

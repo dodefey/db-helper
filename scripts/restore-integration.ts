@@ -109,10 +109,9 @@ async function captureStdout(run: () => Promise<void>): Promise<string> {
 async function main(): Promise<void> {
   const versions = Object.fromEntries(
     await Promise.all(
-      requiredBinaries.map(async (binary) => [
-        binary,
-        await requireBinary(binary)
-      ])
+      requiredBinaries.map(
+        async (binary) => [binary, await requireBinary(binary)] as const
+      )
     )
   );
   const root = await mkdtemp(path.join(tmpdir(), "dbh-restore-integration-"));
@@ -288,7 +287,7 @@ async function main(): Promise<void> {
       ) ||
       JSON.stringify(generatedManifest.manifest.collectionList) !==
         JSON.stringify(["empty", "orders", "unrelated"]) ||
-      generatedManifest.manifest.collectionCounts.orders !== 2 ||
+      generatedManifest.manifest.collectionCounts?.orders !== 2 ||
       generatedManifest.manifest.tags[0] !== "integration"
     ) {
       throw new Error(
