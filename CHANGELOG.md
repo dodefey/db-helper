@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- updated compatible development dependencies and transitive tooling packages, including ESLint, Prettier, tsx, TypeScript ESLint, and Node 24 types
+
 ## 0.2.2
 
 - fixed `dbh doctor` on macOS by checking SSH and SCP executable availability instead of requiring unsupported version flags
