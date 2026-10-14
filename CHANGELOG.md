@@ -2,11 +2,15 @@
 
 ## Unreleased
 
+## 0.2.3
+
 - upgraded the TypeScript compiler to 7.0.2 for faster typechecks and builds
 - expanded TypeScript validation to cover tests and scripts alongside application source without emitting test or script files in builds
 - replaced ESLint and TypeScript ESLint with Oxlint, explicitly preserving the existing recommended-rule policy and TypeScript overrides
 - replaced Prettier with Oxfmt for repository formatting while preserving the existing 80-column configuration
-- updated compatible development dependencies and transitive tooling packages, including ESLint, Prettier, tsx, TypeScript ESLint, and Node 24 types
+- updated tsx, Node 24 types, and compatible transitive tooling dependencies
+- added `npm run validate` for formatting, lint, unit tests, TypeScript checks, and the distribution build
+- replaced the ad hoc GitHub integration workflow with documented local validation and disposable MongoDB lifecycle checks
 
 ## 0.2.2
 
