@@ -147,7 +147,7 @@ class FileRunLogger implements RunLogger {
 
   private enqueueWrite(content: string): void {
     this.pendingWrite = this.pendingWrite.then(() =>
-      appendFile(this.logPath, content, "utf8")
+      appendFile(this.logPath, content, { encoding: "utf8", mode: 0o600 })
     );
   }
 }
@@ -180,6 +180,6 @@ export async function createRunLogger(options: {
   const logRoot = options.logRoot ?? defaultLogRoot();
   await mkdir(logRoot, { recursive: true });
   const logPath = path.join(logRoot, buildLogFilename(options.commandName));
-  await writeFile(logPath, "", "utf8");
+  await writeFile(logPath, "", { encoding: "utf8", mode: 0o600, flag: "wx" });
   return new FileRunLogger(logPath);
 }

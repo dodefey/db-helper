@@ -146,6 +146,9 @@ state directory, and requires at least 1 GiB of free space in both configured
 backup and temp roots. State-directory problems are reported as warnings;
 unsupported tools, failed probes, and low free space are blockers.
 
+MongoDB passwords are redacted from doctor check output. Diagnostic run logs
+are created with owner-only permissions (0600).
+
 If you already have the old env-file format, import it instead:
 
 ```bash

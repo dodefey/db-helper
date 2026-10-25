@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- redacted MongoDB passwords from `doctor` check output, including failed subprocess commands and warnings
+- created diagnostic run logs with owner-only permissions, preserved when relocated
+
 ## 0.2.3
 
 - upgraded the TypeScript compiler to 7.0.2 for faster typechecks and builds

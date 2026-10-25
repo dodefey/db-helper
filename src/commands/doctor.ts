@@ -23,7 +23,7 @@ import {
 import { verifyConnectivity } from "../lib/mongo.js";
 import { ensureRemotePreflight } from "../lib/remotePreflight.js";
 import { runCommand } from "../lib/exec.js";
-import { getRunLogger } from "../lib/runLog.js";
+import { getRunLogger, redactText } from "../lib/runLog.js";
 
 const REQUIRED_BINARIES = [
   "mongodump",
@@ -139,7 +139,7 @@ function formatDoctorLine(result: DoctorCheckResult): string {
           ? " tempRoot"
           : ` environment ${result.scope}`;
 
-  return `${label}${scope} ${result.check}: ${result.message}\n`;
+  return redactText(`${label}${scope} ${result.check}: ${result.message}\n`);
 }
 
 function formatBytes(bytes: number): string {

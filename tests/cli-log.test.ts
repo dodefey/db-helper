@@ -1,6 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -61,7 +69,8 @@ function buildConfig(tempRoot: string, backupRoot: string): string {
 
 async function runCli(
   args: string[],
-  cwd: string
+  cwd: string,
+  env?: NodeJS.ProcessEnv
 ): Promise<{
   stdout: string;
   stderr: string;
@@ -69,7 +78,7 @@ async function runCli(
   return execFileAsync(
     path.join(cwd, "node_modules", ".bin", "tsx"),
     ["src/cli.ts", ...args],
-    { cwd }
+    { cwd, env: { ...process.env, ...env } }
   );
 }
 
@@ -200,4 +209,58 @@ test("cli prints grouped help without loading config", async () => {
 
   const help = await runCli(["--help"], cwd);
   assert.match(help.stdout, /--version/);
+});
+
+test("doctor CLI failure redacts credentials and retains a private log", async () => {
+  const cwd = path.resolve(".");
+  const root = await mkdtemp(path.join(tmpdir(), "db-helper-doctor-private-"));
+  const binRoot = path.join(root, "bin");
+  const tempRoot = path.join(root, "temp");
+  const backupRoot = path.join(root, "backups");
+  const configPath = path.join(root, "config.json");
+
+  try {
+    await mkdir(binRoot);
+    const fixture = `#!${process.execPath}
+const path = require("node:path");
+const name = path.basename(process.argv[1]);
+if (name === "mongosh" && !process.argv.includes("--version")) {
+  console.error("Synthetic connection failure: " + process.argv[2]);
+  process.exit(17);
+}
+console.log(name === "mongosh" ? "2.9.2" : "100.16.1");
+`;
+    for (const name of ["mongosh", "mongodump", "mongorestore", "ssh", "scp"]) {
+      await writeFile(path.join(binRoot, name), fixture, { mode: 0o700 });
+    }
+    const config = JSON.parse(buildConfig(tempRoot, backupRoot));
+    config.environments = { development: config.environments.development };
+    config.environments.development.mongoPassword =
+      "synthetic@private-password";
+    await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
+
+    let logPath: string | undefined;
+    await assert.rejects(
+      runCli(["doctor", "--config", configPath], cwd, {
+        PATH: `${binRoot}${path.delimiter}${process.env.PATH ?? ""}`,
+        MONGOSH_CONFIG_DIR: path.join(root, "mongosh-state")
+      }),
+      (error: Error & { stdout?: string; stderr?: string }) => {
+        const terminal = `${error.stdout ?? ""}${error.stderr ?? ""}`;
+        assert.match(terminal, /Doctor checks failed: 1 issue\(s\)/);
+        assert.match(terminal, /Synthetic connection failure/);
+        assert.match(terminal, /mongodb:\/\/user:<redacted>@localhost/);
+        assert.doesNotMatch(terminal, /synthetic(?:@|%40)private-password/);
+        logPath = terminal.match(/Debug log saved: (.+\.log)/)?.[1];
+        return true;
+      }
+    );
+    assert.ok(logPath);
+    assert.equal((await stat(logPath)).mode & 0o777, 0o600);
+    const log = await readFile(logPath, "utf8");
+    assert.match(log, /Synthetic connection failure/);
+    assert.doesNotMatch(log, /synthetic(?:@|%40)private-password/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

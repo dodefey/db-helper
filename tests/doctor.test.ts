@@ -309,7 +309,7 @@ test("runDoctor preserves blockers alongside warnings", async () => {
 });
 
 test("runDoctor warning logs redact credential-like content", async () => {
-  const { dependencies } = createDoctorDependencies({
+  const { dependencies, calls } = createDoctorDependencies({
     async probeMongoShellState(): Promise<string> {
       throw new Error(
         "mongosh state probe failed for mongodb://user:secret-pass@localhost"
@@ -322,6 +322,8 @@ test("runDoctor warning logs redact credential-like content", async () => {
   });
 
   assert.doesNotMatch(logContent, /secret-pass/);
+  assert.doesNotMatch(calls.output.join(""), /secret-pass/);
+  assert.match(calls.output.join(""), /mongodb:\/\/user:<redacted>@localhost/);
   assert.match(logContent, /Doctor checks passed with warnings/);
 });
 
