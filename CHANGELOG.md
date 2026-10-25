@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.2.4
+
 - redacted MongoDB passwords from `doctor` check output, including failed subprocess commands and warnings
 - created diagnostic run logs with owner-only permissions, preserved when relocated
 
