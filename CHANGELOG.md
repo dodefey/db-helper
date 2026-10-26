@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.3.0
+
 - added `backup list --json` with a versioned inventory, validated manifest metadata, archive presence and size, allocated disk bytes, explicit per-entry issues, and an observation timestamp
 - made CLI backup listings retain damaged or unclassifiable entries instead of aborting or hiding them; missing roots now fail explicitly, and partial queries exit with status 2
 - added read-only `backup usage` reporting local backup/temp filesystem capacity, user-available bytes, and shared-filesystem identity, with JSON and text output modes
