@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- added `backup list --json` with a versioned inventory, validated manifest metadata, archive presence and size, allocated disk bytes, explicit per-entry issues, and an observation timestamp
+- made CLI backup listings retain damaged or unclassifiable entries instead of aborting or hiding them; missing roots now fail explicitly, and partial queries exit with status 2
+- added read-only `backup usage` reporting local backup/temp filesystem capacity, user-available bytes, and shared-filesystem identity, with JSON and text output modes
+- kept JSON query stdout to one document on success and failure, including `--log`; query diagnostics remain in the OS temporary directory without creating configured storage paths
+- aligned `backup list` columns and added allocated disk usage per backup directory plus a total for the displayed backups
+- added `backup list --quiet` tab-separated output with allocated bytes as the final field, and `--verbose` backup paths; unavailable sizes are reported as unknown
+
 ## 0.2.4
 
 - redacted MongoDB passwords from `doctor` check output, including failed subprocess commands and warnings

@@ -1,11 +1,4 @@
-import {
-  access,
-  mkdir,
-  stat,
-  statfs,
-  unlink,
-  writeFile
-} from "node:fs/promises";
+import { access, mkdir, stat, unlink, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -24,6 +17,7 @@ import { verifyConnectivity } from "../lib/mongo.js";
 import { ensureRemotePreflight } from "../lib/remotePreflight.js";
 import { runCommand } from "../lib/exec.js";
 import { getRunLogger, redactText } from "../lib/runLog.js";
+import { getFilesystemCapacity } from "../lib/storage.js";
 
 const REQUIRED_BINARIES = [
   "mongodump",
@@ -87,8 +81,7 @@ const DEFAULT_DOCTOR_DEPENDENCIES: DoctorDependencies = {
   },
   assertWritable,
   async getFreeSpace(path: string): Promise<number> {
-    const stats = await statfs(path);
-    return stats.bavail * stats.bsize;
+    return (await getFilesystemCapacity(path)).availableBytes;
   },
   async probeMongoShellState(): Promise<string> {
     const stateDirectory =

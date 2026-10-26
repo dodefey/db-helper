@@ -159,6 +159,21 @@ Persisted debug logs are separate from terminal output modes.
 - failures should retain the run log automatically and report its saved path
 - persisted run logs should not be treated as a substitute for the terminal output contract
 
+## Backup Query JSON Output
+
+- `backup list --json` and `backup usage --json` emit exactly one versioned JSON
+  document on stdout, including fatal failures
+- `--json` selects a format independently of quiet/verbose modes; neither mode
+  changes the JSON schema, and quiet/verbose remain mutually exclusive
+- human diagnostics and retained-log notifications go to stderr in JSON mode;
+  the report also includes the retained `debugLogPath`, or null
+- exit status 0 means no query issues, 2 means a partial result or per-entry
+  issues, and 1 means fatal failure; artifact presence never implies restore
+  verification
+- read-only queries retain logs directly in the OS temporary directory so
+  logging does not create configured storage roots before they are inspected
+- the public contract is documented in [backup query output](docs/backup-query-output.md)
+
 ## Current Priority
 
 When touching command output next, prioritize:

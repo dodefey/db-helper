@@ -347,7 +347,8 @@ CLI forms:
 
 ```bash
 dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
-dbh backup list [--from <environment>] [--tag <tag>]
+dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
+dbh backup usage [--json] [--quiet] [--verbose]
 dbh backup inspect --backup <backup-name>
 ```
 
@@ -359,7 +360,65 @@ Required flags:
 Optional flags:
 
 - `backup create`: `--name`, `--note`, `--tag`, `--quiet`, `--verbose`, `--log`
-- `backup list`: `--from`, `--tag`
+- `backup list`: `--from`, `--tag`, `--json`, `--quiet`, `--verbose`, `--log`
+- `backup usage`: `--json`, `--quiet`, `--verbose`, `--log`
+
+`backup list` displays aligned columns for the backup name, source environment,
+creation time in UTC, allocated disk usage, and tags, followed by a total for the
+displayed backups. Disk usage includes the whole backup directory, including
+the compressed archive, manifest, and any additional files. It is measured from
+filesystem allocation in binary units (KiB, MiB, GiB), without reading archive
+contents or following symbolic links. Hard links within each backup are counted
+once; blocks shared across backups or copy-on-write clones can still be counted
+more than once, so the total is not a guaranteed reclaimable-space estimate.
+An unreadable or disappearing directory shows `unknown`, and the summary labels
+the total as known usage with a count of unavailable sizes.
+
+For scripts, `backup list --quiet` emits rows without headers or a total:
+`name<TAB>environment<TAB>createdAt<TAB>tags<TAB>allocatedBytes`.
+Unavailable sizes use `unknown`. `--verbose` also prints each backup's path.
+
+### Machine inventory and storage capacity
+
+Read a versioned backup inventory with typed metadata, artifact states, and byte
+measurements:
+
+```bash
+dbh backup list --json
+```
+
+Filter by a configured source environment and tag:
+
+```bash
+dbh backup list --from production --tag recovery --json
+```
+
+Entries with unreadable or invalid metadata remain visible with
+`matchesFilters: null` because their environment or tags cannot be established.
+The inventory distinguishes missing/empty archives from present archives, and
+reports `verification: "not-performed"`; presence does not prove restorability.
+
+Read capacity and available bytes for the configured backup and local temp paths:
+
+```bash
+dbh backup usage --json
+```
+
+Both queries support text output, `--quiet`, `--verbose`, and `--log`. With
+`--json`, stdout contains exactly one JSON document, including on failure; mode
+flags do not change its schema. Diagnostic log paths go to stderr and are also
+included as `debugLogPath` when retained. Queries perform no database or SSH
+checks and do not create configured directories; they only write diagnostic logs
+directly in the OS temporary directory. Capacity observations are not space
+reservations, and capacity is never added across paths that may share storage.
+
+Query exit codes are `0` for a complete result without issues, `2` for partial
+results or entries with issues, and `1` when the root cannot be listed, neither
+capacity location can be measured, or the command fails. A missing backup root
+is an error, while an existing empty root is a successful empty catalog.
+
+See [backup query output](docs/backup-query-output.md) for the JSON schema,
+measurement semantics, filtering rules, and issue codes.
 
 Output modes for `backup create`:
 

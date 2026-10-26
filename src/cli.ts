@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { tmpdir } from "node:os";
 import {
   getRecommendedUserConfigPath,
   loadConfig
@@ -12,7 +13,20 @@ import {
   printSyncHelp
 } from "./cliHelp.js";
 import { AppConfig, EnvironmentId } from "./config/types.js";
-import { backupCreate, backupInspect, backupList } from "./commands/backup.js";
+import { backupCreate, backupInspect } from "./commands/backup.js";
+import {
+  formatBackupList,
+  formatBackupUsage
+} from "./commands/backupListOutput.js";
+import { collectBackupCatalog } from "./lib/backupCatalog.js";
+import { collectBackupUsage } from "./lib/storage.js";
+import {
+  QueryError,
+  QueryReport,
+  queryExitCode,
+  queryIssue,
+  queryReport
+} from "./lib/queryReport.js";
 import {
   runConfigPath,
   runConfigShow,
@@ -28,7 +42,12 @@ import { restoreCollection, restoreFull } from "./commands/restore.js";
 import { syncDatabase } from "./commands/sync.js";
 import { createCommandInvocationContext } from "./lib/invocationContext.js";
 import { parseOutputMode } from "./lib/output.js";
-import { createRunLogger, getRunLogger, setRunLogger } from "./lib/runLog.js";
+import {
+  createRunLogger,
+  getRunLogger,
+  setRunLogger,
+  redactText
+} from "./lib/runLog.js";
 import { TOOL_VERSION } from "./version.js";
 
 type ParsedArgs = {
@@ -86,18 +105,83 @@ function resolveEnvironment(
   flagName: string
 ): EnvironmentId {
   if (!value) {
-    throw new Error(`Missing required flag ${flagName}`);
+    throw new QueryError(
+      "INVALID_ARGUMENTS",
+      `Missing required flag ${flagName}`
+    );
   }
   if (!appConfig.environments[value]) {
-    throw new Error(`Unknown environment ${flagName}: ${value}`);
+    throw new QueryError(
+      "INVALID_ARGUMENTS",
+      `Unknown environment ${flagName}: ${value}`
+    );
   }
 
   return value;
 }
 
+const args = parseArgs(process.argv.slice(2));
+const jsonRequested = process.argv
+  .slice(2)
+  .some((argument) => argument === "--json" || argument.startsWith("--json="));
+const backupQuery =
+  args.positional[0] === "backup" &&
+  ["list", "usage"].includes(args.positional[1]);
+
+function validateQueryArguments(): void {
+  if (
+    jsonRequested &&
+    (!backupQuery ||
+      args.flags.json !== true ||
+      args.flags.help ||
+      args.flags.version)
+  ) {
+    throw new QueryError(
+      "INVALID_ARGUMENTS",
+      "Use --json without a value on backup list or backup usage; help and version cannot be combined with --json."
+    );
+  }
+  if (!backupQuery) return;
+  const allowed = new Set([
+    "config",
+    "log",
+    "quiet",
+    "verbose",
+    "json",
+    "help",
+    ...(args.positional[1] === "list" ? ["from", "tag"] : [])
+  ]);
+  if (args.positional.length !== 2)
+    throw new QueryError(
+      "INVALID_ARGUMENTS",
+      "Unexpected positional arguments for backup query."
+    );
+  for (const [name, value] of Object.entries(args.flags)) {
+    if (!allowed.has(name))
+      throw new QueryError("INVALID_ARGUMENTS", `Unknown flag --${name}`);
+    const takesValue = ["config", "from", "tag"].includes(name);
+    if (
+      takesValue ? typeof value !== "string" || !value.trim() : value !== true
+    ) {
+      throw new QueryError(
+        "INVALID_ARGUMENTS",
+        `Flag --${name} ${takesValue ? "requires a value" : "does not accept a value"}.`
+      );
+    }
+  }
+  if (args.flags.quiet && args.flags.verbose)
+    throw new QueryError(
+      "INVALID_ARGUMENTS",
+      "Flags --quiet and --verbose cannot be used together"
+    );
+}
+
 async function main(): Promise<void> {
-  const args = parseArgs(process.argv.slice(2));
-  if (args.flags.version === true && args.positional.length === 0) {
+  if (
+    !jsonRequested &&
+    args.flags.version === true &&
+    args.positional.length === 0
+  ) {
     process.stdout.write(`dbh ${TOOL_VERSION}\n`);
     return;
   }
@@ -105,7 +189,10 @@ async function main(): Promise<void> {
   const [command, subcommand, third] = args.positional;
   const keepDebugLog = getBooleanFlag(args.flags, "log");
   const commandName = command || "help";
-  const runLogger = await createRunLogger({ commandName });
+  const runLogger = await createRunLogger({
+    commandName,
+    ...(backupQuery ? { logRoot: tmpdir() } : {})
+  });
   setRunLogger(runLogger);
   runLogger.info("cli", "CLI invocation started", {
     command,
@@ -120,6 +207,36 @@ async function main(): Promise<void> {
     }
     setRunLogger();
   };
+  const finishQuery = async <T>(
+    report: QueryReport<T>,
+    humanOutput: string
+  ): Promise<void> => {
+    for (const issue of report.issues)
+      runLogger.warn("backup.query", issue.message, issue);
+    if (report.status === "ok")
+      await runLogger.finalizeSuccess({ keep: keepDebugLog });
+    else await runLogger.finalizeFailure();
+    if (keepDebugLog || report.status !== "ok")
+      report.debugLogPath = runLogger.logPath || null;
+    process.stdout.write(
+      jsonRequested ? `${JSON.stringify(report, null, 2)}\n` : humanOutput
+    );
+    if (!jsonRequested) {
+      for (const issue of report.issues)
+        process.stderr.write(
+          `${issue.code}: ${issue.message} ${issue.path ?? ""}\n`
+        );
+    }
+    if (report.debugLogPath)
+      (jsonRequested || report.status !== "ok"
+        ? process.stderr
+        : process.stdout
+      ).write(`Debug log saved: ${report.debugLogPath}\n`);
+    setRunLogger();
+    process.exitCode = queryExitCode(report.status);
+  };
+
+  validateQueryArguments();
 
   if (!command || command === "--help" || command === "help") {
     runLogger.info("cli", "Printing help");
@@ -249,9 +366,21 @@ async function main(): Promise<void> {
       break;
   }
 
-  const appConfig = await loadConfig(getFlag(args.flags, "config"));
-  await runLogger.relocate(path.join(appConfig.tempRoot, "logs"));
-  runLogger.info("cli", "Loaded config and relocated run log", {
+  let appConfig: AppConfig;
+  try {
+    appConfig = await loadConfig(getFlag(args.flags, "config"));
+  } catch (error) {
+    if (backupQuery)
+      throw new QueryError(
+        "CONFIG_ERROR",
+        redactText(error instanceof Error ? error.message : String(error))
+      );
+    throw error;
+  }
+  // Queries must not create a missing configured temp root just to relocate a log.
+  if (!backupQuery)
+    await runLogger.relocate(path.join(appConfig.tempRoot, "logs"));
+  runLogger.info("cli", "Loaded config", {
     tempRoot: appConfig.tempRoot
   });
 
@@ -287,7 +416,7 @@ async function main(): Promise<void> {
       }
       if (subcommand === "list") {
         runLogger.info("cli", "Running backup list");
-        const records = await backupList(appConfig, {
+        const report = await collectBackupCatalog(appConfig.backupRoot, {
           from: getFlag(args.flags, "from")
             ? resolveEnvironment(
                 appConfig,
@@ -297,12 +426,17 @@ async function main(): Promise<void> {
             : undefined,
           tag: getFlag(args.flags, "tag")
         });
-        for (const record of records) {
-          process.stdout.write(
-            `${record.name}\t${record.manifest.sourceEnvironment}\t${record.manifest.createdAt}\t${record.manifest.tags.join(",") || "-"}\n`
-          );
-        }
-        await finishSuccess();
+        await finishQuery(
+          report,
+          report.status === "error"
+            ? ""
+            : formatBackupList(report.data.backups, outputMode)
+        );
+        return;
+      }
+      if (subcommand === "usage") {
+        const report = await collectBackupUsage(appConfig);
+        await finishQuery(report, formatBackupUsage(report.data, outputMode));
         return;
       }
       if (subcommand === "inspect") {
@@ -452,8 +586,29 @@ main().catch((error) => {
     error.alreadyReported !== true;
 
   void (async () => {
-    await runLogger.finalizeFailure();
-    if (shouldPrint) {
+    // Still return a JSON failure if diagnostic log persistence itself fails.
+    try {
+      await runLogger.finalizeFailure();
+    } catch {
+      /* The original command failure remains primary. */
+    }
+    if (jsonRequested) {
+      const report = queryReport(
+        args.positional.slice(0, 2).join("."),
+        null,
+        [
+          queryIssue(
+            error instanceof QueryError ? error.code : "COMMAND_FAILED",
+            null,
+            error instanceof Error ? error.message : String(error)
+          )
+        ],
+        "error"
+      );
+      report.debugLogPath = runLogger.logPath || null;
+      process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+    }
+    if (shouldPrint && !jsonRequested) {
       process.stderr.write(
         `${error instanceof Error ? error.message : String(error)}\n`
       );

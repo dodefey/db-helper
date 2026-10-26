@@ -17,7 +17,8 @@ Commands:
   config show [--unredacted]
   interactive
   backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
-  backup list [--from <environment>] [--tag <tag>]
+  backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
+  backup usage [--json] [--quiet] [--verbose]
   backup inspect --backup <backup-name>
   sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
   sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
@@ -76,7 +77,8 @@ Purpose:
 
 Usage:
   dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
-  dbh backup list [--from <environment>] [--tag <tag>]
+  dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
+  dbh backup usage [--json] [--quiet] [--verbose]
   dbh backup inspect --backup <backup-name>
 
 Commands:
@@ -85,7 +87,14 @@ Commands:
     Use --name to set an explicit backup directory name.
 
   list
-    List backups, newest first.
+    List backups, newest first, with allocated disk usage and a displayed total.
+    Use --quiet for tab-separated rows with disk usage in bytes as the last field.
+    Use --verbose to also show backup paths.
+    Use --json for a versioned inventory with explicit artifact states and issues.
+
+  usage
+    Report local backup and temp filesystem capacity without database or SSH checks.
+    Use --json for exact bytes and shared-filesystem information.
 
   inspect
     Print one backup manifest as JSON.
@@ -95,6 +104,9 @@ Required flags:
   inspect: --backup
 
 Important notes:
+  List and usage exit 0 on success, 2 for partial results, and 1 on failure.
+  JSON output is one document on stdout; diagnostic log paths go to stderr.
+  Listed archives have not undergone archive verification.
   --name overrides the default timestamp-based backup name.
   Interrupted backups should not be trusted unless the command completed successfully.
   Run doctor first if tooling, SSH, or connectivity is in doubt.
@@ -102,6 +114,8 @@ Important notes:
 Examples:
   dbh backup create --from production
   dbh backup create --from production --name before-maintenance
+  dbh backup list --json
+  dbh backup usage --json
   dbh backup inspect --backup 2026-03-16T10-30-00-production
 `);
 }

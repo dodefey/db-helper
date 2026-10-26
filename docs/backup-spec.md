@@ -19,7 +19,8 @@ CLI forms:
 
 ```bash
 dbh backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
-dbh backup list [--from <environment>] [--tag <tag>]
+dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
+dbh backup usage [--json] [--quiet] [--verbose]
 dbh backup inspect --backup <backup-name>
 ```
 
@@ -31,7 +32,8 @@ Required flags:
 Optional flags:
 
 - `backup create`: `--note`, `--tag`, `--quiet`, `--verbose`
-- `backup list`: `--from`, `--tag`
+- `backup list`: `--from`, `--tag`, `--json`, `--quiet`, `--verbose`, `--log`
+- `backup usage`: `--json`, `--quiet`, `--verbose`, `--log`
 
 No selective collection backup mode is supported.
 
@@ -120,6 +122,35 @@ The implementation must keep those details internal to the execution layer.
 ## Output Contract
 
 Backup output should be concise and operator-oriented.
+
+`backup list` displays a padded table, newest first, with backup name, source
+environment, creation time in UTC, allocated disk usage, and tags. Its summary
+totals only the displayed backups after filtering. Usage includes the complete
+backup directory and directory entries, uses filesystem allocation in 512-byte
+blocks, skips symlink targets, and counts hard links once within each backup.
+Shared blocks across backups or copy-on-write clones may be counted more than
+once; the total does not promise reclaimable space. A measurement failure keeps
+the backup visible with `unknown` usage and labels the total as known usage with
+an unavailable count. Missing archives are not interpreted as zero-size archives;
+listing remains a catalog operation rather than artifact validation.
+
+For list output, `--quiet` emits only tab-separated rows in this order: name,
+environment, createdAt, tags, allocated bytes (or `unknown`). `--verbose` includes
+the default table and summary plus backup paths and paths with unavailable
+usage. An existing empty root prints `No backups found.` by default or nothing
+in quiet mode. A missing or unreadable root fails explicitly. Per-entry manifest,
+archive, and allocation issues retain healthy results and exit with status 2;
+issues are printed to stderr for text output. Metadata that cannot be classified
+by a filter remains visible with unknown metadata. Quiet and verbose flags are
+mutually exclusive.
+
+`backup list --json` and `backup usage --json` follow the versioned contract in
+[backup-query-output.md](backup-query-output.md). They emit one JSON document on
+stdout, including errors, and keep diagnostics on stderr. Both queries only
+inspect local filesystems and write diagnostic logs in the OS temporary directory;
+they do not create configured storage directories or invoke MongoDB/SSH checks.
+Capacity reporting never aggregates free space across locations. Archive
+verification is explicitly not performed by listing.
 
 At minimum, normal output should make clear:
 
