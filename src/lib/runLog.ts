@@ -149,6 +149,9 @@ class FileRunLogger implements RunLogger {
     this.pendingWrite = this.pendingWrite.then(() =>
       appendFile(this.logPath, content, { encoding: "utf8", mode: 0o600 })
     );
+    // Keep the failure for finalization without rejecting an unattended promise
+    // while the command is still doing other asynchronous work.
+    void this.pendingWrite.catch(() => {});
   }
 }
 

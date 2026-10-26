@@ -1,12 +1,75 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   runQuery,
   withQueryFixture,
   writeFixtureBackup
 } from "./backup-query-helpers.js";
+
+const execFileAsync = promisify(execFile);
+
+test("JSON queries report diagnostic log write failures without an unhandled rejection", async () => {
+  await withQueryFixture(async ({ root, configPath }) => {
+    const preload = path.join(root, "fail-log.mjs");
+    await writeFile(
+      preload,
+      `import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
+fs.appendFile = async () => {
+  throw Object.assign(new Error("Synthetic log volume full"), { code: "ENOSPC" });
+};
+const readFile = fs.readFile;
+fs.readFile = async (...args) => {
+  if (String(args[0]) === ${JSON.stringify(configPath)}) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return readFile(...args);
+};
+syncBuiltinESMExports();
+`
+    );
+    for (const subcommand of ["list", "usage"]) {
+      await assert.rejects(
+        execFileAsync(
+          process.execPath,
+          [
+            "--import",
+            preload,
+            "--import",
+            "tsx",
+            "src/cli.ts",
+            "backup",
+            subcommand,
+            "--config",
+            configPath,
+            "--json"
+          ],
+          { env: { ...process.env, TMPDIR: root, TEMP: root, TMP: root } }
+        ),
+        (
+          error: Error & { code?: number; stdout?: string; stderr?: string }
+        ) => {
+          assert.equal(error.code, 1);
+          const report = JSON.parse(error.stdout ?? "");
+          assert.equal(report.command, `backup.${subcommand}`);
+          assert.equal(report.status, "error");
+          assert.equal(report.data, null);
+          assert.equal(report.issues[0].code, "COMMAND_FAILED");
+          assert.equal(report.issues[0].message, "Synthetic log volume full");
+          assert.equal(
+            error.stderr,
+            `Debug log saved: ${report.debugLogPath}\n`
+          );
+          return true;
+        }
+      );
+    }
+  });
+});
 
 test("JSON list is one document with stable metadata, typed measurements, and clean stdout with --log and --verbose", async () => {
   await withQueryFixture(async ({ backupRoot, configPath }) => {

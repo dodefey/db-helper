@@ -6,6 +6,7 @@
 - made CLI backup listings retain damaged or unclassifiable entries instead of aborting or hiding them; missing roots now fail explicitly, and partial queries exit with status 2
 - added read-only `backup usage` reporting local backup/temp filesystem capacity, user-available bytes, and shared-filesystem identity, with JSON and text output modes
 - kept JSON query stdout to one document on success and failure, including `--log`; query diagnostics remain in the OS temporary directory without creating configured storage paths
+- preserved JSON query failure reports when diagnostic log writes fail during collection
 - aligned `backup list` columns and added allocated disk usage per backup directory plus a total for the displayed backups
 - added `backup list --quiet` tab-separated output with allocated bytes as the final field, and `--verbose` backup paths; unavailable sizes are reported as unknown
 
