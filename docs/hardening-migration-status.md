@@ -63,7 +63,10 @@ real archive-backed backup creation, interrupted restore and retry recovery,
 diagnostic stdout before tagged shell results, and retains the full restore,
 collection restore, sync, namespace-isolation, sentinel-preservation, and
 redaction matrix. It runs locally with `npm run test:restore-integration`.
-The repository does not currently configure a GitHub CI workflow.
+The repository's GitHub Actions workflow runs `npm ci` and `npm run validate`
+on pull requests targeting `development` and `main`, and on pushes to other
+branches, using `.nvmrc` on Ubuntu.
+The disposable lifecycle integration test remains a separate local check.
 
 Important restore notes from live testing:
 

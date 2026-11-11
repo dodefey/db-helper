@@ -2,6 +2,10 @@
 
 `db-helper` is a standalone TypeScript CLI for safe Mongo backup, sync, restore, recovery, and maintenance operations across one or more named environments. The executable command is `dbh`.
 
+Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup,
+testing, and pull request guidelines. Discuss feature work in an issue before
+implementing it; maintainers can help run the MongoDB integration tests.
+
 ## Setup
 
 The standalone setup flow is now:
@@ -192,7 +196,9 @@ dbh config validate
 dbh doctor
 ```
 
-For repo-local development, you can still install from the current checkout instead:
+For repo-local development, use the Node.js version pinned in [.nvmrc](.nvmrc).
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup with nvm and running from source.
+You can also install from the current checkout:
 
 ```bash
 # install directly from the current repo checkout
@@ -620,6 +626,12 @@ npm run validate
 `npm run typecheck` checks application source, tests, and scripts through
 `tsconfig.check.json`. The distribution build uses `tsconfig.json` and emits
 application source only.
+
+The [GitHub Actions workflow](.github/workflows/validate.yml) runs `npm ci` and
+`npm run validate` on pull requests targeting `development` and `main`, and on
+pushes to other branches, using the Node.js version pinned in `.nvmrc`. Push
+validation supports fast-forward promotion of an exact checked release commit.
+The disposable MongoDB integration test remains a separate check.
 
 ## Disposable lifecycle integration test
 

@@ -36,6 +36,7 @@ Default when no target is provided:
 - Check branch context before any substantive mutation.
 - `development` is the default branch for non-hotfix work and release preparation.
 - Run feature and refactor work on dedicated work branches based on `development`.
+- Prepare release commits on an approved short-lived work branch based on `development`; validate the exact commit with GitHub Actions before protected-branch promotion.
 - Release publication is from `main` only.
 - Branch creation/switching requires explicit user approval.
 - Treat any non-hotfix commit discovered on `main` as a policy violation and stop for user direction.
@@ -62,6 +63,8 @@ When asked to start or run a release:
 
 1. Verify current branch is `development`.
 2. Verify fully clean working tree.
+   - Fetch and reconcile `development` with the chosen remote before preparation.
+   - Obtain approval to create/switch to a short-lived release work branch based on `development`, unless already authorized in the session. Perform the remaining preparation on that branch.
 3. Resolve target SemVer:
    - explicit version if provided
    - otherwise bump current package version by requested bump type (`patch` default)
@@ -82,9 +85,9 @@ When asked to start or run a release:
 8. Build and inspect publish artifact:
    - `npm pack`
    - fallback: `npm pack --cache /tmp/dbh-npm-cache` when default npm cache is blocked
-9. Commit release prep on `development` with exact version as subject (example: `0.1.7`).
-10. Push `development`.
-11. Merge `development` into `main` with fast-forward-only and push `main`.
+9. Commit release prep on the release work branch with exact version as subject (example: `0.1.7`).
+10. Push the work branch and wait for the push-triggered `Repository validation` check from GitHub Actions to complete successfully on the exact release commit. Local checks or a passing PR merge commit are not substitutes. Any changed commit must be pushed and validated again.
+11. Fetch both protected branches and confirm both can be fast-forwarded to the validated release commit. Fast-forward `development` and push it, then fast-forward `main` to that same commit and push it. If either branch diverges, stop and reconcile on the work branch, then validate the resulting commit before promotion. Never bypass the required check or create another release commit during promotion.
 12. Create annotated tag on the `main` release commit and push the tag.
 13. Re-authenticate npm immediately before publish:
     - `npm login`
@@ -130,18 +133,42 @@ npm pack
 ```
 
 ```bash
-# Create release commit on development and annotated SemVer tag on main.
+# Commit release preparation on the approved work branch.
 git add package.json package-lock.json src/version.ts CHANGELOG.md
 git commit -m "X.Y.Z"
+# Push the work branch, not a protected branch, to trigger validation.
+git push <remote> HEAD
+```
+
+Record the release commit SHA and verify that the push-triggered
+`Repository validation` check from GitHub Actions completed successfully for it.
+Do not run the promotion commands until that check passes. The placeholders
+below must be replaced with the chosen remote and that exact validated SHA.
+
+```bash
+# Refresh protected branches and check both before mutating either one.
+git fetch <remote>
+git merge-base --is-ancestor <remote>/development <validated-release-sha>
+git merge-base --is-ancestor <remote>/main <validated-release-sha>
+```
+
+Stop if either ancestry check fails. Reconcile on the work branch and obtain a
+new passing check before trying again. Run the following stages individually;
+stop on any failed merge or push.
+
+```bash
+# Promote the validated release commit into development.
+git checkout development
+git merge --ff-only <remote>/development
+git merge --ff-only <validated-release-sha>
 git push <remote> development
 ```
 
 ```bash
-# Promote release into main using fast-forward-only history, then tag.
+# Promote the same validated release commit into main, then tag.
 git checkout main
-git fetch <remote>
 git merge --ff-only <remote>/main
-git merge --ff-only development
+git merge --ff-only <validated-release-sha>
 git push <remote> main
 git tag -a "vX.Y.Z" -m "vX.Y.Z"
 git push <remote> "vX.Y.Z"

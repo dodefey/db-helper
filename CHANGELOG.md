@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- required the GitHub Actions `Repository validation` check before updates to `development` and `main`, with an active repository ruleset and no bypass actors
+- added GitHub Actions validation for pull requests targeting `development` and `main` and pushes to other branches, using the pinned Node.js version, `npm ci`, and `npm run validate`
+- reconciled release instructions to validate an exact release commit on a work branch before fast-forward promotion into protected branches
+- pinned the development Node.js version to 24.20.0 in `.nvmrc` and documented runtime selection before installing dependencies
+- added a contributor guide covering development setup, feature discussion, validation, pull requests targeting `development`, and maintainer help with integration testing
+
 ## 0.3.0
 
 - added `backup list --json` with a versioned inventory, validated manifest metadata, archive presence and size, allocated disk bytes, explicit per-entry issues, and an observation timestamp
