@@ -631,7 +631,8 @@ The [GitHub Actions workflow](.github/workflows/validate.yml) runs `npm ci` and
 `npm run validate` on pull requests targeting `development` and `main`, and on
 pushes to other branches, using the Node.js version pinned in `.nvmrc`. Push
 validation supports fast-forward promotion of an exact checked release commit.
-The disposable MongoDB integration test remains a separate check.
+The disposable MongoDB integration test runs in a separate `MongoDB integration`
+job on the same events. That job is not a required merge check yet.
 
 ## Disposable lifecycle integration test
 
@@ -640,6 +641,7 @@ restore, full and collection sync, interrupted backup/restore/sync recovery,
 diagnostic `mongosh` output, namespace isolation, and redacted run logs:
 
 ```bash
+# exercise lifecycle operations against a temporary local MongoDB server
 npm run test:restore-integration
 ```
 
@@ -647,3 +649,8 @@ It requires `mongod`, `mongosh`, `mongodump`, and `mongorestore` on `PATH`.
 Local runs should use MongoDB server 8.0 and Database Tools 100.16.1 or newer
 supported tools. The fixture creates a temporary authenticated server,
 credentials, port, and filesystem and removes them when the run exits.
+
+CI pins Ubuntu 24.04, MongoDB Server 8.0.38, Database Tools 100.16.1, and
+mongosh 2.9.2. The workflow verifies archive SHA-256 checksums and installed tool
+versions before running the fixture. No operational database credentials or SSH
+access are needed.

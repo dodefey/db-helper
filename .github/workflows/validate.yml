@@ -39,3 +39,73 @@ jobs:
 
       - name: Validate repository
         run: npm run validate
+
+  mongodb-integration:
+    name: MongoDB integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      MONGODB_VERSION: 8.0.38
+      MONGODB_SHA256: 2885d4382bd47b96bfaf3edc7dec0ef44463e3e2a79479f584d20deb6182cda9
+      MONGODB_TOOLS_VERSION: 100.16.1
+      MONGODB_TOOLS_SHA256: 0b5aea1b9935e066adfd4795f4aaa83fc3feca03204169fa5285d8dd4dfce0cc
+      MONGOSH_VERSION: 2.9.2
+      MONGOSH_SHA256: b0febe385c10c9be755c29095ffa95a42bed16ea6625ea3fbde36ae33b42da79
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install pinned MongoDB tooling
+        shell: bash
+        run: |
+          tools_root="$RUNNER_TEMP/mongodb-tools"
+          mkdir -p "$tools_root"
+          cd "$tools_root"
+
+          # Download exact tool versions from MongoDB's official servers.
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://fastdl.mongodb.org/linux/mongodb-linux-x86_64-ubuntu2404-${MONGODB_VERSION}.tgz" \
+            --output server.tgz
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://fastdl.mongodb.org/tools/db/mongodb-database-tools-ubuntu2404-x86_64-${MONGODB_TOOLS_VERSION}.tgz" \
+            --output tools.tgz
+          curl --fail --silent --show-error --location --retry 3 \
+            "https://downloads.mongodb.com/compass/mongosh-${MONGOSH_VERSION}-linux-x64.tgz" \
+            --output shell.tgz
+
+          # Reject unexpected archive contents before extracting executables.
+          printf '%s  %s\n' \
+            "$MONGODB_SHA256" server.tgz \
+            "$MONGODB_TOOLS_SHA256" tools.tgz \
+            "$MONGOSH_SHA256" shell.tgz | sha256sum --check --strict
+          tar -xzf server.tgz
+          tar -xzf tools.tgz
+          tar -xzf shell.tgz
+
+          # Keep tools discoverable in the fixture's login-shell subprocesses.
+          sudo ln -sf "$tools_root/mongodb-linux-x86_64-ubuntu2404-${MONGODB_VERSION}/bin/mongod" /usr/local/bin/mongod
+          sudo ln -sf "$tools_root/mongodb-database-tools-ubuntu2404-x86_64-${MONGODB_TOOLS_VERSION}/bin/mongodump" /usr/local/bin/mongodump
+          sudo ln -sf "$tools_root/mongodb-database-tools-ubuntu2404-x86_64-${MONGODB_TOOLS_VERSION}/bin/mongorestore" /usr/local/bin/mongorestore
+          sudo ln -sf "$tools_root/mongosh-${MONGOSH_VERSION}-linux-x64/bin/mongosh" /usr/local/bin/mongosh
+
+      - name: Verify installed tool versions
+        shell: bash
+        run: |
+          mongod --version | grep -Fx "db version v${MONGODB_VERSION}"
+          mongodump --version | grep -Fx "mongodump version: ${MONGODB_TOOLS_VERSION}"
+          mongorestore --version | grep -Fx "mongorestore version: ${MONGODB_TOOLS_VERSION}"
+          test "$(mongosh --version)" = "$MONGOSH_VERSION"
+
+      - name: Run disposable MongoDB integration test
+        run: npm run test:restore-integration

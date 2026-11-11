@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- added a separate MongoDB integration job using Ubuntu 24.04, MongoDB Server 8.0.38, Database Tools 100.16.1, and mongosh 2.9.2, with checksum-verified tooling; the job is not a required merge check
 - required the GitHub Actions `Repository validation` check before updates to `development` and `main`, with an active repository ruleset and no bypass actors
 - added GitHub Actions validation for pull requests targeting `development` and `main` and pushes to other branches, using the pinned Node.js version, `npm ci`, and `npm run validate`
 - reconciled release instructions to validate an exact release commit on a work branch before fast-forward promotion into protected branches

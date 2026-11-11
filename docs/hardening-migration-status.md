@@ -66,7 +66,9 @@ redaction matrix. It runs locally with `npm run test:restore-integration`.
 The repository's GitHub Actions workflow runs `npm ci` and `npm run validate`
 on pull requests targeting `development` and `main`, and on pushes to other
 branches, using `.nvmrc` on Ubuntu.
-The disposable lifecycle integration test remains a separate local check.
+The disposable lifecycle integration test also runs in a separate, non-required
+`MongoDB integration` job, with Ubuntu 24.04, MongoDB Server 8.0.38, Database Tools
+100.16.1, and mongosh 2.9.2 pinned and archive checksums verified.
 
 Important restore notes from live testing:
 

@@ -133,11 +133,16 @@ The `Repository validation` check from GitHub Actions is required before merging
 into either branch. Fix failed checks and wait for validation to pass before
 merging.
 
-Neither this command nor the PR workflow runs the real-MongoDB integration test.
-Changes affecting
-backup, sync, restore, or their execution paths also need that test before merge.
-If you cannot run it locally, open the PR, say so, and ask a maintainer to run it.
-Missing local MongoDB tooling does not prevent you from contributing.
+`npm run validate` does not run the real-MongoDB integration test. The workflow
+runs it in a separate `MongoDB integration` job on the same push and PR events.
+That job uses Ubuntu 24.04, MongoDB Server 8.0.38, Database Tools 100.16.1, and
+mongosh 2.9.2, with archive SHA-256 pins recorded in the workflow. It is not a
+required merge check yet; `Repository validation` remains the required check.
+
+Changes affecting backup, sync, restore, or their execution paths also need
+integration testing before merge. If you cannot run it locally, use the CI job
+and ask a maintainer for help with any failures. Missing local MongoDB tooling
+does not prevent you from contributing.
 
 With `mongod`, `mongosh`, `mongodump`, and `mongorestore` on `PATH`, run the
 integration test separately:
