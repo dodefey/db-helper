@@ -67,11 +67,7 @@ Validation is still required as part of the release flow.
 2. Decide the SemVer bump (`major`, `minor`, or `patch`) using the documented change scope.
 3. Update `package.json`, `package-lock.json`, `src/version.ts`, and `CHANGELOG.md` to the target version.
 4. Run changed-file formatting as needed during normal work.
-5. Run full repository checks:
-   - `npm run format:check`
-   - `npm run lint`
-   - `npm test`
-   - `npm run typecheck`
+5. Run focused local checks appropriate to the release changes. Full local `npm run validate` is optional; the complete validation gate runs on GitHub before promotion in step 8. MongoDB integration remains optional.
 6. Build and inspect the publish artifact:
    - `npm pack`
    - If default npm cache access is blocked, use `npm pack --cache /tmp/dbh-npm-cache`

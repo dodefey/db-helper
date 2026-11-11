@@ -77,11 +77,7 @@ When asked to start or run a release:
    - `package-lock.json`
    - `src/version.ts`
    - `CHANGELOG.md`
-7. Run full repository checks:
-   - `npm run format:check`
-   - `npm run lint`
-   - `npm test`
-   - `npm run typecheck`
+7. Run focused local checks appropriate to the release changes. Full local `npm run validate` is optional; the complete GitHub validation gate must pass on the release commit in step 10 before promotion. MongoDB integration remains optional.
 8. Build and inspect publish artifact:
    - `npm pack`
    - fallback: `npm pack --cache /tmp/dbh-npm-cache` when default npm cache is blocked
@@ -120,11 +116,9 @@ npm install --package-lock-only
 ```
 
 ```bash
-# Run required full-repo validation checks.
-npm run format:check
-npm run lint
-npm test
-npm run typecheck
+# Optionally run the complete suite locally when useful for diagnosis.
+# Focused local checks suffice before committing; GitHub validation gates promotion.
+npm run validate
 ```
 
 ```bash

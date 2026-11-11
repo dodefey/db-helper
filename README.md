@@ -616,7 +616,9 @@ See [RECOVERY.md](./RECOVERY.md) for the operator-focused restore flows.
 
 ## Repository validation
 
-Run the complete repository validation before submitting changes:
+Before committing, run focused local checks appropriate to the change, as
+described in [CONTRIBUTING.md](CONTRIBUTING.md). Full repository validation is
+available locally when useful:
 
 ```bash
 # check formatting, lint, unit tests, TypeScript, and the distribution build
@@ -633,6 +635,10 @@ pushes to other branches, using the Node.js version pinned in `.nvmrc`. Push
 validation supports fast-forward promotion of an exact checked release commit.
 The disposable MongoDB integration test runs in a separate `MongoDB integration`
 job on the same events. That job is not a required merge check yet.
+
+Before merging, the current PR revision must pass `Repository validation` on
+GitHub. Direct promotions require that check to pass on the exact commit being
+promoted. Full local validation does not replace the GitHub check.
 
 ## Disposable lifecycle integration test
 

@@ -109,14 +109,18 @@ Add or update tests for behavior, validation, safety, and execution-flow changes
 Documentation-only and purely mechanical changes do not need new tests. If a
 behavior change has no test update, explain why in the pull request.
 
-Run a focused test while working; this example checks restore behavior:
+Before committing, format the files you changed and run local checks focused on
+the affected behavior. Use targeted linting or TypeScript checks where useful;
+documentation-only changes need formatting and link/consistency checks rather
+than application tests. This example checks restore behavior:
 
 ```bash
 # Run one test file using the same TypeScript loader as the test suite.
 node --import tsx --test tests/restore.test.ts
 ```
 
-Before submitting, run the complete repository validation:
+You can also run the complete repository validation locally when useful, but it
+is not required before every commit or before submitting a PR:
 
 ```bash
 # Check formatting, lint, all ordinary tests, TypeScript, and the build.
@@ -129,19 +133,24 @@ pushes to other branches, using the Node.js version in `.nvmrc` on an Ubuntu
 runner. Push validation lets an exact commit pass before a fast-forward release
 promotion; a branch with an open PR can trigger both push and PR validation.
 
-The `Repository validation` check from GitHub Actions is required before merging
-into either branch. Fix failed checks and wait for validation to pass before
-merging.
+Full GitHub validation is required before merging into either branch. Fix failed
+checks and wait for `Repository validation` to pass for the current PR revision.
+If you push more changes, wait for the updated revision to pass. For direct
+fast-forward promotions, the push-triggered check must pass on the exact commit
+being promoted; a local result or a check on a different commit is not a
+substitute.
 
 `npm run validate` does not run the real-MongoDB integration test. The workflow
 runs it in a separate `MongoDB integration` job on the same push and PR events.
 That job uses Ubuntu 24.04, MongoDB Server 8.0.38, Database Tools 100.16.1, and
 mongosh 2.9.2, with archive SHA-256 pins recorded in the workflow. It is not a
-required merge check yet; `Repository validation` remains the required check.
+required merge or promotion check; `Repository validation` remains the required
+check.
 
-Changes affecting backup, sync, restore, or their execution paths also need
-integration testing before merge. If you cannot run it locally, use the CI job
-and ask a maintainer for help with any failures. Missing local MongoDB tooling
+For changes affecting backup, sync, restore, or their execution paths, integration
+testing is useful additional evidence. You can use the CI job or run it locally;
+neither is a mandatory pre-commit or merge gate. Report relevant results or
+failures, and ask a maintainer for help when needed. Missing local MongoDB tooling
 does not prevent you from contributing.
 
 With `mongod`, `mongosh`, `mongodump`, and `mongorestore` on `PATH`, run the

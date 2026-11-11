@@ -11,11 +11,11 @@
 - If a touched change affects behavior, the touched area should be reconciled to current testing expectations too, including adding or updating tests when reasonable.
 - If a behavior change ships without new or updated tests, explain why in the work summary or commit context.
 - Before creating a commit, pause for review unless the user explicitly says to commit without review.
-- Before creating a commit, run the full repo checks:
-  - `npm run format:check`
-  - `npm run lint`
-  - `npm test`
-  - `npm run typecheck`
+- Before creating a commit, run focused local checks appropriate to the change: format touched files, run relevant tests for behavior changes, and use targeted linting or TypeScript checks where useful. Documentation-only changes need formatting and link/consistency checks rather than application tests.
+- Full local validation with `npm run validate` is optional during development; use it when it helps diagnose or verify a change, rather than repeating it before every commit.
+- Before merging PRs into `development` or `main`, wait for GitHub Actions `Repository validation` to pass for the current PR revision. This job runs `npm ci` and `npm run validate`, covering repository formatting, lint, all ordinary tests, typechecking, and the build.
+- Before directly promoting a commit into either protected branch, verify that the same GitHub Actions check passed on that exact commit via a work-branch push. Changed commits must be validated again; local success or a passing check on a different commit is not a substitute.
+- The separate `MongoDB integration` job remains optional and is not a required merge or promotion check. Use it or run the fixture locally when useful for database lifecycle changes, and report relevant results or failures.
 
 ## Editing Expectations
 
@@ -46,7 +46,7 @@
 - If release prep needs its own commit, use `Prepare X.Y.Z release`.
 - The version-cut commit should use the exact version as its subject, for example `0.1.5`.
 - Cut releases only from a clean `main` branch, and publish only from the exact tagged release commit.
-- Before cutting a release, move shipped work out of `## Unreleased`, update every shipped version reference in `package.json`, `package-lock.json`, and `src/version.ts`, then run the full repo checks.
+- Before cutting a release, move shipped work out of `## Unreleased`, update every shipped version reference in `package.json`, `package-lock.json`, and `src/version.ts`, run focused local checks, and obtain passing full GitHub validation on the exact release commit before promotion. Release artifact inspection and install/executable smoke tests remain separate requirements.
 - Release tags must be annotated tags named `vX.Y.Z`.
 - Before publishing, have the agent run `npm pack` and inspect the tarball contents. If `~/.npm` is blocked by root-owned files, use `npm pack --cache /tmp/dbh-npm-cache` instead of changing the operator's home directory.
 - Immediately before every publish attempt, require fresh npm authentication with `npm login` followed by `npm whoami`. Do not rely on earlier-session auth checks.
