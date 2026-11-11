@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- added short README terminal recordings covering backup-and-restore, configuration and doctor checks, backup inventory and storage, full and collection sync, restore previews, production safeguards, and guided recovery using disposable local MongoDB data, with machine-specific storage readings omitted
+
 ## 0.3.1
 
 - clarified the README introduction with concrete MongoDB workflows, production safeguards, external tool requirements, and a quick start before the detailed setup walkthrough

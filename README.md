@@ -11,6 +11,14 @@ databases and remote hosts over SSH. The executable is `dbh`.
 - Refresh a development or staging database from another configured environment.
 - Restore a full database or one collection from a named backup.
 
+![Terminal recording: back up three sample orders, delete them, and restore all three.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/backup-restore.gif)
+
+Three fictional orders, backed up and restored using real CLI commands. The
+`demo` environment and `$DEMO_URI` were configured against a temporary local
+MongoDB server before recording. Pauses are adjusted for readability.
+The setup clip below creates `setup.json`; the other workflow clips use a
+prepared `config.json` and URI variables for their disposable sample databases.
+
 Named environments keep connection details out of everyday commands. Production
 safeguards block sync into environments marked as production and require an
 explicit flag for production restores. Restore checks archive namespaces before
@@ -69,6 +77,13 @@ The setup flow is:
 1. `dbh init`
 2. `dbh config validate`
 3. `dbh doctor`
+
+![Configuration recording: create a config, validate and inspect it, then run doctor.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/setup-config.gif)
+
+Recorded against a temporary local MongoDB server. The credentials entered during
+setup are fictional and were removed with that server; `config show` redacts the
+password while leaving the username visible. Machine-specific free-space figures
+are omitted from the recording.
 
 ### Init Walkthrough
 
@@ -365,6 +380,14 @@ Global flags:
 
 It creates a timestamped backup directory under the configured backup root, writes `dump.archive.gz`, writes `manifest.json`, and validates the result before reporting success. If backup creation fails or is interrupted, `dbh` treats the result as invalid and attempts cleanup of incomplete artifacts.
 
+![Backup recording: create a tagged backup with a retained log, list and inspect it, check storage, and query JSON inventory.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/backup-catalog.gif)
+
+The JSON example uses `jq` to select inventory fields. The archive's
+`verification: "not-performed"` value describes the read-only inventory query,
+which does not prove restorability.
+Machine-specific free-space and filesystem-capacity figures are omitted from the
+recording; backup sizes describe the synthetic sample archive.
+
 ### Usage
 
 Run `doctor` first if tooling, SSH, or database connectivity is in doubt.
@@ -499,6 +522,12 @@ Debug log retention:
 
 It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. Full sync inspects the archive before mutation and verifies the final collection set; an interrupted restore can still leave the target in a dirty state.
 
+![Sync recording: replace a sample staging database, then sync just orders while preserving an unrelated note.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/sync.gif)
+
+Both `demo` and `staging` are preconfigured disposable local databases. The final
+query shows three synced orders and the unrelated note left intact by collection
+sync.
+
 ### Usage
 
 Run `doctor` first if tooling, SSH, or database connectivity is in doubt. If the target matters and you want a recovery point, create a backup before running `sync`.
@@ -585,6 +614,12 @@ Operator expectations:
 
 It is a backup-to-target recovery workflow, not a merge tool. Before mutation, restore inspects the archive and confirms its normal-user collection set matches the manifest. `restore full` then replaces the target with drop enabled, removes target-only normal-user collections, verifies the exact final set and counts, and enforces stronger safeguards for environments marked `isProduction: true`. `restore collection` preflights and restores only one named collection, then verifies that collection's presence and count; unrelated target collections remain untouched.
 
+![Restore recording: preview a full restore, restore the database, then recover only orders while preserving an unrelated note.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/restore.gif)
+
+The preview reports that no mutation was performed. The collection restore at the
+end recovers the sample orders while preserving a note created after the full
+restore. `$STAGING_URI` points to the temporary sample database.
+
 ### Usage
 
 Run `doctor` first if tooling, SSH, or database connectivity is in doubt. Before restoring into an environment marked `isProduction: true`, review the backup manifest with `backup inspect` so you know exactly which snapshot you are applying.
@@ -669,6 +704,14 @@ The manifest includes the backup name, source environment, database name, timest
 ## Recovery Guide
 
 See [RECOVERY.md](./RECOVERY.md) for the operator-focused restore flows.
+
+![Recovery recording: block sync and restore into a production-marked sample target, then use interactive guided recovery.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/recovery-safeguards.gif)
+
+`guarded` is a disposable local database marked `isProduction: true`; both blocked
+operations are intentional. Guided recovery is selected through `dbh interactive`.
+The standalone `dbh recover` command starts the same recovery flow. All databases
+and credentials in these recordings were removed after capture; long output is
+paged and pauses are adjusted for readability.
 
 ## Repository validation
 
