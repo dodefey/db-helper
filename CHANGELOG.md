@@ -2,9 +2,12 @@
 
 ## Unreleased
 
+## 0.3.3
+
 - corrected recovery examples to use the installed `dbh` executable
 - made the example configuration structurally valid with explicit credential placeholders and a portable home-relative backup path, and documented required edits before connection checks
 - added a first-backup and backup-list step to the README quick start
+- included the recovery guide in the published npm package
 
 ## 0.3.2
 
