@@ -4,7 +4,7 @@
     "defaultDropOnRestore": true
   },
   "paths": {
-    "backupRoot": "/Users/your-user/db-backups",
+    "backupRoot": "~/db-helper-backups",
     "tempRoot": "/tmp/db-helper"
   },
   "environments": {
@@ -15,8 +15,8 @@
       "mongoHost": "localhost",
       "mongoPort": 27017,
       "databaseName": "development",
-      "mongoUser": "",
-      "mongoPassword": "changeme",
+      "mongoUser": "REPLACE_WITH_LOCAL_MONGO_USER",
+      "mongoPassword": "REPLACE_WITH_LOCAL_MONGO_PASSWORD",
       "isProduction": false
     },
     "staging": {
@@ -28,8 +28,8 @@
       "databaseName": "development",
       "sshUser": "",
       "sshKeyPath": "",
-      "mongoUser": "",
-      "mongoPassword": "changeme",
+      "mongoUser": "REPLACE_WITH_STAGING_MONGO_USER",
+      "mongoPassword": "REPLACE_WITH_STAGING_MONGO_PASSWORD",
       "isProduction": false
     },
     "live": {
@@ -41,8 +41,8 @@
       "databaseName": "production",
       "sshUser": "",
       "sshKeyPath": "",
-      "mongoUser": "",
-      "mongoPassword": "changeme",
+      "mongoUser": "REPLACE_WITH_PRODUCTION_MONGO_USER",
+      "mongoPassword": "REPLACE_WITH_PRODUCTION_MONGO_PASSWORD",
       "isProduction": true
     }
   }

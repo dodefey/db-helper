@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- corrected recovery examples to use the installed `dbh` executable
+- made the example configuration structurally valid with explicit credential placeholders and a portable home-relative backup path, and documented required edits before connection checks
+- added a first-backup and backup-list step to the README quick start
+
 ## 0.3.2
 
 - added short README terminal recordings covering backup-and-restore, configuration and doctor checks, backup inventory and storage, full and collection sync, restore previews, production safeguards, and guided recovery using disposable local MongoDB data, with machine-specific storage readings omitted

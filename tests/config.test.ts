@@ -4,6 +4,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import {
   getDefaultConfigCandidates,
   getRecommendedUserConfigPath,
@@ -19,6 +20,17 @@ async function withTempDir<T>(run: (dir: string) => Promise<T>): Promise<T> {
     await rm(dir, { recursive: true, force: true });
   }
 }
+
+test("shipped example config loads with portable storage and production safeguards", async () => {
+  const config = await loadConfig(
+    fileURLToPath(new URL("../config.example.json", import.meta.url))
+  );
+
+  assert.equal(config.backupRoot, path.join(homedir(), "db-helper-backups"));
+  assert.equal(config.environments.local.isProduction, false);
+  assert.equal(config.environments.staging.isProduction, false);
+  assert.equal(config.environments.live.isProduction, true);
+});
 
 test("loadConfig parses a valid config file", async () => {
   await withTempDir(async (dir) => {

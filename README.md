@@ -63,6 +63,21 @@ Check tools and database connectivity:
 dbh doctor
 ```
 
+Create your first backup. This example assumes you kept the default environment
+name `development` during `dbh init`; substitute your chosen name if different:
+
+```bash
+# Back up the configured development database without changing its data.
+dbh backup create --from development
+```
+
+List the saved backup and note its name for later inspection or restore:
+
+```bash
+# Show backups created from this environment.
+dbh backup list --from development
+```
+
 For the prompts and configuration options, continue with [setup](#setup). For
 backup, sync, and restore examples, see the [command reference](#command-reference).
 
@@ -238,6 +253,14 @@ By default, the CLI looks for configuration in this order:
 - a repo-local fallback config during development
 
 You can always override that with `--config <path>`.
+
+For manual configuration, use [config.example.json](config.example.json) as a
+template. Replace every `REPLACE_WITH_...` username and password, the example
+remote hosts, and any database names or paths that differ from your setup. Remove
+environments you do not need. Blank SSH user/key fields use your existing SSH
+configuration or agent. `config validate` checks the file's structure; a passing
+result does not mean the placeholder credentials or hosts can connect. Run
+`doctor` against your edited configuration to check tooling and connectivity.
 
 To check the installed executable version without loading configuration:
 
