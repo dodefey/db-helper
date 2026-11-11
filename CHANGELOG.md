@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- clarified the README introduction with concrete MongoDB workflows, production safeguards, external tool requirements, and a quick start before the detailed setup walkthrough
 - moved full pre-merge and promotion validation to GitHub Actions, with focused local checks before commits and optional MongoDB integration; retained separate release artifact and smoke-test requirements
 - added a separate MongoDB integration job using Ubuntu 24.04, MongoDB Server 8.0.38, Database Tools 100.16.1, and mongosh 2.9.2, with checksum-verified tooling; the job is not a required merge check
 - required the GitHub Actions `Repository validation` check before updates to `development` and `main`, with an active repository ruleset and no bypass actors

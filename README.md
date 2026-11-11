@@ -1,6 +1,62 @@
 # db-helper
 
-`db-helper` is a standalone TypeScript CLI for safe Mongo backup, sync, restore, recovery, and maintenance operations across one or more named environments. The executable command is `dbh`.
+Back up MongoDB, restore a database or collection, and sync data between named
+environments from your terminal.
+
+`db-helper` wraps MongoDB's command-line tools in repeatable workflows for local
+databases and remote hosts over SSH. The executable is `dbh`.
+
+- Create a backup before maintenance, with an archive and a manifest recording
+  its source, collections, and available document counts.
+- Refresh a development or staging database from another configured environment.
+- Restore a full database or one collection from a named backup.
+
+Named environments keep connection details out of everyday commands. Production
+safeguards block sync into environments marked as production and require an
+explicit flag for production restores. Restore checks archive namespaces before
+changing the target and verifies restored collections against backup metadata.
+
+Sync and full restore replace target data. See the [safety model](#safety-model)
+and [recovery guide](RECOVERY.md) before using them on data you need to keep.
+
+## Quick start
+
+You need Node.js 20 or newer, MongoDB Database Tools (`mongodump` and
+`mongorestore`) 100.16.1 or newer, and `mongosh` 2.9.2 or newer. `doctor` also
+requires `ssh` and `scp`, which are used for remote operations. Have a MongoDB
+instance available to configure; installing this package does not install a
+database server or those external tools.
+
+Install the published CLI:
+
+```bash
+# Install db-helper so the dbh command is available.
+npm install -g @dodefey/db-helper
+```
+
+Create a configuration with your environment names and connection details:
+
+```bash
+# Configure the databases you want to work with.
+dbh init
+```
+
+Validate the configuration:
+
+```bash
+# Check configuration shape and required values.
+dbh config validate
+```
+
+Check tools and database connectivity:
+
+```bash
+# Check tooling, connectivity, and available backup/temp space.
+dbh doctor
+```
+
+For the prompts and configuration options, continue with [setup](#setup). For
+backup, sync, and restore examples, see the [command reference](#command-reference).
 
 Want to help? See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup,
 testing, and pull request guidelines. Discuss feature work in an issue before
@@ -8,7 +64,7 @@ implementing it; maintainers can help run the MongoDB integration tests.
 
 ## Setup
 
-The standalone setup flow is now:
+The setup flow is:
 
 1. `dbh init`
 2. `dbh config validate`
