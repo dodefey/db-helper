@@ -23,8 +23,8 @@
 - Verify completion from an explicit review result or the Codex integration's completion signal associated with that revision. A queued request, an in-progress indicator, no comments, or elapsed time is not completion evidence. A local Codex review does not replace the GitHub review.
 - Inspect the submitted review and all review threads before merging. Fix actionable findings; record evidence for findings rejected as inapplicable or incorrect. A completed review with unresolved actionable findings does not pass this gate.
 - After pushing changes, obtain review completion for the new head and passing required checks again. Do not use a review of an earlier revision as approval for the new one.
-- If review fails to run or remains unavailable, report the missing review and obtain explicit user approval for a review-gate exception before merging. Do not infer an exception from a timeout. This exception does not waive required GitHub Actions checks.
-- This is an operator merge requirement; it is not currently enforced by a required GitHub status check. For direct release promotions, retain the exact-commit push-validation requirement above. If a PR covers the release candidate, complete its automated review gate before promoting that candidate, even when promotion uses fast-forward pushes.
+- If review fails to run or remains unavailable, report the missing review and obtain explicit user approval for a review-gate exception before merging or directly promoting a PR-covered release candidate. Do not infer an exception from a timeout. This exception does not waive required GitHub Actions checks.
+- This is an operator merge requirement; it is not currently enforced by a required GitHub status check. For direct release promotions, retain the exact-commit push-validation requirement above. If a PR covers the release candidate, complete its automated review gate or obtain the explicit review-gate exception above before promoting that candidate, even when promotion uses fast-forward pushes.
 
 ## Editing Expectations
 
