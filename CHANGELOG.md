@@ -2,8 +2,9 @@
 
 ## Unreleased
 
-- required a pre-release documentation and editorial review with checked-in notes and candidate-bound review evidence; added release checks for version alignment, notes, evidence, and local links to repository validation
+## 0.4.1
 
+- required a pre-release documentation and editorial review with checked-in notes and candidate-bound review evidence; added release checks for version alignment, notes, evidence, and local links to repository validation
 - aligned command references with backup delete/prune, required collection-sync flags, and full-restore explain support; reconciled release version selection and documented GitHub release notes and isolated package verification
 
 ## 0.4.0

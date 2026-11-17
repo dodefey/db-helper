@@ -1,0 +1,35 @@
+{
+  "version": "0.4.1",
+  "previousTag": "v0.4.0",
+  "reviewer": "Codex built-in release documentation review",
+  "result": "pass",
+  "editorial": "pass",
+  "openFindings": [],
+  "contentSha256": "a03985ec31e873cf6e0cd7deb6a9baae8764a0f1c79fa70c001c60db2e9f7a85",
+  "surfaces": {
+    "readme": {
+      "status": "reviewed",
+      "evidence": "README.md and RECOVERY.md checked against node bin/dbh.js --help and node bin/dbh.js backup --help; candidate local links and anchors passed npm run release:check."
+    },
+    "commands": {
+      "status": "reviewed",
+      "evidence": "docs/backup-spec.md, docs/restore-spec.md, docs/sync-spec.md, and RECOVERY.md reviewed against CLI help and implementation in the v0.4.1 candidate."
+    },
+    "changelog": {
+      "status": "reviewed",
+      "evidence": "CHANGELOG.md reviewed; 0.4.1 entries moved from Unreleased and aligned with the candidate changes."
+    },
+    "releaseNotes": {
+      "status": "reviewed",
+      "evidence": "docs/releases/0.4.1.md reviewed for required sections, install instructions, safety statements, and candidate-tag links; the built-in candidate review finding about the pending record was resolved before the final pass."
+    },
+    "github": {
+      "status": "reviewed",
+      "evidence": "GitHub repository metadata checked with gh api repos/dodefey/db-helper; Pages is not configured. The v0.4.0 GitHub release notes were read back. Candidate default-branch README and version links are included; tagged-link readback remains required after tagging."
+    },
+    "package": {
+      "status": "reviewed",
+      "evidence": "npm pack --cache /tmp/dbh-npm-cache --pack-destination <external-temp-dir> produced @dodefey/db-helper@0.4.1; README.md, RECOVERY.md, and config.example.json matched candidate sources, and packed bin/dbh.js --version printed dbh 0.4.1."
+    }
+  }
+}
