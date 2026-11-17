@@ -1,0 +1,35 @@
+{
+  "version": "0.4.2",
+  "previousTag": "v0.4.1",
+  "reviewer": "Codex built-in release candidate review",
+  "result": "pass",
+  "editorial": "pass",
+  "openFindings": [],
+  "contentSha256": "6e004c51ef9f8507709223d7e7dc83691a767a7ed4eef951c0657b5fc690b8f6",
+  "surfaces": {
+    "readme": {
+      "status": "reviewed",
+      "evidence": "README.md and RECOVERY.md reviewed against candidate backup/restore CLI help; command forms and install guidance remain accurate. Local links and anchors passed."
+    },
+    "commands": {
+      "status": "reviewed",
+      "evidence": "src/lib/backupActivity.ts and src/commands/backupPrune.ts compared with docs/backup-spec.md and output-standards.md. Error cleanup and logging fixes preserve the documented CLI contract; no command syntax changes."
+    },
+    "changelog": {
+      "status": "reviewed",
+      "evidence": "CHANGELOG.md reviewed against all changes since v0.4.1; fixes and review policy moved from Unreleased into 0.4.2 without duplication."
+    },
+    "releaseNotes": {
+      "status": "reviewed",
+      "evidence": "docs/releases/0.4.2.md reviewed for all required sections, accurate guard cleanup limits, log sanitization, review policy, annotated install/version commands, and candidate-tag links. Built-in review of all 16 changed files found only the intentionally pending record, now completed."
+    },
+    "github": {
+      "status": "reviewed",
+      "evidence": "gh api repos/dodefey/db-helper confirmed main as default branch, no Pages, and no homepage. Repository description remains accurate. Candidate README and hosted target paths reviewed; future-tag links passed candidate checks. Hosted readback remains required after tagging."
+    },
+    "package": {
+      "status": "reviewed",
+      "evidence": "npm pack --cache /tmp/dbh-npm-cache --pack-destination <external-temp-dir> inspected: 114 files; README.md, RECOVERY.md, and config.example.json match candidate. Fresh temporary-prefix tarball installation and exact installed executable report dbh 0.4.2; backup help smoke passed."
+    }
+  }
+}
