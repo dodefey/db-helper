@@ -122,7 +122,8 @@ accuracy and the editorial criteria, not merely the author running a script.
 
 After final edits and formatting, run `npm run --silent release:check -- --fingerprint`
 and put its digest in `contentSha256`. It covers all tracked and non-ignored
-candidate files except this review record, so documentation or code edits
+candidate files except this review record, using Git-cleaned content so checkout
+line endings do not change the digest. Documentation or code edits
 invalidate the review; staging and committing unchanged files do not. Re-review
 changed content before updating the fingerprint. Commit the notes and review
 record with the release candidate. No transient chat or post-publication handoff
@@ -131,7 +132,8 @@ can replace this record.
 Run `npm run release:check` before committing, promoting, and tagging. It rejects
 missing/empty notes sections, missing or incomplete review evidence, open findings,
 stale candidate fingerprints, mismatched package/lockfile/CLI versions, missing
-changelog entries, and broken local file/Markdown-heading links in release notes,
+changelog entries, shipped entries duplicated under Unreleased, an incorrect
+previous release tag, and broken local file/Markdown-heading links in release notes,
 README, recovery guidance, and changed Markdown files. Notes must use sections
 `Changes`, `Safety and compatibility`, `Install and verify`, and `Documentation`,
 and link the tagged README, changelog, and previous-version comparison. Future-tag

@@ -2,7 +2,14 @@ import test from "node:test";
 import fs from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import assert from "node:assert/strict";
-import { mkdir, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  rm,
+  symlink,
+  writeFile
+} from "node:fs/promises";
 import path from "node:path";
 import { planBackupPrune, executeBackupPrune } from "../src/lib/backupPrune.js";
 import { backupPrune } from "../src/commands/backupPrune.js";
@@ -366,4 +373,47 @@ test("planning rejects manifests changed after catalog validation, including non
       }
     });
   }
+});
+
+test("prune CLI retained logs omit manifest identities and sensitive metadata", async () => {
+  await withQueryFixture(async ({ backupRoot, configPath }) => {
+    await seed(backupRoot);
+    for (const name of ["older", "newer"]) {
+      const file = path.join(backupRoot, name, "manifest.json");
+      const manifest = JSON.parse(await readFile(file, "utf8"));
+      await writeFile(
+        file,
+        JSON.stringify({
+          ...manifest,
+          note: "private-note-sentinel",
+          mongoPassword: "private-password-sentinel"
+        })
+      );
+    }
+    const result = await runQuery(
+      configPath,
+      "prune",
+      "--keep-last",
+      "1",
+      "--dry-run",
+      "--log"
+    );
+    assert.equal(result.code, 0);
+    const logPath = /Debug log saved: (.+)/
+      .exec(result.stdout + result.stderr)?.[1]
+      ?.trim();
+    assert.ok(logPath);
+    try {
+      const log = await readFile(logPath, "utf8");
+      assert.match(log, /Backup prune plan/);
+      assert.match(log, /older/);
+      assert.match(log, /newer/);
+      assert.doesNotMatch(
+        log,
+        /private-note-sentinel|private-password-sentinel|identity|manifestText/
+      );
+    } finally {
+      await rm(logPath, { force: true });
+    }
+  });
 });

@@ -46,7 +46,13 @@ export async function candidateFingerprint(
     }
     const data = stat.isSymbolicLink()
       ? await readlink(location)
-      : await readFile(location);
+      : execFileSync("git", ["hash-object", `--path=${file}`, "--stdin"], {
+          cwd: root,
+          input: await readFile(location),
+          stdio: ["pipe", "pipe", "pipe"]
+        })
+          .toString()
+          .trim();
     hash.update(
       JSON.stringify([
         file,
@@ -157,13 +163,29 @@ export async function checkReleaseDocs(
     source.match(/TOOL_VERSION\s*=\s*["']([^"']+)["']/)?.[1] === version,
     "CLI version differs from package version."
   );
-  const changelog = await readFile(path.join(root, "CHANGELOG.md"), "utf8");
+  const changelog = (
+    await readFile(path.join(root, "CHANGELOG.md"), "utf8")
+  ).replaceAll("\r\n", "\n");
   const section = changelog.split(`## ${version}\n`)[1]?.split(/\n## /)[0];
   requireValue(
     section?.trim(),
     `Missing or empty changelog section for ${version}.`
   );
-  const notes = await readFile(path.join(root, notesPath), "utf8");
+  const unreleased =
+    changelog.split("## Unreleased\n")[1]?.split(/\n## /)[0] ?? "";
+  const entries = (body: string) =>
+    [...body.matchAll(/^[-*+]\s+(.+(?:\n(?!\s*(?:[-*+]\s|#|$)).+)*)/gm)].map(
+      (match) => match[1].replace(/\s+/g, " ").trim()
+    );
+  const shipped = new Set(entries(section!));
+  requireValue(
+    !entries(unreleased).some((entry) => shipped.has(entry)),
+    "Shipped changelog entries remain under Unreleased."
+  );
+  const notes = (await readFile(path.join(root, notesPath), "utf8")).replaceAll(
+    "\r\n",
+    "\n"
+  );
   for (const heading of [
     "Changes",
     "Safety and compatibility",
@@ -201,6 +223,20 @@ export async function checkReleaseDocs(
     "--is-ancestor",
     `${review.previousTag}^{commit}`,
     "HEAD"
+  );
+  const previousTag = git(
+    root,
+    "describe",
+    "--tags",
+    "--abbrev=0",
+    "--match",
+    "v[0-9]*",
+    "--exclude",
+    `v${version}`
+  );
+  requireValue(
+    review.previousTag === previousTag,
+    "Review must name the nearest previous release tag."
   );
   const surfaces = review.surfaces as Record<
     string,

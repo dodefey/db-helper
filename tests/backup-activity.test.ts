@@ -1,8 +1,11 @@
 import test from "node:test";
+import fs from "node:fs/promises";
+import { syncBuiltinESMExports } from "node:module";
 import assert from "node:assert/strict";
 import { readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  deletionGuardPath,
   beginBackupCreation,
   readBackupActivity
 } from "../src/lib/backupActivity.js";
@@ -183,5 +186,45 @@ test("filesystem-length backup names can register activity and list without warn
       await release();
     }
     assert.equal(await readBackupActivity(backupRoot, name), null);
+  });
+});
+
+test("setup guard cleanup failure removes only a newly created empty directory", async () => {
+  await withQueryFixture(async ({ backupRoot }) => {
+    const original = fs.rm;
+    const guard = deletionGuardPath(backupRoot, "retry");
+    fs.rm = async (file, options) => {
+      if (String(file) === guard)
+        throw new Error("injected guard cleanup failure");
+      return original(file, options);
+    };
+    syncBuiltinESMExports();
+    try {
+      await assert.rejects(
+        beginBackupCreation(backupRoot, "retry", "production", []),
+        /guard cleanup failed/
+      );
+      assert.deepEqual(await readdir(backupRoot), [path.basename(guard)]);
+    } finally {
+      fs.rm = original;
+      syncBuiltinESMExports();
+      await rm(guard);
+    }
+    const release = await beginBackupCreation(
+      backupRoot,
+      "retry",
+      "production",
+      []
+    );
+    await release();
+    await writeFile(path.join(backupRoot, "retry", "keep"), "preserved");
+    await assert.rejects(
+      beginBackupCreation(backupRoot, "retry", "production", []),
+      /EEXIST/
+    );
+    assert.equal(
+      await readFile(path.join(backupRoot, "retry", "keep"), "utf8"),
+      "preserved"
+    );
   });
 });
