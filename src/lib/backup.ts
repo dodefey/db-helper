@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   AppConfig,
   BackupManifest,
@@ -15,6 +14,7 @@ import {
   writeBackupManifest
 } from "./backups.js";
 import { ensureDirectory } from "./fs.js";
+import { beginBackupCreation } from "./backupActivity.js";
 import {
   createArchiveBackup,
   getCollectionCounts,
@@ -38,6 +38,7 @@ export interface RunBackupCreateDependencies {
     task: () => Promise<T>
   ) => Promise<T>;
   ensureDirectory: typeof ensureDirectory;
+  beginBackupCreation: typeof beginBackupCreation;
   buildBackupName: typeof buildBackupName;
   archivePathForBackup: typeof archivePathForBackup;
   listCollections: typeof listCollections;
@@ -64,6 +65,7 @@ const DEFAULT_RUN_BACKUP_CREATE_DEPENDENCIES: RunBackupCreateDependencies = {
       task
     ),
   ensureDirectory,
+  beginBackupCreation,
   buildBackupName,
   archivePathForBackup,
   listCollections,
@@ -204,6 +206,7 @@ export async function runBackupCreate(
   const useElapsedStatus = input.outputMode === "default";
   let currentPhase: BackupCreatePhase = "metadata";
   let cleanupFailed = false;
+  let releaseActivity: (() => Promise<void>) | undefined;
 
   try {
     runLogger.info("backup", "Backup workflow started", {
@@ -215,7 +218,12 @@ export async function runBackupCreate(
       dependencies.writeStdout(`Starting backup from ${input.from}\n`);
     }
     await dependencies.ensureDirectory(appConfig.backupRoot);
-    await dependencies.ensureDirectory(path.dirname(archiveFile));
+    releaseActivity = await dependencies.beginBackupCreation(
+      appConfig.backupRoot,
+      backupName,
+      input.from,
+      input.tags ?? []
+    );
 
     const metadataOutputMode =
       input.outputMode === "verbose" ? "default" : input.outputMode;
@@ -343,10 +351,11 @@ export async function runBackupCreate(
     });
 
     try {
-      await dependencies.removeBackupArtifacts(
-        appConfig.backupRoot,
-        backupName
-      );
+      if (releaseActivity)
+        await dependencies.removeBackupArtifacts(
+          appConfig.backupRoot,
+          backupName
+        );
     } catch {
       cleanupFailed = true;
     }
@@ -356,13 +365,21 @@ export async function runBackupCreate(
         from: input.from,
         phase: currentPhase,
         interrupted: interruptedFailure,
-        cleanupAttempted: true,
+        cleanupAttempted: Boolean(releaseActivity),
         cleanupFailed,
         details: getErrorDetails(error)
       }),
       { cause: error }
     );
   } finally {
+    try {
+      await releaseActivity?.();
+    } catch (error) {
+      runLogger.warn("backup", "Could not remove backup activity marker", {
+        backupName,
+        error: getErrorDetails(error)
+      });
+    }
     runLogger.debug("backup", "Removing backup interrupt handler", {
       backupName
     });

@@ -13,6 +13,7 @@ import {
   printSyncHelp
 } from "./cliHelp.js";
 import { AppConfig, EnvironmentId } from "./config/types.js";
+import { backupDelete } from "./commands/backupDelete.js";
 import { backupCreate, backupInspect } from "./commands/backup.js";
 import {
   formatBackupList,
@@ -237,6 +238,31 @@ async function main(): Promise<void> {
   };
 
   validateQueryArguments();
+  if (command === "backup" && subcommand === "delete") {
+    if (args.positional.length !== 2)
+      throw new Error("Backup delete accepts one name via --backup only.");
+    const allowed = new Set([
+      "backup",
+      "yes",
+      "config",
+      "quiet",
+      "verbose",
+      "log",
+      "help"
+    ]);
+    for (const [flag, value] of Object.entries(args.flags)) {
+      if (!allowed.has(flag)) throw new Error(`Unknown flag --${flag}`);
+      const takesValue = flag === "backup" || flag === "config";
+      if (
+        takesValue ? typeof value !== "string" || !value.trim() : value !== true
+      )
+        throw new Error(`Invalid value for --${flag}`);
+    }
+    if (
+      process.argv.slice(2).filter((value) => value === "--backup").length > 1
+    )
+      throw new Error("Specify --backup exactly once.");
+  }
 
   if (!command || command === "--help" || command === "help") {
     runLogger.info("cli", "Printing help");
@@ -437,6 +463,15 @@ async function main(): Promise<void> {
       if (subcommand === "usage") {
         const report = await collectBackupUsage(appConfig);
         await finishQuery(report, formatBackupUsage(report.data, outputMode));
+        return;
+      }
+      if (subcommand === "delete") {
+        await backupDelete(appConfig, {
+          backup: getFlag(args.flags, "backup", true)!,
+          yes: getBooleanFlag(args.flags, "yes"),
+          outputMode
+        });
+        await finishSuccess();
         return;
       }
       if (subcommand === "inspect") {

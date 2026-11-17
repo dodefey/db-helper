@@ -19,6 +19,7 @@ Commands:
   backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
   backup usage [--json] [--quiet] [--verbose]
+  backup delete --backup <backup-name> [--yes] [--quiet] [--verbose] [--log]
   backup inspect --backup <backup-name>
   sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
   sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
@@ -73,12 +74,13 @@ export function printBackupHelp(): void {
   process.stdout.write(`dbh backup
 
 Purpose:
-  Create, list, and inspect local backup snapshots.
+  Create, list, inspect, and delete local backup snapshots.
 
 Usage:
   dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
   dbh backup usage [--json] [--quiet] [--verbose]
+  dbh backup delete --backup <backup-name> [--yes] [--quiet] [--verbose] [--log]
   dbh backup inspect --backup <backup-name>
 
 Commands:
@@ -96,11 +98,16 @@ Commands:
     Report local backup and temp filesystem capacity without database or SSH checks.
     Use --json for exact bytes and shared-filesystem information.
 
+  delete
+    Permanently remove one exact backup directory after confirmation.
+    Active backups and backup-directory symlinks are refused.
+
   inspect
     Print one backup manifest as JSON.
 
 Required flags:
   create: --from
+  delete: --backup (noninteractive use also requires --yes)
   inspect: --backup
 
 Important notes:

@@ -50,6 +50,25 @@ A missing root is an error; an existing empty root is an ok result with no
 backups. Valid manifests sort newest first using normalized UTC timestamps;
 entries without valid metadata sort last by name, with name breaking date ties.
 
+New backup creation registers a local process marker before exposing its directory.
+While that process is alive on the same host, the entry includes `inProgress`
+with `pid`, `hostname`, `sourceEnvironment`, `startedAt`, and `tags`. Text output
+shows `in progress` in the creation column. These entries respect environment
+and tag filters, contribute measured disk usage, and do not produce artifact
+warnings or retain a debug log solely because creation is unfinished. Manifest
+and archive inspection is deferred (`not-inspected`, null metadata/size); active
+creation does not imply a usable backup. The optional field is absent otherwise.
+
+Markers are removed after validation or failure cleanup. Missing, malformed,
+symlinked, foreign-host, and stopped-process markers do not suppress normal
+artifact checks. Process liveness is a local PID observation, not a distributed
+lock or a guarantee against PID reuse. Exact-name creation markers remain compatible with the previous implementation.
+Backups from versions predating creation markers retain normal artifact checks. Backup creation
+refuses existing directories and same-name creation markers; stale markers are
+not automatically removed or reused by creation. Explicit `backup delete` can
+remove a confirmed stopped same-host creation marker; unknown ownership blocks
+deletion.
+
 Each backup entry contains:
 
 - `name`: directory entry name; use this identifier for inspect/restore only if

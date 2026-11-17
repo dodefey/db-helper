@@ -1,5 +1,6 @@
 import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
+import { BackupActivity, readBackupActivity } from "./backupActivity.js";
 import { BackupManifest } from "../config/types.js";
 import { validateBackupName } from "./backups.js";
 import { getDirectoryDiskUsage } from "./diskUsage.js";
@@ -13,6 +14,7 @@ import {
 
 export interface CatalogEntry {
   name: string;
+  inProgress?: BackupActivity;
   path: string;
   manifest: BackupManifest | null;
   manifestStatus:
@@ -177,6 +179,9 @@ export async function collectBackupCatalog(
     const entryPath = path.join(root, directory.name);
     const manifestPath = path.join(entryPath, "manifest.json");
     const archivePath = path.join(entryPath, "dump.archive.gz");
+    const activity = directory.isDirectory()
+      ? await readBackupActivity(root, directory.name)
+      : null;
     const entry: CatalogEntry = {
       name: directory.name,
       path: entryPath,
@@ -204,6 +209,12 @@ export async function collectBackupCatalog(
         entryPath,
         "Backup entry is a symbolic link; its target was not inspected."
       );
+    } else if (activity) {
+      entry.inProgress = activity;
+      entry.matchesFilters =
+        (!filters.from || activity.sourceEnvironment === filters.from) &&
+        (!filters.tag || activity.tags.includes(filters.tag));
+      if (!entry.matchesFilters) continue;
     } else {
       try {
         validateBackupName(directory.name);

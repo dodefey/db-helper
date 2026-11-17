@@ -16,9 +16,13 @@ export function formatBackupList(
     else totalBytes += bytes;
     const columns = [
       record.name,
-      record.manifest?.sourceEnvironment ?? "unknown",
-      record.manifest?.createdAt ?? "unknown",
-      record.manifest?.tags.join(",") || "-"
+      record.inProgress?.sourceEnvironment ??
+        record.manifest?.sourceEnvironment ??
+        "unknown",
+      record.inProgress
+        ? "in progress"
+        : (record.manifest?.createdAt ?? "unknown"),
+      (record.inProgress?.tags ?? record.manifest?.tags)?.join(",") || "-"
     ];
     return outputMode === "quiet"
       ? [...columns, bytes === null ? "unknown" : String(bytes)]

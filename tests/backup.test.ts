@@ -113,6 +113,9 @@ function createBackupDependencies(
       calls.stdout.push(`${baseMessage}\n`);
       return task();
     },
+    async beginBackupCreation() {
+      return async () => {};
+    },
     async ensureDirectory(dirPath: string): Promise<void> {
       calls.ensuredDirs.push(dirPath);
     },
@@ -687,4 +690,69 @@ test("runBackupCreate writes workflow events to the run log", async () => {
 
   assert.match(logContent, /\[backup\] Backup workflow started/);
   assert.match(logContent, /\[backup\] Backup workflow completed/);
+});
+
+test("runBackupCreate registers activity before metadata and releases it after validation", async () => {
+  const phases: string[] = [];
+  const { dependencies } = createBackupDependencies({
+    async beginBackupCreation() {
+      phases.push("begin");
+      return async () => {
+        phases.push("release");
+      };
+    },
+    async listCollections() {
+      phases.push("metadata");
+      return [];
+    },
+    async ensureBackupArtifacts() {
+      phases.push("validation");
+    }
+  });
+  await runBackupCreate(
+    buildAppConfig(),
+    { from: "development", outputMode: "quiet" },
+    dependencies
+  );
+  assert.deepEqual(phases, ["begin", "metadata", "validation", "release"]);
+});
+
+test("runBackupCreate cleans up before releasing activity on failure and preserves existing backups", async () => {
+  const phases: string[] = [];
+  const { dependencies } = createBackupDependencies({
+    async beginBackupCreation() {
+      phases.push("begin");
+      return async () => {
+        phases.push("release");
+      };
+    },
+    async listCollections() {
+      throw new Error("metadata failed");
+    },
+    async removeBackupArtifacts() {
+      phases.push("cleanup");
+    }
+  });
+  await assert.rejects(
+    runBackupCreate(
+      buildAppConfig(),
+      { from: "development", outputMode: "quiet" },
+      dependencies
+    ),
+    /metadata failed/
+  );
+  assert.deepEqual(phases, ["begin", "cleanup", "release"]);
+  phases.length = 0;
+  dependencies.beginBackupCreation = async () => {
+    throw new Error("already exists");
+  };
+  await assert.rejects(
+    runBackupCreate(
+      buildAppConfig(),
+      { from: "development", outputMode: "quiet" },
+      dependencies
+    ),
+    /already exists/
+  );
+  assert.deepEqual(phases, []);
 });

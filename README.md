@@ -411,6 +411,27 @@ which does not prove restorability.
 Machine-specific free-space and filesystem-capacity figures are omitted from the
 recording; backup sizes describe the synthetic sample archive.
 
+### Delete a backup
+
+Delete one backup by its exact name. The prompt shows the resolved path and
+requires confirmation; noninteractive scripts must explicitly pass `--yes`.
+
+```bash
+# Permanently remove the named backup after reviewing the confirmation.
+dbh backup delete --backup before-maintenance
+```
+
+Deletion accepts incomplete backups and treats an already absent name as success.
+It refuses active creation and backup-directory symlinks; links inside a backup
+are removed without following their targets. It removes only that directory,
+including any extra files it contains, and a confirmed stale creation marker.
+Copies elsewhere are unaffected. `--quiet` keeps the final result; `--verbose`
+also prints the path, and `--log` retains the operation log. No reclaimable-space
+estimate is promised for shared filesystem blocks.
+
+See [backup deletion safety and recovery](docs/backup-spec.md#delete) for
+concurrency guards and interrupted deletion.
+
 ### Usage
 
 Run `doctor` first if tooling, SSH, or database connectivity is in doubt.
