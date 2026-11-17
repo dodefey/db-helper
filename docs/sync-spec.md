@@ -20,8 +20,8 @@ The command exists for operational refresh workflows such as:
 CLI forms:
 
 ```bash
-dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose]
-dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose]
+dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
+dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
 ```
 
 Required flags:
@@ -31,8 +31,8 @@ Required flags:
 
 Optional flags:
 
-- `sync`: `--yes`, `--quiet`, `--verbose`
-- `sync collection`: `--yes`, `--quiet`, `--verbose`
+- `sync`: `--yes`, `--quiet`, `--verbose`, `--log`
+- `sync collection`: `--yes`, `--quiet`, `--verbose`, `--log`
 
 No selective multi-collection sync mode is supported.
 

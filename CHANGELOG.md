@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- required a pre-release documentation and editorial review with checked-in notes and candidate-bound review evidence; added release checks for version alignment, notes, evidence, and local links to repository validation
+
+- aligned command references with backup delete/prune, required collection-sync flags, and full-restore explain support; reconciled release version selection and documented GitHub release notes and isolated package verification
+
 ## 0.4.0
 
 - added manual `backup prune --keep-last N` per environment with dry-run previews, confirmation, skipped incomplete backups, and guarded deletion that stops when the plan changes or a deletion fails

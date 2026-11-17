@@ -1,0 +1,19 @@
+{
+  "version": "X.Y.Z",
+  "previousTag": "vPREVIOUS",
+  "reviewer": "",
+  "result": "pending",
+  "editorial": "pending",
+  "openFindings": [
+    "Complete the documentation review before marking this record passed."
+  ],
+  "contentSha256": "",
+  "surfaces": {
+    "readme": { "status": "pending", "evidence": "" },
+    "commands": { "status": "pending", "evidence": "" },
+    "changelog": { "status": "pending", "evidence": "" },
+    "releaseNotes": { "status": "pending", "evidence": "" },
+    "github": { "status": "pending", "evidence": "" },
+    "package": { "status": "pending", "evidence": "" }
+  }
+}

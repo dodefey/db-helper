@@ -43,7 +43,9 @@
     "test": "tsx --test tests/**/*.test.ts",
     "test:restore-integration": "tsx scripts/restore-integration.ts",
     "typecheck": "tsc -p tsconfig.check.json",
-    "validate": "npm run format:check && npm run lint && npm test && npm run typecheck && npm run build",
+    "release:check": "node --import tsx scripts/check-release-docs.ts",
+    "validate:release": "npm run release:check -- --if-release",
+    "validate": "npm run validate:release && npm run format:check && npm run lint && npm test && npm run typecheck && npm run build",
     "start": "tsx src/cli.ts"
   },
   "devDependencies": {
