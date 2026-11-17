@@ -43,6 +43,29 @@ export async function inspectBackupDeleteTarget(
   }
 }
 
+/** Caller must hold the shared guard for this target until removal completes. */
+export async function deleteBackupUnderGuard(
+  target: BackupDeleteTarget,
+  beforeRemove?: () => Promise<void>
+): Promise<"deleted" | "absent"> {
+  let deletionStarted = false;
+  try {
+    const { exists, staleMarkers } = await inspectBackupDeleteTarget(target);
+    await beforeRemove?.();
+    deletionStarted = true;
+    if (exists) await rm(target.path, { recursive: true, force: true });
+    for (const marker of staleMarkers) await rm(marker, { force: true });
+    return exists ? "deleted" : "absent";
+  } catch (error) {
+    throw deletionStarted
+      ? new Error(
+          `Backup deletion failed for ${target.path}; files may already have been removed. ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error }
+        )
+      : error;
+  }
+}
+
 /** Shared exact-name deletion for CLI callers and future pruning. Never prompts or selects backups. */
 export async function deleteBackup(
   root: string,
@@ -51,22 +74,12 @@ export async function deleteBackup(
   const target = await resolveBackupDeleteTarget(root, name);
   const guard = deletionGuardPath(target.root, name);
   const releaseGuard = await acquireBackupGuard(target.root, name);
-  let deletionStarted = false;
-  let failure: unknown;
   let result: "deleted" | "absent" = "absent";
+  let failure: unknown;
   try {
-    const { exists, staleMarkers } = await inspectBackupDeleteTarget(target);
-    deletionStarted = true;
-    if (exists) await rm(target.path, { recursive: true, force: true });
-    for (const marker of staleMarkers) await rm(marker, { force: true });
-    result = exists ? "deleted" : "absent";
+    result = await deleteBackupUnderGuard(target);
   } catch (error) {
-    failure = deletionStarted
-      ? new Error(
-          `Backup deletion failed for ${target.path}; files may already have been removed. ${error instanceof Error ? error.message : String(error)}`,
-          { cause: error }
-        )
-      : error;
+    failure = error;
   }
   try {
     await releaseGuard();
