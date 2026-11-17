@@ -140,6 +140,14 @@ fast-forward promotions, the push-triggered check must pass on the exact commit
 being promoted; a local result or a check on a different commit is not a
 substitute.
 
+PR merges also require the [automated PR review gate](AGENTS.md#automated-pr-review-gate).
+Wait for Codex review completion for the current head and assess every finding;
+passing CI or an absence of comments does not establish review completion. New
+pushes require a review of the new head. If automated review is unavailable,
+report it and obtain explicit approval for an exception before merging; required
+CI checks still apply. This review gate is an operator requirement, not a required
+GitHub status check.
+
 `npm run validate` does not run the real-MongoDB integration test. The workflow
 runs it in a separate `MongoDB integration` job on the same push and PR events.
 That job uses Ubuntu 24.04, MongoDB Server 8.0.38, Database Tools 100.16.1, and
