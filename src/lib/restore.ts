@@ -375,6 +375,7 @@ export async function runRestoreFull(
           from: target.name,
           note: `automatic pre-restore backup before restoring ${input.backup}`,
           tags: ["pre-restore"],
+          reportStorage: false,
           outputMode: input.outputMode
         },
         undefined,

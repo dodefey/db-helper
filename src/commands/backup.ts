@@ -4,6 +4,7 @@ import {
   listBackups,
   readBackup
 } from "../lib/backups.js";
+import { reportBackupStorage } from "./backupStorage.js";
 import { runBackupCreate } from "../lib/backup.js";
 import {
   CommandInvocationContext,
@@ -14,6 +15,7 @@ import { getRunLogger } from "../lib/runLog.js";
 
 export interface BackupCommandDependencies {
   runBackupCreate: typeof runBackupCreate;
+  reportBackupStorage: typeof reportBackupStorage;
   listBackups: typeof listBackups;
   ensureBackupArtifacts: typeof ensureBackupArtifacts;
   readBackup: typeof readBackup;
@@ -21,6 +23,7 @@ export interface BackupCommandDependencies {
 
 const DEFAULT_BACKUP_COMMAND_DEPENDENCIES: BackupCommandDependencies = {
   runBackupCreate,
+  reportBackupStorage,
   listBackups,
   ensureBackupArtifacts,
   readBackup
@@ -34,6 +37,7 @@ export async function backupCreate(
     tags?: string[];
     backupName?: string;
     outputMode: OutputMode;
+    reportStorage?: boolean;
   },
   dependencies: BackupCommandDependencies = DEFAULT_BACKUP_COMMAND_DEPENDENCIES,
   context: CommandInvocationContext = createCommandInvocationContext()
@@ -44,7 +48,30 @@ export async function backupCreate(
     tagCount: input.tags?.length ?? 0,
     hasNote: Boolean(input.note)
   });
-  return dependencies.runBackupCreate(appConfig, input, undefined, context);
+  const lowBefore =
+    input.reportStorage !== false
+      ? await dependencies.reportBackupStorage(
+          appConfig.backupRoot,
+          input.outputMode,
+          false
+        )
+      : false;
+  const record = await dependencies.runBackupCreate(
+    appConfig,
+    input,
+    undefined,
+    context
+  );
+  if (input.reportStorage !== false) {
+    await dependencies.reportBackupStorage(
+      appConfig.backupRoot,
+      input.outputMode,
+      true,
+      undefined,
+      !lowBefore
+    );
+  }
+  return record;
 }
 
 export async function backupList(

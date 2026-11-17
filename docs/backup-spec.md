@@ -336,3 +336,19 @@ Success and already-absent results exit zero. Default and quiet modes print one
 final result; verbose adds the path. Standard failure-log and `--log` behavior
 apply. The shared `deleteBackup(root, name)` function performs the safety checks
 and removal without prompting or choosing retention policy, for future prune use.
+
+## Storage awareness
+
+Explicit `backup create` checks local backup-root filesystem capacity before
+creation and after success. Below 1 GiB available (matching doctor), it prints an
+advisory warning to stderr with list/delete guidance, at most once per invocation. It does not block creation,
+estimate the next archive size, inspect remote capacity, or delete anything.
+A missing root before first creation simply leaves the initial capacity unknown.
+
+After success, default/verbose modes print one storage line with directory count,
+allocated usage and available capacity; quiet omits it. Counts include incomplete
+and active catalog entries. Partial allocation totals are labeled `at least`;
+unavailable inventory/capacity are explicit, never represented as zero. Totals
+can include shared blocks and do not promise reclaimable space. Measurement
+failure never changes backup success or triggers artifact cleanup. Internal
+pre-restore backups keep their existing output. Pruning and retention are deferred.

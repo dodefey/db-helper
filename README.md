@@ -411,6 +411,14 @@ which does not prove restorability.
 Machine-specific free-space and filesystem-capacity figures are omitted from the
 recording; backup sizes describe the synthetic sample archive.
 
+After a successful `backup create`, default and verbose output include the
+backup-root directory count, allocated disk usage, and available filesystem
+space. A warning appears below 1 GiB available, checked before creation and after
+success, with at most one warning per invocation. Quiet mode retains warnings but omits the summary. Measurements are
+advisory: shared blocks can inflate allocated totals, and unavailable measurements
+do not fail a backup. Use `dbh backup list` to review backups and explicit
+`backup delete` to remove a selected one.
+
 ### Delete a backup
 
 Delete one backup by its exact name. The prompt shows the resolved path and

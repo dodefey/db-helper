@@ -580,6 +580,7 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
       from: "live",
       note: "automatic pre-restore backup before restoring backup-name",
       tags: ["pre-restore"],
+      reportStorage: false,
       outputMode: "default",
       context
     }
