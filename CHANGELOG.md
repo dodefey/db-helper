@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- show live local backup creation as “in progress” in backup listings without missing-artifact warnings; stale or unmarked incomplete backups still report issues
+- refuse backup creation over an existing backup directory or another creation using the same name
+
 ## 0.3.3
 
 - corrected recovery examples to use the installed `dbh` executable

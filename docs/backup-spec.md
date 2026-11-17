@@ -45,7 +45,9 @@ Current behavior:
 
 - create a timestamped backup directory under the configured backup root
 - create `dump.archive.gz`
+- register a local creation marker before exposing a new backup directory; refuse existing directories and same-name creation markers
 - write `manifest.json`
+- remove the creation marker after validation or failure cleanup
 - include collection names and collection counts when metadata collection succeeds
 - exclude internal Mongo collections such as `system.*` from backup metadata
 
@@ -133,6 +135,8 @@ once; the total does not promise reclaimable space. A measurement failure keeps
 the backup visible with `unknown` usage and labels the total as known usage with
 an unavailable count. Missing archives are not interpreted as zero-size archives;
 listing remains a catalog operation rather than artifact validation.
+
+Live same-host backup creation is listed as `in progress` without artifact warnings. Unmarked or stale incomplete backups retain normal checks. See [backup query output](backup-query-output.md) for marker semantics.
 
 For list output, `--quiet` emits only tab-separated rows in this order: name,
 environment, createdAt, tags, allocated bytes (or `unknown`). `--verbose` includes
