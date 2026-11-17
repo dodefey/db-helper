@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- require completed automated Codex review and assessed findings for the current PR revision before merging or promoting a PR-covered release candidate; require explicit approval when review is unavailable
+
 - clean up newly created empty backup directories when setup guard cleanup fails
 - omit raw manifest identities from backup prune logs
 - canonicalize release fingerprints through Git, require the nearest previous release tag, and reject shipped changelog entries duplicated under Unreleased

@@ -39,6 +39,7 @@ Default when no target is provided:
 - `development` is the default branch for non-hotfix work and release preparation.
 - Run feature and refactor work on dedicated work branches based on `development`.
 - Prepare release commits on an approved short-lived work branch based on `development`; validate the exact commit with GitHub Actions before protected-branch promotion.
+- For release PRs, complete the [automated PR review gate](../../../AGENTS.md#automated-pr-review-gate) for the current candidate before merging or direct promotion. Verify completion, assess every finding, and obtain an explicit exception if review is unavailable. A new head requires a new review.
 - Release publication is from `main` only.
 - Branch creation/switching requires explicit user approval.
 - Treat any non-hotfix commit discovered on `main` as a policy violation and stop for user direction.
@@ -88,7 +89,7 @@ When asked to start or run a release:
    - Create a temporary pack destination outside the checkout; use `npm pack --pack-destination "$release_pack_dir"`. Generated archives must not become part of the candidate fingerprint.
    - fallback: add `--cache /tmp/dbh-npm-cache` while keeping that external pack destination when default npm cache is blocked
 9. Review the complete release documentation and package contents against the editorial acceptance criteria. After final formatting, generate `npm run --silent release:check -- --fingerprint` for the review record. Run strict `npm run release:check` and resolve all failures. Stop for missing, stale, contradictory, or unreviewed documentation. Once the gate passes, commit release prep, release notes, review record, and documentation corrections on the release work branch with exact version as subject (example: `0.1.7`).
-10. Push the work branch and wait for the push-triggered `Repository validation` check from GitHub Actions to complete successfully on the exact release commit. Local checks or a passing PR merge commit are not substitutes. Any changed commit must be pushed and validated again.
+10. Push the work branch and wait for the push-triggered `Repository validation` check from GitHub Actions to complete successfully on the exact release commit. Local checks or a passing PR merge commit are not substitutes. Any changed commit must be pushed and validated again. If a PR covers the release candidate, wait for automated Codex review completion on that exact head and assess all findings under the automated PR review gate before promotion.
 11. Fetch both protected branches and confirm both can be fast-forwarded to the validated release commit. Fast-forward `development` and push it, then fast-forward `main` to that same commit and push it. If either branch diverges, stop and reconcile on the work branch, then validate the resulting commit before promotion. Never bypass the required check or create another release commit during promotion. Run strict `npm run release:check` on the clean candidate and confirm the checked-in notes/review record apply to that exact commit before promoting either branch. Any later documentation correction requires a new work-branch commit and passing validation before promotion.
 12. Run strict `npm run release:check` on the clean `main` candidate, then create annotated tag on the `main` release commit and push the tag.
 13. Re-authenticate npm immediately before publish:
@@ -150,7 +151,9 @@ git push <remote> HEAD
 
 Record the release commit SHA and verify that the push-triggered
 `Repository validation` check from GitHub Actions completed successfully for it.
-Do not run the promotion commands until that check passes. The placeholders
+If a PR covers the candidate, also record its automated review completion and
+finding dispositions for that exact head, or an explicit review-gate exception.
+Do not run the promotion commands until these requirements pass. The placeholders
 below must be replaced with the chosen remote and that exact validated SHA.
 
 ```bash

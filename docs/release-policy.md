@@ -33,6 +33,7 @@ Pre-release policy:
 - All non-hotfix work must be performed on `development` or dedicated short-lived work branches that merge back into `development`.
 - `main` is reserved for release publication and narrowly scoped production hotfixes.
 - Updates to `development` and `main`, including release promotions and hotfixes, must satisfy the GitHub Actions `Repository validation` check. The active repository ruleset has no bypass actors; unchecked direct pushes are blocked.
+- Release PRs must satisfy the [automated PR review gate](../AGENTS.md#automated-pr-review-gate) for the current candidate before merging or direct promotion. Confirm review completion and assess findings separately from CI; new candidate commits require new review. If review is unavailable, obtain the explicit exception required by that gate. Direct promotions still require passing push-triggered validation on the exact commit.
 - Release publication must occur from a clean `main` branch.
 - Publish only from the exact commit that is tagged for that release.
 - Do not retag, rewrite, or republish an existing released version.
@@ -166,7 +167,7 @@ Never defer a known documentation gap until after the tag or npm publication.
    - Create a temporary pack destination outside the checkout and run `npm pack --pack-destination "$release_pack_dir"`. Do not leave generated archives in the candidate; they would change its fingerprint and be absent from CI.
    - If default npm cache access is blocked, add `--cache /tmp/dbh-npm-cache` while keeping that external pack destination.
 7. Run `npm run release:check` and resolve all failures. Commit release prep on the release work branch with the version as the commit subject (for example `0.1.7`).
-8. Push the work branch and wait for its push-triggered `Repository validation` check from GitHub Actions to complete successfully on that exact commit. Local checks or a passing PR merge commit do not substitute for this check. If the commit changes, push and validate it again.
+8. Push the work branch and wait for its push-triggered `Repository validation` check from GitHub Actions to complete successfully on that exact commit. Local checks or a passing PR merge commit do not substitute for this check. If the commit changes, push and validate it again. If a PR covers the candidate, complete the automated PR review gate for that exact revision before promotion; passing CI alone is insufficient.
 9. Fetch the protected branches and confirm both can be fast-forwarded to the validated release commit. Fast-forward `development` to that commit and push it, then fast-forward `main` to the same commit and push it. If either branch has diverged, stop and reconcile on the work branch, then validate the resulting commit before promotion. Do not bypass the required check or create a replacement release commit during promotion. Run `npm run release:check` on the clean candidate and confirm the documentation gate passed for that exact commit before promoting either branch.
 10. Run `npm run release:check` on the clean `main` candidate, then create annotated tag `vX.Y.Z` on the release commit in `main`, then push the tag.
 11. Authenticate to npm immediately before publish:

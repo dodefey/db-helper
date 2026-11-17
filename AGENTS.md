@@ -17,6 +17,15 @@
 - Before directly promoting a commit into either protected branch, verify that the same GitHub Actions check passed on that exact commit via a work-branch push. Changed commits must be validated again; local success or a passing check on a different commit is not a substitute.
 - The separate `MongoDB integration` job remains optional and is not a required merge or promotion check. Use it or run the fixture locally when useful for database lifecycle changes, and report relevant results or failures.
 
+## Automated PR Review Gate
+
+- Before merging a PR into `development` or `main`, wait for automated Codex review to complete for the current PR head, in addition to the required GitHub Actions checks.
+- Verify completion from an explicit review result or the Codex integration's completion signal associated with that revision. A queued request, an in-progress indicator, no comments, or elapsed time is not completion evidence. A local Codex review does not replace the GitHub review.
+- Inspect the submitted review and all review threads before merging. Fix actionable findings; record evidence for findings rejected as inapplicable or incorrect. A completed review with unresolved actionable findings does not pass this gate.
+- After pushing changes, obtain review completion for the new head and passing required checks again. Do not use a review of an earlier revision as approval for the new one.
+- If review fails to run or remains unavailable, report the missing review and obtain explicit user approval for a review-gate exception before merging. Do not infer an exception from a timeout. This exception does not waive required GitHub Actions checks.
+- This is an operator merge requirement; it is not currently enforced by a required GitHub status check. For direct release promotions, retain the exact-commit push-validation requirement above. If a PR covers the release candidate, complete its automated review gate before promoting that candidate, even when promotion uses fast-forward pushes.
+
 ## Editing Expectations
 
 - Prefer formatting only touched files during active work to avoid unrelated churn.
