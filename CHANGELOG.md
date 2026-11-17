@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- added manual `backup prune --keep-last N` per environment with dry-run previews, confirmation, skipped incomplete backups, and guarded deletion that stops when the plan changes or a deletion fails
+
 - added a post-backup storage summary and advisory warnings below 1 GiB available on the backup-root filesystem; quiet mode retains warnings but omits the summary
 
 - added exact-name `backup delete` with confirmation, noninteractive `--yes`, active-creation coordination, symlink safeguards, incomplete-backup cleanup, and reusable deletion logic

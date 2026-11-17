@@ -13,6 +13,7 @@ import {
   printSyncHelp
 } from "./cliHelp.js";
 import { AppConfig, EnvironmentId } from "./config/types.js";
+import { backupPrune } from "./commands/backupPrune.js";
 import { backupDelete } from "./commands/backupDelete.js";
 import { backupCreate, backupInspect } from "./commands/backup.js";
 import {
@@ -264,6 +265,39 @@ async function main(): Promise<void> {
       throw new Error("Specify --backup exactly once.");
   }
 
+  if (command === "backup" && subcommand === "prune") {
+    if (args.positional.length !== 2)
+      throw new Error("Unexpected positional arguments for backup prune.");
+    const allowed = new Set([
+      "keep-last",
+      "dry-run",
+      "yes",
+      "config",
+      "quiet",
+      "verbose",
+      "log",
+      "help"
+    ]);
+    for (const [flag, value] of Object.entries(args.flags)) {
+      if (!allowed.has(flag)) throw new Error(`Unknown flag --${flag}`);
+      const takesValue = flag === "keep-last" || flag === "config";
+      if (
+        takesValue ? typeof value !== "string" || !value.trim() : value !== true
+      )
+        throw new Error(`Invalid value for --${flag}`);
+      if (
+        process.argv.slice(2).filter((value) => value === `--${flag}`).length >
+        1
+      )
+        throw new Error(`Specify --${flag} only once.`);
+    }
+    if (
+      !args.flags.help &&
+      !/^[0-9]+$/.test(getFlag(args.flags, "keep-last", true)!)
+    )
+      throw new Error("--keep-last must be an integer of at least 1.");
+  }
+
   if (!command || command === "--help" || command === "help") {
     runLogger.info("cli", "Printing help");
     printHelp(getRecommendedUserConfigPath());
@@ -463,6 +497,16 @@ async function main(): Promise<void> {
       if (subcommand === "usage") {
         const report = await collectBackupUsage(appConfig);
         await finishQuery(report, formatBackupUsage(report.data, outputMode));
+        return;
+      }
+      if (subcommand === "prune") {
+        await backupPrune(appConfig, {
+          keepLast: Number(getFlag(args.flags, "keep-last", true)),
+          dryRun: getBooleanFlag(args.flags, "dry-run"),
+          yes: getBooleanFlag(args.flags, "yes"),
+          outputMode
+        });
+        await finishSuccess();
         return;
       }
       if (subcommand === "delete") {

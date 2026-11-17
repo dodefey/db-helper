@@ -19,6 +19,7 @@ Commands:
   backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
   backup usage [--json] [--quiet] [--verbose]
+  backup prune --keep-last <N> [--dry-run] [--yes] [--quiet] [--verbose] [--log]
   backup delete --backup <backup-name> [--yes] [--quiet] [--verbose] [--log]
   backup inspect --backup <backup-name>
   sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
@@ -74,12 +75,13 @@ export function printBackupHelp(): void {
   process.stdout.write(`dbh backup
 
 Purpose:
-  Create, list, inspect, and delete local backup snapshots.
+  Create, list, inspect, prune, and delete local backup snapshots.
 
 Usage:
   dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
   dbh backup usage [--json] [--quiet] [--verbose]
+  dbh backup prune --keep-last <N> [--dry-run] [--yes] [--quiet] [--verbose] [--log]
   dbh backup delete --backup <backup-name> [--yes] [--quiet] [--verbose] [--log]
   dbh backup inspect --backup <backup-name>
 
@@ -98,6 +100,10 @@ Commands:
     Report local backup and temp filesystem capacity without database or SSH checks.
     Use --json for exact bytes and shared-filesystem information.
 
+  prune
+    Preview and confirm deletion, keeping the newest N eligible backups per environment.
+    --dry-run previews only. Tags do not protect backups; incomplete entries are skipped.
+
   delete
     Permanently remove one exact backup directory after confirmation.
     Active backups and backup-directory symlinks are refused.
@@ -107,6 +113,7 @@ Commands:
 
 Required flags:
   create: --from
+  prune: --keep-last (integer >= 1; noninteractive deletion requires --yes)
   delete: --backup (noninteractive use also requires --yes)
   inspect: --backup
 

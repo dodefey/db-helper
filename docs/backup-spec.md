@@ -351,4 +351,33 @@ and active catalog entries. Partial allocation totals are labeled `at least`;
 unavailable inventory/capacity are explicit, never represented as zero. Totals
 can include shared blocks and do not promise reclaimable space. Measurement
 failure never changes backup success or triggers artifact cleanup. Internal
-pre-restore backups keep their existing output. Pruning and retention are deferred.
+pre-restore backups keep their existing output. Automatic retention is deferred.
+
+## Prune
+
+`dbh backup prune --keep-last <N> [--dry-run] [--yes] [--quiet] [--verbose] [--log]`
+keeps the newest N eligible backups per manifest source environment, including
+historical environments absent from current config. N is a required safe integer
+of at least 1. Order is descending manifest creation timestamp, then ascending
+backup name (ordinal comparison) for ties. Directory dates and names do not set age.
+
+Eligibility requires valid metadata, a present nonempty regular archive, a supported
+name, a real backup directory, and proof that creation has stopped. This does not
+verify archive integrity or restorability. Ineligible entries are shown with skip
+reasons and never count toward N. Root enumeration failures stop the command.
+
+Show the resolved root and keep/delete/skip entries grouped by environment before
+confirmation. Tags confer no protection. Dry run never prompts or deletes.
+Noninteractive deletion requires --yes; a no-op needs no confirmation. Quiet retains
+the safety preview and one summary. Standard logging and failure exit status apply.
+
+Freeze candidates before confirmation. Hold per-name guards on retained backups
+and candidate backups during execution; use the shared guarded deletion helper for each candidate, rechecking retained
+and candidate eligibility and identity under the candidate guard before removal.
+Changes since preview stop pruning; additional backups never expand the plan.
+Stop at the first failure with deleted and remaining names. Deletion is not
+transactional; a failed candidate may be partially removed. Guards coordinate dbh
+operations only; do not modify backup files externally during execution.
+
+Age rules, disk budgets, protected tags, automatic retention, and free-space
+reporting are outside this version's scope.

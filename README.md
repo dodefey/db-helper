@@ -429,6 +429,25 @@ requires confirmation; noninteractive scripts must explicitly pass `--yes`.
 dbh backup delete --backup before-maintenance
 ```
 
+To keep the newest N backups per environment, preview the prune plan first:
+
+```bash
+# Show kept, deleted, and skipped backups without changing files.
+dbh backup prune --keep-last 5 --dry-run
+
+# Review the plan and confirm permanent deletion.
+dbh backup prune --keep-last 5
+```
+
+Use `--yes` for noninteractive deletion. N must be at least 1. Prune orders backups
+by manifest creation time, then name for ties. Only valid metadata with a present,
+nonempty archive counts toward N; this does not verify restorability. Active,
+incomplete, linked, or unclassifiable backups are skipped with reasons. Tags do
+not protect backups. Plans never expand after confirmation; changes to retained
+backups or a deletion candidate stop execution. The first failure stops the batch
+with completed and remaining names. Quiet mode keeps the safety preview and final
+summary visible; verbose and `--log` are also supported.
+
 Deletion accepts incomplete backups and treats an already absent name as success.
 It refuses active creation and backup-directory symlinks; links inside a backup
 are removed without following their targets. It removes only that directory,

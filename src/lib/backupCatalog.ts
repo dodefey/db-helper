@@ -94,7 +94,10 @@ function isNumericMap(value: unknown): value is Record<string, number> {
 }
 
 /** Validate fields this CLI consumes; project known metadata without copying unknown fields. */
-function parseManifest(value: unknown, name: string): BackupManifest | null {
+export function parseManifest(
+  value: unknown,
+  name: string
+): BackupManifest | null {
   if (
     !isObject(value) ||
     value.backupName !== name ||
