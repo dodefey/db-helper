@@ -62,10 +62,12 @@ creation does not imply a usable backup. The optional field is absent otherwise.
 Markers are removed after validation or failure cleanup. Missing, malformed,
 symlinked, foreign-host, and stopped-process markers do not suppress normal
 artifact checks. Process liveness is a local PID observation, not a distributed
-lock or a guarantee against PID reuse. Existing backups created by older CLI
-versions have no marker and retain normal artifact checks. Backup creation
+lock or a guarantee against PID reuse. Exact-name creation markers remain compatible with the previous implementation.
+Backups from versions predating creation markers retain normal artifact checks. Backup creation
 refuses existing directories and same-name creation markers; stale markers are
-not automatically removed or reused.
+not automatically removed or reused by creation. Explicit `backup delete` can
+remove a confirmed stopped same-host creation marker; unknown ownership blocks
+deletion.
 
 Each backup entry contains:
 

@@ -293,3 +293,46 @@ These are intentionally out of scope and should not be added implicitly during r
 - encryption
 - collection-level backup filters
 - incremental backups
+
+## Delete
+
+`dbh backup delete --backup <name> [--yes] [--quiet] [--verbose] [--log]`
+permanently removes one exact backup directory. Wildcards, multiple names,
+retention policies, dry-run, and undo are outside this command's scope.
+
+The command resolves the configured backup root, checks the target, and prompts
+with its name and resolved path. Noninteractive use requires `--yes`. Refusing
+the prompt leaves files unchanged. Execution acquires a per-name deletion guard
+and checks creation activity and target type again after confirmation. Creation
+holds that same guard while registering activity and exposing its directory,
+then releases it before copying data. Names differing only in ASCII letter case
+share the guard to protect case-insensitive filesystems. Activity markers keep
+their original exact-name identity, so distinct backups on case-sensitive
+filesystems retain separate metadata. Concurrent setup/deletion operations fail
+safely rather than waiting or automatically retrying.
+
+A readable manifest or archive is not required. A missing name succeeds as
+already absent; an unavailable or missing backup root fails. Backup-directory
+symlinks and non-directory targets are refused. Internal links are unlinked
+without following targets. A configured root symlink is resolved before prompting.
+A same-host creation marker with a confirmed stopped PID is removed with the
+backup. Live, foreign-host, unreadable, or malformed markers block deletion
+because they do not establish that creation stopped. PID reuse remains a local
+process-identification limitation.
+
+The guard is a private sibling file and is removed after creation setup or
+deletion, including handled failures. Forced termination can leave the guard
+behind; a later attempt reports its exact path. Confirm the old operation has
+stopped before manually
+removing that guard and retrying. Likewise, unknown creation markers require
+operator inspection. Coordination covers updated dbh commands, not external
+filesystem writers or older dbh versions. Do not alter the backup root or target
+concurrently with deletion.
+
+Recursive deletion is not transactional. On failure after removal starts, the
+command exits nonzero and reports that files may already have been removed.
+Guard-cleanup failures also exit nonzero and preserve the deletion outcome.
+Success and already-absent results exit zero. Default and quiet modes print one
+final result; verbose adds the path. Standard failure-log and `--log` behavior
+apply. The shared `deleteBackup(root, name)` function performs the safety checks
+and removal without prompting or choosing retention policy, for future prune use.
