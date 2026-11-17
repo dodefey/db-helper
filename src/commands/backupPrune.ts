@@ -22,7 +22,19 @@ export async function backupPrune(
 ): Promise<void> {
   const plan = await planBackupPrune(config.backupRoot, input.keepLast);
   const logger = getRunLogger();
-  logger.info("backup.prune", "Backup prune plan", { ...plan });
+  logger.info("backup.prune", "Backup prune plan", {
+    ...plan,
+    keep: plan.keep.map(({ name, environment, createdAt }) => ({
+      name,
+      environment,
+      createdAt
+    })),
+    remove: plan.remove.map(({ name, environment, createdAt }) => ({
+      name,
+      environment,
+      createdAt
+    }))
+  });
   // A destructive preview remains visible even in quiet mode.
   dependencies.write(
     `Backup root: ${plan.root}\nKeep newest ${plan.keepLast} per environment. Tags do not protect backups.\n`

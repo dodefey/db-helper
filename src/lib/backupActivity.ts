@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { lstat, mkdir, open, readdir, rm } from "node:fs/promises";
+import { lstat, mkdir, open, readdir, rm, rmdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import path from "node:path";
 import { errorCode } from "./queryReport.js";
@@ -141,6 +141,7 @@ export async function beginBackupCreation(
   let handle;
   let releaseActivity: (() => Promise<void>) | undefined;
   let failure: unknown;
+  let createdDirectory = false;
   try {
     handle = await open(marker, "wx", 0o600);
     releaseActivity = () => rm(marker, { force: true });
@@ -155,6 +156,7 @@ export async function beginBackupCreation(
     );
     await handle.close();
     await mkdir(backupPath(root, name));
+    createdDirectory = true;
   } catch (error) {
     failure = error;
   }
@@ -168,6 +170,15 @@ export async function beginBackupCreation(
   }
   if (failure) {
     await handle?.close().catch(() => {});
+    try {
+      // Remove only an empty directory created by this setup attempt.
+      if (createdDirectory) await rmdir(backupPath(root, name));
+    } catch (error) {
+      failure = new Error(
+        `Backup setup failed and directory cleanup failed: ${backupPath(root, name)}`,
+        { cause: error }
+      );
+    }
     try {
       await releaseActivity?.();
     } catch (error) {

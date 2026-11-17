@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- clean up newly created empty backup directories when setup guard cleanup fails
+- omit raw manifest identities from backup prune logs
+- canonicalize release fingerprints through Git, require the nearest previous release tag, and reject shipped changelog entries duplicated under Unreleased
+
 ## 0.4.1
 
 - required a pre-release documentation and editorial review with checked-in notes and candidate-bound review evidence; added release checks for version alignment, notes, evidence, and local links to repository validation

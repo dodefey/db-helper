@@ -208,3 +208,64 @@ test("pack artifacts outside the checkout do not change the committed candidate 
     await rm(packDirectory, { recursive: true, force: true });
   }
 });
+
+test("release fingerprint and Markdown validation survive CRLF checkout conversion", async () => {
+  await fixture(async (root) => {
+    git(root, "config", "core.autocrlf", "true");
+    git(root, "add", ".");
+    git(root, "-c", "commit.gpgsign=false", "commit", "-m", version);
+    const fingerprint = await candidateFingerprint(root, recordPath);
+    for (const file of git(root, "ls-files", "-z").split("\0").filter(Boolean))
+      await rm(path.join(root, file));
+    git(root, "checkout-index", "--all", "--force");
+    assert.match(await readFile(path.join(root, notesPath), "utf8"), /\r\n/);
+    assert.equal(await candidateFingerprint(root, recordPath), fingerprint);
+    assert.equal(await checkReleaseDocs(root), "passed");
+    await writeFile(
+      path.join(root, "README.md"),
+      (await readFile(path.join(root, "README.md"), "utf8")) + "changed\r\n"
+    );
+    await assert.rejects(checkReleaseDocs(root), /fingerprint is stale/);
+  });
+});
+
+test("previous release must be nearest and strict checks still pass after tagging the candidate", async () => {
+  await fixture(async (root) => {
+    git(root, "tag", "v0.3.9");
+    await approve(root, { previousTag: "v0.3.9" });
+    // Move the older tag behind an additional release commit to avoid an ambiguous tie.
+    git(root, "tag", "-d", "v0.4.0");
+    git(root, "add", ".");
+    git(root, "-c", "commit.gpgsign=false", "commit", "-m", "Next baseline");
+    git(root, "tag", "v0.4.0");
+    await assert.rejects(checkReleaseDocs(root), /nearest previous release/);
+    await approve(root);
+    assert.equal(await checkReleaseDocs(root), "passed");
+    git(root, "add", ".");
+    git(root, "-c", "commit.gpgsign=false", "commit", "-m", version);
+    git(root, "tag", `v${version}`);
+    assert.equal(await checkReleaseDocs(root), "passed");
+  });
+});
+
+test("shipped entries cannot remain under Unreleased but unrelated pending entries are allowed", async () => {
+  await fixture(async (root) => {
+    const file = path.join(root, "CHANGELOG.md");
+    const original = await readFile(file, "utf8");
+    await writeFile(
+      file,
+      original.replace(
+        "## Unreleased",
+        "## Unreleased\n\n- Fixed\n  documentation."
+      )
+    );
+    await approve(root);
+    await assert.rejects(checkReleaseDocs(root), /remain under Unreleased/);
+    await writeFile(
+      file,
+      original.replace("## Unreleased", "## Unreleased\n\n- Future work.")
+    );
+    await approve(root);
+    assert.equal(await checkReleaseDocs(root), "passed");
+  });
+});
