@@ -421,6 +421,7 @@ test("runBackupCreate does not rewrite elapsed status in verbose mode", async ()
 });
 
 test("backupCreate delegates to runBackupCreate with output mode", async () => {
+  const phases: string[] = [];
   const appConfig = buildAppConfig();
   const expectedRecord = {
     name: "backup-name",
@@ -440,7 +441,12 @@ test("backupCreate delegates to runBackupCreate with output mode", async () => {
   };
   const calls: unknown[][] = [];
   const dependencies: BackupCommandDependencies = {
+    async reportBackupStorage(_root, _mode, summary) {
+      phases.push(summary ? "summary" : "preflight");
+      return false;
+    },
     async runBackupCreate(...args) {
+      phases.push("create");
       calls.push(args);
       return expectedRecord;
     },
@@ -467,6 +473,7 @@ test("backupCreate delegates to runBackupCreate with output mode", async () => {
     dependencies
   );
 
+  assert.deepEqual(phases, ["preflight", "create", "summary"]);
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0][0], appConfig);
   assert.deepEqual(calls[0][1], {
@@ -484,6 +491,9 @@ test("backupCreate passes through a custom backup name", async () => {
   const appConfig = buildAppConfig();
   const calls: unknown[][] = [];
   const dependencies: BackupCommandDependencies = {
+    async reportBackupStorage() {
+      return false;
+    },
     async runBackupCreate(...args) {
       calls.push(args);
       return {
@@ -554,6 +564,9 @@ test("runBackupCreate rejects an invalid custom backup name before filesystem wo
 
 test("backupList filters backups by source environment and tag", async () => {
   const dependencies: BackupCommandDependencies = {
+    async reportBackupStorage() {
+      return false;
+    },
     async runBackupCreate() {
       throw new Error("not used");
     },
@@ -655,6 +668,9 @@ test("backupInspect validates artifacts before reading the backup", async () => 
     }
   };
   const dependencies: BackupCommandDependencies = {
+    async reportBackupStorage() {
+      return false;
+    },
     async runBackupCreate() {
       throw new Error("not used");
     },
