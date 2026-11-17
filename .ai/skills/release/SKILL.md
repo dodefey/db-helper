@@ -8,7 +8,7 @@ description: Use when the user asks whether this repo is ready for a release or 
 Purpose: interpret release-related prompts and execute this repository's SemVer release workflow.
 
 Canonical human-facing release policy:
-[docs/release-policy.md](/Users/davidodefey/projects/dbtools/docs/release-policy.md)
+[docs/release-policy.md](../../../docs/release-policy.md)
 
 ## Use This Skill For
 
@@ -29,7 +29,9 @@ Optional user-provided target:
 
 Default when no target is provided:
 
-- use next `patch` from current package version
+- select the bump from the unreleased change scope using the canonical release
+  policy: patch for compatible fixes, minor for new features, and major for
+  breaking changes (with the policy's pre-1.0 exception)
 
 ## Branch And Safety Rules
 
@@ -67,7 +69,8 @@ When asked to start or run a release:
    - Obtain approval to create/switch to a short-lived release work branch based on `development`, unless already authorized in the session. Perform the remaining preparation on that branch.
 3. Resolve target SemVer:
    - explicit version if provided
-   - otherwise bump current package version by requested bump type (`patch` default)
+   - otherwise honor a requested bump type, or select the bump from the
+     unreleased changes using the canonical release policy
 4. Normalize version/tag forms:
    - package version: `X.Y.Z` (or valid SemVer pre-release)
    - git tag: `vX.Y.Z` (or `vX.Y.Z-rc.N`)
@@ -92,7 +95,8 @@ When asked to start or run a release:
     - stable: `npm publish`
     - pre-release: `npm publish --tag next`
 15. Switch back to `development` and fast-forward sync it from `main`.
-16. After user publishes, verify published version and run at least one real install/executable smoke test.
+16. After user publishes, verify published version and run at least one real install/executable smoke test. Use a fresh temporary install prefix and invoke its exact executable; `npm exec --package` can resolve an older global `dbh`.
+17. Publish GitHub release notes for the existing tag after npm publication is confirmed. Summarize the shipped changelog, link the tagged README and comparison, and mark stable releases latest (pre-releases remain pre-release). Never move the tag.
 
 ## Staged Commands
 
@@ -184,8 +188,8 @@ git push <remote> development
 ## Guardrails
 
 - Keep all release behavior aligned with:
-  - [docs/release-policy.md](/Users/davidodefey/projects/dbtools/docs/release-policy.md)
-  - [AGENTS.md](/Users/davidodefey/projects/dbtools/AGENTS.md)
+  - [docs/release-policy.md](../../../docs/release-policy.md)
+  - [AGENTS.md](../../../AGENTS.md)
 - Do not perform manual or scripted `npm publish` unless the user explicitly asks.
 - Treat npm auth verification as short-lived. Always run `npm login` and `npm whoami` immediately before publishing.
 - Do not run release preparation on `main` except for production hotfix scenarios explicitly requested by the user.

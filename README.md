@@ -429,6 +429,19 @@ requires confirmation; noninteractive scripts must explicitly pass `--yes`.
 dbh backup delete --backup before-maintenance
 ```
 
+Deletion accepts incomplete backups and treats an already absent name as success.
+It refuses active creation and backup-directory symlinks; links inside a backup
+are removed without following their targets. It removes only that directory,
+including any extra files it contains, and a confirmed stale creation marker.
+Copies elsewhere are unaffected. `--quiet` keeps the final result; `--verbose`
+also prints the path, and `--log` retains the operation log. No reclaimable-space
+estimate is promised for shared filesystem blocks.
+
+See [backup deletion safety and recovery](docs/backup-spec.md#delete) for
+concurrency guards and interrupted deletion.
+
+### Prune backups
+
 To keep the newest N backups per environment, preview the prune plan first:
 
 ```bash
@@ -447,17 +460,6 @@ not protect backups. Plans never expand after confirmation; changes to retained
 backups or a deletion candidate stop execution. The first failure stops the batch
 with completed and remaining names. Quiet mode keeps the safety preview and final
 summary visible; verbose and `--log` are also supported.
-
-Deletion accepts incomplete backups and treats an already absent name as success.
-It refuses active creation and backup-directory symlinks; links inside a backup
-are removed without following their targets. It removes only that directory,
-including any extra files it contains, and a confirmed stale creation marker.
-Copies elsewhere are unaffected. `--quiet` keeps the final result; `--verbose`
-also prints the path, and `--log` retains the operation log. No reclaimable-space
-estimate is promised for shared filesystem blocks.
-
-See [backup deletion safety and recovery](docs/backup-spec.md#delete) for
-concurrency guards and interrupted deletion.
 
 ### Usage
 
@@ -503,8 +505,10 @@ CLI forms:
 
 ```bash
 dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
-dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
-dbh backup usage [--json] [--quiet] [--verbose]
+dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose] [--log]
+dbh backup usage [--json] [--quiet] [--verbose] [--log]
+dbh backup delete --backup <backup-name> [--yes] [--quiet] [--verbose] [--log]
+dbh backup prune --keep-last <N> [--dry-run] [--yes] [--quiet] [--verbose] [--log]
 dbh backup inspect --backup <backup-name>
 ```
 
@@ -512,12 +516,16 @@ Required flags:
 
 - `backup create`: `--from`
 - `backup inspect`: `--backup`
+- `backup delete`: `--backup`
+- `backup prune`: `--keep-last` (integer of at least 1)
 
 Optional flags:
 
 - `backup create`: `--name`, `--note`, `--tag`, `--quiet`, `--verbose`, `--log`
 - `backup list`: `--from`, `--tag`, `--json`, `--quiet`, `--verbose`, `--log`
 - `backup usage`: `--json`, `--quiet`, `--verbose`, `--log`
+- `backup delete`: `--yes`, `--quiet`, `--verbose`, `--log`
+- `backup prune`: `--dry-run`, `--yes`, `--quiet`, `--verbose`, `--log`
 
 `backup list` displays aligned columns for the backup name, source environment,
 creation time in UTC, allocated disk usage, and tags, followed by a total for the
@@ -645,11 +653,11 @@ Required flags:
 
 - `--from`
 - `--to`
+- `sync collection`: `--collection`
 
 Optional flags:
 
 - `--yes`
-- `sync collection`: `--collection`
 - `--quiet`
 - `--verbose`
 - `--log`
@@ -724,7 +732,7 @@ If `restore` is interrupted during restore, pruning, or verification, follow the
 CLI forms:
 
 ```bash
-dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose] [--log]
+dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--explain] [--quiet] [--verbose] [--log]
 dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
 ```
 
@@ -735,10 +743,15 @@ Required flags:
 
 Optional flags:
 
-- `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`, `--quiet`, `--verbose`, `--log`
+- `restore full`: `--yes`, `--skip-pre-backup`, `--force-production-restore`, `--explain`, `--quiet`, `--verbose`, `--log`
 - `restore collection`: `--yes`, `--force-production-restore`, `--quiet`, `--verbose`, `--log`
 
-Production restore expectations:
+`restore full --explain` inspects the archive and reports the restore plan without
+creating a pre-restore backup or mutating the target. It reads target collection
+names and still requires connectivity. Collection restore does not
+support `--explain`.
+
+The following production safeguards apply to mutating restores, not `--explain`:
 
 - `restore` into an environment marked `isProduction: true` requires `--force-production-restore`
 - interactive production restore requires an additional typed confirmation

@@ -19,8 +19,8 @@ patching interface.
 CLI forms:
 
 ```bash
-dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose]
-dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose]
+dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--explain] [--quiet] [--verbose] [--log]
+dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
 ```
 
 Required flags:
@@ -31,9 +31,16 @@ Required flags:
 Optional flags:
 
 - `restore full`: `--yes`, `--skip-pre-backup`,
-  `--force-production-restore`, `--quiet`, `--verbose`
+  `--force-production-restore`, `--explain`, `--quiet`, `--verbose`, `--log`
 - `restore collection`: `--yes`, `--force-production-restore`, `--quiet`,
-  `--verbose`
+  `--verbose`, `--log`
+
+`restore full --explain` inspects the archive and reports the plan without
+creating a pre-restore backup or mutating the target. It does not require mutation
+confirmation or the production mutation flag. It reads target collection names
+and still requires connectivity. Collection restore rejects
+`--explain`. Explain can still perform archive inspection and temporary-file
+cleanup.
 
 No selective multi-collection restore mode is supported.
 
@@ -102,6 +109,9 @@ an exact namespace filter must fail before subprocess execution.
 
 ### General restore protections
 
+The following requirements apply to mutating restores; the read-only
+`restore full --explain` path is described above.
+
 Required behavior:
 
 - the backup must be validated before restore begins
@@ -159,7 +169,7 @@ failure.
 
 ### Full restore
 
-`restore full` must perform this workflow:
+A mutating `restore full` must perform this workflow:
 
 1. validate the named backup artifacts
 2. read the backup manifest
@@ -369,7 +379,7 @@ refactor:
 - transactional rollback guarantees
 - schema-aware migration logic
 - broader backup/restore product redesign beyond restore cleanup
-- public `--dry-run` or `--explain` modes
+- public `--dry-run` and collection-restore `--explain` modes
 - machine-readable `--json` command output
 - index metadata manifests, document hashes, or automatic collection preimage
   backups

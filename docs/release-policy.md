@@ -80,7 +80,8 @@ Validation is still required as part of the release flow.
     - `npm whoami`
 12. Manually publish from that exact tagged commit.
 13. Switch local context back to `development` and fast-forward sync `development` from `main`.
-14. Verify the published package version and run at least one real install/executable smoke test.
+14. Verify the published package version and run at least one real install/executable smoke test. Install into a fresh temporary prefix and invoke that install's exact executable; `npm exec --package` alone can resolve an older global `dbh`.
+15. Publish GitHub release notes for the existing tag after confirming npm publication. Summarize the shipped changelog and link the tagged README and version comparison. Mark stable releases latest and pre-releases as pre-releases; do not move the tag.
 
 ## Publish And Verification Handoff
 

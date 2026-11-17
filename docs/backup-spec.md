@@ -11,16 +11,19 @@ The command exists for operational workflows such as:
 - preserving the current target before a manual sync or restore
 - inspecting or restoring a previously saved snapshot later
 
-`backup` is not a retention manager, replication system, or selective export tool.
+`backup` also supports exact-name deletion and manual pruning by retained count.
+Automatic retention, replication, and selective export are outside its scope.
 
 ## Command Surface
 
 CLI forms:
 
 ```bash
-dbh backup create --from <environment> [--note <text>] [--tag <tag>] [--quiet] [--verbose]
-dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
-dbh backup usage [--json] [--quiet] [--verbose]
+dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
+dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose] [--log]
+dbh backup usage [--json] [--quiet] [--verbose] [--log]
+dbh backup delete --backup <name> [--yes] [--quiet] [--verbose] [--log]
+dbh backup prune --keep-last <N> [--dry-run] [--yes] [--quiet] [--verbose] [--log]
 dbh backup inspect --backup <backup-name>
 ```
 
@@ -28,12 +31,16 @@ Required flags:
 
 - `backup create`: `--from`
 - `backup inspect`: `--backup`
+- `backup delete`: `--backup`
+- `backup prune`: `--keep-last` (integer of at least 1)
 
 Optional flags:
 
-- `backup create`: `--note`, `--tag`, `--quiet`, `--verbose`
+- `backup create`: `--name`, `--note`, `--tag`, `--quiet`, `--verbose`, `--log`
 - `backup list`: `--from`, `--tag`, `--json`, `--quiet`, `--verbose`, `--log`
 - `backup usage`: `--json`, `--quiet`, `--verbose`, `--log`
+- `backup delete`: `--yes`, `--quiet`, `--verbose`, `--log`
+- `backup prune`: `--dry-run`, `--yes`, `--quiet`, `--verbose`, `--log`
 
 No selective collection backup mode is supported.
 
@@ -266,9 +273,12 @@ The command assumes:
 - filtering by source environment or tag
 - reading manifest metadata
 
+`backup delete` owns exact-name removal. `backup prune` owns manual selection by
+retained count per environment and guarded removal of the confirmed candidates.
+
 `backup` does not own:
 
-- retention/pruning policy
+- automatic retention or pruning
 - offsite upload
 - encryption
 - incremental backup strategy
@@ -334,8 +344,10 @@ command exits nonzero and reports that files may already have been removed.
 Guard-cleanup failures also exit nonzero and preserve the deletion outcome.
 Success and already-absent results exit zero. Default and quiet modes print one
 final result; verbose adds the path. Standard failure-log and `--log` behavior
-apply. The shared `deleteBackup(root, name)` function performs the safety checks
-and removal without prompting or choosing retention policy, for future prune use.
+apply. `deleteBackup(root, name)` acquires the per-name guard and uses the shared
+`deleteBackupUnderGuard` helper for safety checks and removal. Prune holds its
+plan guards and calls that same helper. Neither helper prompts or chooses a
+retention policy.
 
 ## Storage awareness
 
