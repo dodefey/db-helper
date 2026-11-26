@@ -8,7 +8,7 @@ The command exists for operational workflows such as:
 
 - restoring a known-good backup into `development` or `test`
 - recovering a corrupted or disrupted environment from a validated backup
-- restoring one collection from a backup without replacing the full database
+- restoring selected collections from a backup
 - restoring production from a known backup with additional safeguards
 
 `restore` is not a generic migration tool, merge tool, or arbitrary data
@@ -20,13 +20,13 @@ CLI forms:
 
 ```bash
 dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--explain] [--quiet] [--verbose] [--log]
-dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
+dbh restore collection --backup <backup-name> (--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]) --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
 ```
 
 Required flags:
 
 - `restore full`: `--backup`, `--to`
-- `restore collection`: `--backup`, `--collection`, `--to`
+- `restore collection` requires `--backup`, `--to`, and either `--collections=name1,name2` or at least one `--collection <name>`
 
 Optional flags:
 
@@ -42,8 +42,6 @@ and still requires connectivity. Collection restore rejects
 `--explain`. Explain can still perform archive inspection and temporary-file
 cleanup.
 
-No selective multi-collection restore mode is supported.
-
 ## Data Semantics
 
 ### Full restore
@@ -56,8 +54,8 @@ such as `system.*`. Internal namespaces are never prune targets.
 
 Required behavior:
 
-- validate the named backup artifacts and read their manifest before target
-  mutation
+- validate the named backup artifacts, read their manifest, and require a full
+  backup before target mutation
 - inspect the archive with the effective restore namespace contract before
   target mutation
 - accept inspection only when the archive tool exits successfully and produces
@@ -80,29 +78,27 @@ must fail before mutation.
 
 ### Collection restore
 
-`restore collection` restores one named collection from a backup into the
-target environment.
+`restore collection` restores selected collections into the target environment
+from either a full or a collection backup.
 
 Required behavior:
 
 - validate the named backup artifacts before restore
-- require the requested collection to exist in the backup manifest and to have
-  a finite, nonnegative manifest document count
+- require every requested collection to exist in the backup manifest and to
+  have a valid manifest document count
 - require confirmation before restoring into the target
 - apply extra protections before restoring into production
 - inspect the archive with the exact effective namespace contract before target
   mutation
-- require inspection to identify exactly one source-to-target mapping for the
-  requested collection
-- restore only the requested collection with drop enabled
-- verify the requested collection exists and its document count matches the
-  manifest before reporting success
+- require one exact source-to-target mapping per requested collection
+- restore the selected collections with drop enabled
+- verify presence and document count for every selected collection before
+  reporting success
 - never prune or verify unrelated target collections as part of collection
   restore
 
-For same-database collection restore, the effective contract uses an exact
-namespace include only. Namespace remapping is used only when the source and
-target database names differ. A collection name that cannot be represented as
+Collection restore uses an exact namespace include per name and remaps the
+database when the source and target database names differ. A name that cannot be represented as
 an exact namespace filter must fail before subprocess execution.
 
 ## Safety Contract
@@ -353,7 +349,6 @@ risky restore work.
 - backup artifact creation beyond the pre-restore production safety backup
 - schema migration logic
 - merge behavior
-- partial multi-collection restore workflows
 
 ## Refactor Guidance
 
@@ -375,7 +370,6 @@ These are intentionally out of scope and should not be added implicitly during
 refactor:
 
 - merge mode
-- multi-collection restore mode
 - transactional rollback guarantees
 - schema-aware migration logic
 - broader backup/restore product redesign beyond restore cleanup

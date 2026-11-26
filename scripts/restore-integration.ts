@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import {
@@ -14,9 +15,15 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { AppConfig, EnvironmentConfig } from "../src/config/types.js";
 import { runBackupCreate } from "../src/lib/backup.js";
-import { removeBackupArtifacts, readBackup } from "../src/lib/backups.js";
+import {
+  COLLECTION_ARCHIVE,
+  removeBackupArtifacts,
+  readBackup
+} from "../src/lib/backups.js";
 
 const execFileAsync = promisify(execFile);
 const requiredBinaries = ["mongod", "mongosh", "mongodump", "mongorestore"];
@@ -104,6 +111,250 @@ async function captureStdout(run: () => Promise<void>): Promise<string> {
   } finally {
     process.stdout.write = originalWrite;
   }
+}
+
+async function runCollectionCliScenario(
+  uri: string,
+  appConfig: AppConfig,
+  sourceTemplate: EnvironmentConfig
+): Promise<void> {
+  const root = path.join(appConfig.backupRoot, "collection-cli");
+  const backupRoot = path.join(root, "backups");
+  const configPath = path.join(root, "config.json");
+  const source = "collection_cli_source";
+  const target = "collection_cli_target";
+  await mkdir(root);
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      paths: { backupRoot, tempRoot: root },
+      environments: {
+        source: { ...sourceTemplate, databaseName: source },
+        target: { ...sourceTemplate, databaseName: target }
+      }
+    }),
+    { mode: 0o600 }
+  );
+
+  await mongoEval(
+    uri,
+    "const source=db.getSiblingDB('collection_cli_source');" +
+      "source.orders.insertOne({_id:'copied'}); source.createCollection('empty');" +
+      "source.createView('orders_view','orders',[]);" +
+      "source.createView('orders_summary','orders_view',[]);" +
+      "source.empty.createIndex({n:1},{name:'empty_n'});" +
+      "source.getCollection('found collection records, old').insertOne({_id:'event'});" +
+      "source.getCollection('--yes').insertOne({_id:'source-flag-name'});" +
+      "source.createCollection('weather',{timeseries:{timeField:'time'}});" +
+      "source.weather.insertOne({time:new Date(),temperature:22});" +
+      "source.unrelated.insertOne({_id:'source'});" +
+      "source.getCollection('system.js').insertOne({_id:'helper',value:'function(){return true;}'});" +
+      "const target=db.getSiblingDB('collection_cli_target'); target.unrelated.insertOne({_id:'sentinel'});" +
+      "target.getCollection('--yes').insertOne({_id:'target-flag-name'});"
+  );
+  const cli = (...args: string[]) =>
+    execFileAsync(process.execPath, [
+      "--import",
+      "tsx",
+      fileURLToPath(new URL("../src/cli.ts", import.meta.url)),
+      ...args,
+      "--config",
+      configPath
+    ]);
+  await assert.rejects(
+    cli(
+      "backup",
+      "create",
+      "--from",
+      "source",
+      "--name",
+      "view-only",
+      "--collections=orders_summary",
+      "--quiet"
+    ),
+    /Selected view "orders_summary" is backed by collection "orders"/
+  );
+  await assert.rejects(access(path.join(backupRoot, "view-only")), {
+    code: "ENOENT"
+  });
+  await assert.rejects(
+    cli(
+      "sync",
+      "collection",
+      "--from",
+      "source",
+      "--to",
+      "target",
+      "--collections=orders,orders_view",
+      "--yes",
+      "--quiet"
+    ),
+    /Selected view "orders_view" is backed by collection "orders"/
+  );
+  assert.deepEqual(
+    await mongoJson(
+      uri,
+      "db.getSiblingDB('collection_cli_target').getCollectionNames().sort()"
+    ),
+    ["--yes", "unrelated"]
+  );
+  await cli(
+    "backup",
+    "create",
+    "--from",
+    "source",
+    "--name",
+    "exact",
+    "--collection",
+    "weather",
+    "--quiet",
+    "--collection=found collection records, old"
+  );
+  const selection = ["orders", "empty", "weather"];
+  await cli(
+    "backup",
+    "create",
+    "--from",
+    "source",
+    "--name",
+    "selected",
+    `--collections=${selection.join(",")}`,
+    "--quiet"
+  );
+  const { manifest } = await readBackup(backupRoot, "selected");
+  assert.equal(manifest.archiveFile, COLLECTION_ARCHIVE);
+  assert.deepEqual(manifest.collectionList, selection);
+  assert.deepEqual(manifest.collectionCounts, {
+    orders: 1,
+    empty: 0,
+    weather: 1
+  });
+  assert.deepEqual(
+    (await readBackup(backupRoot, "exact")).manifest.collectionList,
+    ["weather", "found collection records, old"]
+  );
+  const { stdout: listed } = await cli("backup", "list", "--json");
+  assert.equal(JSON.parse(listed).status, "ok");
+  const { stdout: prune } = await cli(
+    "backup",
+    "prune",
+    "--keep-last",
+    "1",
+    "--dry-run"
+  );
+  assert.match(prune, /collection backup excluded from full-backup retention/);
+  await assert.rejects(
+    cli("restore", "full", "--backup", "selected", "--to", "target", "--yes"),
+    /contains selected collections/
+  );
+  await assert.rejects(
+    cli(
+      "sync",
+      "collection",
+      "--from",
+      "source",
+      "--to",
+      "target",
+      "--collections",
+      "orders",
+      "--yes"
+    ),
+    /Use --collections=name1,name2 or repeat --collection/
+  );
+  await assert.rejects(
+    cli(
+      "sync",
+      "collection",
+      "--from",
+      "source",
+      "--to",
+      "target",
+      "--yes",
+      "--collections=orders,missing"
+    ),
+    /Collection missing not found in source/
+  );
+  await assert.rejects(
+    cli(
+      "restore",
+      "collection",
+      "--backup",
+      "selected",
+      "--to",
+      "target",
+      "--yes",
+      "--collections=orders,unrelated"
+    ),
+    /Collection unrelated not present in backup/
+  );
+  assert.deepEqual(
+    await mongoJson(
+      uri,
+      "db.getSiblingDB('collection_cli_target').getCollectionNames().sort()"
+    ),
+    ["--yes", "unrelated"]
+  );
+
+  await cli(
+    "sync",
+    "collection",
+    "--from",
+    "source",
+    "--collections=orders,empty",
+    "--yes",
+    "--to",
+    "target"
+  );
+  await cli(
+    "restore",
+    "collection",
+    "--backup",
+    "exact",
+    "--collection",
+    "found collection records, old",
+    "--yes",
+    "--to",
+    "target",
+    "--collection",
+    "weather"
+  );
+  await cli(
+    "restore",
+    "collection",
+    "--backup",
+    "exact",
+    "--to",
+    "target",
+    "--collection",
+    "weather",
+    "--yes"
+  );
+  const result = await mongoJson(
+    uri,
+    "(()=>{const dbx=db.getSiblingDB('collection_cli_target');" +
+      "return {names:dbx.getCollectionNames().filter(name=>!name.startsWith('system.')).sort()," +
+      "orders:dbx.orders.find().toArray(),weather:dbx.weather.findOne().temperature," +
+      "emptyIndexes:dbx.empty.getIndexes().map(index=>index.name)," +
+      "events:dbx.getCollection('found collection records, old').find().toArray()," +
+      "flagName:dbx.getCollection('--yes').findOne()._id," +
+      "unrelated:dbx.unrelated.find().toArray()};})()"
+  );
+  assert.deepEqual(result, {
+    names: [
+      "--yes",
+      "empty",
+      "found collection records, old",
+      "orders",
+      "unrelated",
+      "weather"
+    ],
+    orders: [{ _id: "copied" }],
+    weather: 22,
+    emptyIndexes: ["_id_", "empty_n"],
+    events: [{ _id: "event" }],
+    flagName: "target-flag-name",
+    unrelated: [{ _id: "sentinel" }]
+  });
 }
 
 async function main(): Promise<void> {
@@ -304,6 +555,7 @@ async function main(): Promise<void> {
       );
     }
     await removeBackupArtifacts(root, generatedBackupName);
+    await runCollectionCliScenario(uri, appConfig, env);
     const runCollectionScenario = async (
       targetEnv: typeof env,
       collection: string,
@@ -324,7 +576,7 @@ async function main(): Promise<void> {
             },
             {
               backup: backupName,
-              collection,
+              collections: [collection],
               to: targetEnv.id,
               outputMode: "default"
             }
@@ -602,7 +854,7 @@ async function main(): Promise<void> {
     );
     const runSyncScenario = async (
       targetEnv: typeof syncFullTarget,
-      input: { collection?: string },
+      input: { collections?: readonly string[] },
       label: string,
       sourceEnv = syncSource
     ): Promise<{ summary: string; log: string }> => {
@@ -686,7 +938,7 @@ async function main(): Promise<void> {
     );
     const collectionSync = await runSyncScenario(
       syncCollectionTarget,
-      { collection: "orders" },
+      { collections: ["orders"] },
       "collection"
     );
     if (
@@ -730,7 +982,7 @@ async function main(): Promise<void> {
     }
     const sameCollectionSync = await runSyncScenario(
       syncSameTarget,
-      { collection: "orders" },
+      { collections: ["orders"] },
       "same-collection",
       syncSameSource
     );

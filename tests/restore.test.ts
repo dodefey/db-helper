@@ -111,7 +111,7 @@ function createRestoreCommandDependencies(
     }>;
     runRestoreCollectionArgs: Array<{
       backup: string;
-      collection: string;
+      collections: readonly string[];
       to: EnvironmentId;
       outputMode: "default" | "quiet" | "verbose";
     }>;
@@ -130,7 +130,7 @@ function createRestoreCommandDependencies(
     }>,
     runRestoreCollectionArgs: [] as Array<{
       backup: string;
-      collection: string;
+      collections: readonly string[];
       to: EnvironmentId;
       outputMode: "default" | "quiet" | "verbose";
     }>
@@ -180,7 +180,7 @@ function createRunRestoreDependencies(
       target: EnvironmentId;
       archivePath: string;
       sourceDatabaseName?: string;
-      collection?: string;
+      collections?: readonly string[];
       drop: boolean;
       outputMode?: "default" | "quiet" | "verbose";
       session?: unknown;
@@ -209,7 +209,7 @@ function createRunRestoreDependencies(
       target: EnvironmentId;
       archivePath: string;
       sourceDatabaseName?: string;
-      collection?: string;
+      collections?: readonly string[];
       drop: boolean;
       outputMode?: "default" | "quiet" | "verbose";
       session?: unknown;
@@ -286,7 +286,7 @@ function createRunRestoreDependencies(
         target: env.id,
         archivePath,
         sourceDatabaseName: options.sourceDatabaseName,
-        collection: options.collection,
+        collections: options.collections,
         drop: options.drop,
         outputMode: options.outputMode,
         session: options.remotePreflightSession
@@ -433,7 +433,7 @@ test("restoreCollection delegates after confirmation", async () => {
     buildAppConfig(),
     {
       backup: "backup-name",
-      collection: "orders",
+      collections: ["orders"],
       to: "development",
       yes: false,
       forceProductionRestore: false,
@@ -443,16 +443,51 @@ test("restoreCollection delegates after confirmation", async () => {
   );
 
   assert.deepEqual(calls.promptMessages, [
-    "This will restore data into development. Continue?"
+    'This will replace collection "orders" in development using backup backup-name. Continue?'
   ]);
   assert.deepEqual(calls.runRestoreCollectionArgs, [
     {
       backup: "backup-name",
-      collection: "orders",
+      collections: ["orders"],
       to: "development",
       outputMode: "default"
     }
   ]);
+});
+
+test("restoreCollection quotes and escapes names in collection confirmations", async () => {
+  const { dependencies, calls } = createRestoreCommandDependencies();
+  const appConfig = buildAppConfig();
+
+  for (const collections of [
+    ["orders, customers", 'sales "old"\t\u200b'],
+    ["orders", "customers", 'sales "old"\t']
+  ]) {
+    await restoreCollection(
+      appConfig,
+      {
+        backup: "backup-name",
+        collections,
+        to: "development",
+        yes: false,
+        forceProductionRestore: false,
+        outputMode: "default"
+      },
+      dependencies
+    );
+  }
+
+  assert.deepEqual(calls.promptMessages, [
+    String.raw`This will replace collections "orders, customers", "sales \"old\"\t\u200b" in development using backup backup-name. Continue?`,
+    String.raw`This will replace collections "orders", "customers", "sales \"old\"\t" in development using backup backup-name. Continue?`
+  ]);
+  assert.deepEqual(
+    calls.runRestoreCollectionArgs.map((call) => call.collections),
+    [
+      ["orders, customers", 'sales "old"\t\u200b'],
+      ["orders", "customers", 'sales "old"\t']
+    ]
+  );
 });
 
 test("restoreCollection rejects production restores without the force flag", async () => {
@@ -464,7 +499,7 @@ test("restoreCollection rejects production restores without the force flag", asy
         buildAppConfig(),
         {
           backup: "backup-name",
-          collection: "orders",
+          collections: ["orders"],
           to: "production",
           yes: false,
           forceProductionRestore: false,
@@ -492,7 +527,7 @@ test("restoreCollection rejects mismatched production confirmation text", async 
         buildAppConfig(),
         {
           backup: "backup-name",
-          collection: "orders",
+          collections: ["orders"],
           to: "production",
           yes: false,
           forceProductionRestore: true,
@@ -590,7 +625,7 @@ test("runRestoreFull performs pre-restore backup for production targets", async 
       target: "live",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
       sourceDatabaseName: "production",
-      collection: undefined,
+      collections: undefined,
       drop: true,
       outputMode: "default",
       session: context.remotePreflightSession
@@ -734,7 +769,7 @@ test("runRestoreCollection validates collection membership and restores with dro
     buildAppConfig(),
     {
       backup: "backup-name",
-      collection: "orders",
+      collections: ["orders"],
       to: "test",
       outputMode: "default"
     },
@@ -747,7 +782,7 @@ test("runRestoreCollection validates collection membership and restores with dro
     target: "test",
     archivePath: "/tmp/backups/backup-name/dump.archive.gz",
     sourceDatabaseName: "production",
-    collection: "orders",
+    collections: ["orders"],
     drop: true,
     outputMode: "default",
     session: context.remotePreflightSession
@@ -779,7 +814,7 @@ test("runRestoreCollection rejects collections missing from the backup", async (
         buildAppConfig(),
         {
           backup: "backup-name",
-          collection: "orders",
+          collections: ["orders"],
           to: "development",
           outputMode: "default"
         },
@@ -806,7 +841,7 @@ test("runRestoreCollection rejects a missing manifest count before restore", asy
         buildAppConfig(),
         {
           backup: "backup-name",
-          collection: "orders",
+          collections: ["orders"],
           to: "development",
           outputMode: "quiet"
         },
@@ -830,13 +865,13 @@ test("runRestoreCollection reports dirty-target risk on restore failure", async 
         buildAppConfig(),
         {
           backup: "backup-name",
-          collection: "orders",
+          collections: ["orders"],
           to: "development",
           outputMode: "default"
         },
         dependencies
       ),
-    /Restore failed during restore for backup-name -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nrestore failed/
+    /Restore failed during restore for backup-name:orders -> development\.\nTarget database may be dirty\. Restore it from a known good backup or rerun restore before trusting it\.\nrestore failed/
   );
 });
 
@@ -894,7 +929,7 @@ test("runRestoreFull suppresses summary output in quiet mode", async () => {
       target: "development",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
       sourceDatabaseName: "production",
-      collection: undefined,
+      collections: undefined,
       drop: true,
       outputMode: "quiet",
       session: context.remotePreflightSession
@@ -930,7 +965,7 @@ test("runRestoreFull forces drop semantics even when config default is false", a
       target: "development",
       archivePath: "/tmp/backups/backup-name/dump.archive.gz",
       sourceDatabaseName: "production",
-      collection: undefined,
+      collections: undefined,
       drop: true,
       outputMode: "default",
       session: context.remotePreflightSession
@@ -1381,7 +1416,7 @@ test("runRestoreCollection preserves subprocess success when only remote cleanup
           appConfig,
           {
             backup: "backup-name",
-            collection: "orders",
+            collections: ["orders"],
             to: "development",
             outputMode: "quiet"
           },

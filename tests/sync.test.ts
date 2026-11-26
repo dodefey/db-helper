@@ -51,20 +51,12 @@ function createDependencies(overrides: Partial<SyncDependencies> = {}): {
   dependencies: SyncDependencies;
   calls: {
     promptMessages: string[];
-    runSyncCalls: Array<{
-      from: EnvironmentId;
-      to: EnvironmentId;
-      outputMode: "default" | "quiet" | "verbose";
-    }>;
+    runSyncCalls: Parameters<typeof runSync>[1][];
   };
 } {
   const calls = {
     promptMessages: [] as string[],
-    runSyncCalls: [] as Array<{
-      from: EnvironmentId;
-      to: EnvironmentId;
-      outputMode: "default" | "quiet" | "verbose";
-    }>
+    runSyncCalls: [] as Parameters<typeof runSync>[1][]
   };
 
   const dependencies: SyncDependencies = {
@@ -102,7 +94,7 @@ function createRunSyncDependencies(
       archive: string;
       drop: boolean;
       sourceDatabaseName?: string;
-      collection?: string;
+      collections?: readonly string[];
     }>;
     droppedCollections: Array<{ target: EnvironmentId; collections: string[] }>;
     verifications: EnvironmentId[];
@@ -130,7 +122,7 @@ function createRunSyncDependencies(
       archive: string;
       drop: boolean;
       sourceDatabaseName?: string;
-      collection?: string;
+      collections?: readonly string[];
     }>,
     droppedCollections: [] as Array<{
       target: EnvironmentId;
@@ -254,15 +246,15 @@ function createRunSyncDependencies(
         archive: string;
         drop: boolean;
         sourceDatabaseName?: string;
-        collection?: string;
+        collections?: readonly string[];
       } = {
         target: env.id,
         archive: archiveFile,
         drop: options.drop,
         sourceDatabaseName: options.sourceDatabaseName
       };
-      if (options.collection) {
-        restoreCall.collection = options.collection;
+      if (options.collections) {
+        restoreCall.collections = options.collections;
       }
       calls.sessions.push(options.remotePreflightSession);
       calls.restores.push(restoreCall);
@@ -405,7 +397,7 @@ test("syncDatabase prompts with collection scope when syncing one collection", a
     {
       from: "production",
       to: "development",
-      collection: "orders",
+      collections: ["orders"],
       yes: false,
       outputMode: "default"
     },
@@ -413,16 +405,50 @@ test("syncDatabase prompts with collection scope when syncing one collection", a
   );
 
   assert.deepEqual(calls.promptMessages, [
-    "This will replace development.orders with an exact copy of production.orders. Continue?"
+    'This will replace development ["orders"] with an exact copy of production ["orders"]. Continue?'
   ]);
   assert.deepEqual(calls.runSyncCalls, [
     {
       from: "production",
       to: "development",
-      collection: "orders",
+      collections: ["orders"],
       outputMode: "default"
     }
   ]);
+});
+
+test("syncDatabase quotes and escapes names in collection confirmations", async () => {
+  const { dependencies, calls } = createDependencies();
+  const appConfig = buildAppConfig(false);
+
+  for (const collections of [
+    ["orders, customers", 'sales "old"\t\u200b'],
+    ["orders", "customers", 'sales "old"\t']
+  ]) {
+    await syncDatabase(
+      appConfig,
+      {
+        from: "production",
+        to: "development",
+        collections,
+        yes: false,
+        outputMode: "default"
+      },
+      dependencies
+    );
+  }
+
+  assert.deepEqual(calls.promptMessages, [
+    String.raw`This will replace development ["orders, customers", "sales \"old\"\t\u200b"] with an exact copy of production ["orders, customers", "sales \"old\"\t\u200b"]. Continue?`,
+    String.raw`This will replace development ["orders", "customers", "sales \"old\"\t"] with an exact copy of production ["orders", "customers", "sales \"old\"\t"]. Continue?`
+  ]);
+  assert.deepEqual(
+    calls.runSyncCalls.map((call) => call.collections),
+    [
+      ["orders, customers", 'sales "old"\t\u200b'],
+      ["orders", "customers", 'sales "old"\t']
+    ]
+  );
 });
 
 test("syncDatabase rejects same-environment paths before confirmation or sync work", async () => {
@@ -689,7 +715,7 @@ test("runSync syncs a single collection without pruning target-only collections"
     {
       from: "production",
       to: "development",
-      collection: "orders",
+      collections: ["orders"],
       outputMode: "default"
     },
     dependencies
@@ -718,7 +744,7 @@ test("runSync syncs a single collection without pruning target-only collections"
       archive: "/tmp/db-helper/test-sync.archive.gz",
       drop: true,
       sourceDatabaseName: "production",
-      collection: "orders"
+      collections: ["orders"]
     }
   ]);
   assert.deepEqual(calls.verifications, ["development"]);
@@ -738,12 +764,12 @@ test("runSync rejects missing source collections before restore begins", async (
       {
         from: "production",
         to: "development",
-        collection: "orders",
+        collections: ["orders"],
         outputMode: "default"
       },
       dependencies
     ),
-    /Collection orders was not found in source production\./
+    /Collection orders not found in source production\./
   );
 
   assert.deepEqual(calls.countedCollections, []);
@@ -1362,7 +1388,7 @@ test("runSync collection labels post-mutation remote cleanup failure truthfully"
           {
             from: "production",
             to: "development",
-            collection: "orders",
+            collections: ["orders"],
             outputMode: "quiet"
           },
           dependencies

@@ -33,6 +33,7 @@ export async function backupCreate(
   appConfig: AppConfig,
   input: {
     from: EnvironmentId;
+    collections?: readonly string[];
     note?: string;
     tags?: string[];
     backupName?: string;

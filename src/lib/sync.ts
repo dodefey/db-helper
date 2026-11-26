@@ -22,6 +22,10 @@ import {
 import { OutputMode, shouldPrintCommandSummary } from "./output.js";
 import { getRunLogger } from "./runLog.js";
 import { verifyRestore } from "./verify.js";
+import {
+  requireCollections,
+  validateCollectionSelection
+} from "./collections.js";
 
 export interface RunSyncDependencies {
   writeStdout: (message: string) => void;
@@ -46,7 +50,7 @@ export interface RunSyncDependencies {
 type SyncInput = {
   from: EnvironmentId;
   to: EnvironmentId;
-  collection?: string;
+  collections?: readonly string[];
 };
 
 function formatElapsed(milliseconds: number): string {
@@ -161,18 +165,23 @@ class SyncPhaseError extends Error {
   }
 }
 
-function formatSyncTarget(input: SyncInput): string {
-  if (input.collection) {
-    return `${input.from}.${input.collection} -> ${input.to}.${input.collection}`;
-  }
+export function formatSyncEnvironment(
+  environment: EnvironmentId,
+  collections?: readonly string[]
+): string {
+  if (!collections) return environment;
+  if (collections.length === 1) return `${environment}.${collections[0]}`;
+  return `${environment} [${collections.join(", ")}]`;
+}
 
-  return `${input.from} -> ${input.to}`;
+function formatSyncTarget(input: SyncInput): string {
+  return `${formatSyncEnvironment(input.from, input.collections)} -> ${formatSyncEnvironment(input.to, input.collections)}`;
 }
 
 function formatSyncFailure(input: {
   from: EnvironmentId;
   to: EnvironmentId;
-  collection?: string;
+  collections?: readonly string[];
   phase: SyncPhase;
   targetMayBeDirty: boolean;
   targetVerified?: boolean;
@@ -282,6 +291,8 @@ export async function runSync(
   const runLogger = getRunLogger();
   const source = appConfig.environments[input.from];
   const target = appConfig.environments[input.to];
+  const sourceLabel = formatSyncEnvironment(input.from, input.collections);
+  const targetLabel = formatSyncEnvironment(input.to, input.collections);
   const printSummary = shouldPrintCommandSummary(input.outputMode);
   let interrupted = false;
   const abortController = new AbortController();
@@ -306,25 +317,25 @@ export async function runSync(
     runLogger.info("sync", "Sync workflow started", {
       from: input.from,
       to: input.to,
-      collection: input.collection,
+      collections: input.collections,
       outputMode: input.outputMode
     });
-    const sourceCollections = filterSyncCollections(
-      await dependencies.listCollections(source, {
-        outputMode: input.outputMode,
-        signal: abortController.signal,
-        remotePreflightSession: context.remotePreflightSession
-      })
-    );
-    if (input.collection) {
-      if (!sourceCollections.includes(input.collection)) {
-        throw new Error(
-          `Collection ${input.collection} was not found in source ${input.from}.`
-        );
-      }
-      verificationCollectionList = [input.collection];
+    const sourceCollections = await dependencies.listCollections(source, {
+      outputMode: input.outputMode,
+      signal: abortController.signal,
+      remotePreflightSession: context.remotePreflightSession,
+      rejectViewsIn: input.collections
+    });
+    if (input.collections) {
+      validateCollectionSelection(input.collections);
+      requireCollections(
+        input.collections,
+        sourceCollections,
+        `not found in source ${input.from}.`
+      );
+      verificationCollectionList = [...input.collections];
     } else {
-      verificationCollectionList = sourceCollections;
+      verificationCollectionList = filterSyncCollections(sourceCollections);
     }
     expectedCollections = new Set(verificationCollectionList);
     const collectionCounts = await dependencies.getCollectionCounts(
@@ -350,34 +361,29 @@ export async function runSync(
     if (printSummary) {
       dependencies.writeStdout(`Starting sync ${formatSyncTarget(input)}\n`);
     }
-    if (printSummary) {
-      currentPhase = "dump";
-      runLogger.info("sync", "Dumping source environment", {
-        from: input.from,
-        collection: input.collection
-      });
-      await dependencies.runWithElapsedStatus(
-        `Dumping source ${input.collection ? `${input.from}.${input.collection}` : input.from}...`,
-        () =>
-          dependencies.createArchiveBackup(source, appConfig, tempArchive, {
-            outputMode: input.outputMode,
-            signal: abortController.signal,
-            remotePreflightSession: context.remotePreflightSession
-          })
-      );
-    } else {
-      currentPhase = "dump";
-      runLogger.info("sync", "Dumping source environment", {
-        from: input.from,
-        collection: input.collection
-      });
-      await dependencies.createArchiveBackup(source, appConfig, tempArchive, {
+    currentPhase = "dump";
+    runLogger.info("sync", "Dumping source environment", {
+      from: input.from,
+      collections: input.collections
+    });
+    const dump = () =>
+      dependencies.createArchiveBackup(source, appConfig, tempArchive, {
         outputMode: input.outputMode,
         signal: abortController.signal,
-        remotePreflightSession: context.remotePreflightSession
+        remotePreflightSession: context.remotePreflightSession,
+        ...(input.collections
+          ? { selection: { collections: input.collections, sourceCollections } }
+          : {})
       });
+    if (printSummary) {
+      await dependencies.runWithElapsedStatus(
+        `Dumping source ${sourceLabel}...`,
+        dump
+      );
+    } else {
+      await dump();
     }
-    if (!input.collection) {
+    if (!input.collections) {
       currentPhase = "restore";
       runLogger.info("sync", "Preparing target archive restore", {
         to: input.to
@@ -406,73 +412,45 @@ export async function runSync(
       }
       expectedCollections = new Set(inspectedArchiveCollections);
     }
-    if (printSummary) {
-      currentPhase = "restore";
-      runLogger.info("sync", "Restoring target environment", {
-        to: input.to,
-        collection: input.collection
-      });
-      await dependencies.runWithElapsedStatus(
-        `Restoring target ${input.collection ? `${input.to}.${input.collection}` : input.to}...`,
-        () => {
-          const restoreOptions = {
-            sourceDatabaseName: source.databaseName,
-            collection: input.collection,
-            drop: true,
-            outputMode: input.outputMode,
-            signal: abortController.signal,
-            onMutationState: (state: ArchiveMutationState) => {
-              if (state === "in_progress") targetMayBeDirty = true;
-              if (state === "subprocess_succeeded") {
-                restoreSubprocessSucceeded = true;
-              }
-            },
-            remotePreflightSession: context.remotePreflightSession
-          };
-          return preparedSession
-            ? preparedSession.restore(restoreOptions)
-            : dependencies.restoreArchiveToEnvironment(
-                target,
-                appConfig,
-                tempArchive,
-                restoreOptions
-              );
+    currentPhase = "restore";
+    runLogger.info("sync", "Restoring target environment", {
+      to: input.to,
+      collections: input.collections
+    });
+    const restoreOptions = {
+      sourceDatabaseName: source.databaseName,
+      collections: input.collections,
+      drop: true,
+      outputMode: input.outputMode,
+      signal: abortController.signal,
+      onMutationState: (state: ArchiveMutationState) => {
+        if (state === "in_progress") targetMayBeDirty = true;
+        if (state === "subprocess_succeeded") {
+          restoreSubprocessSucceeded = true;
         }
+      },
+      remotePreflightSession: context.remotePreflightSession
+    };
+    const restore = () =>
+      preparedSession
+        ? preparedSession.restore(restoreOptions)
+        : dependencies.restoreArchiveToEnvironment(
+            target,
+            appConfig,
+            tempArchive,
+            restoreOptions
+          );
+    if (printSummary) {
+      await dependencies.runWithElapsedStatus(
+        `Restoring target ${targetLabel}...`,
+        restore
       );
     } else {
-      currentPhase = "restore";
-      runLogger.info("sync", "Restoring target environment", {
-        to: input.to,
-        collection: input.collection
-      });
-      const restoreOptions = {
-        sourceDatabaseName: source.databaseName,
-        collection: input.collection,
-        drop: true,
-        outputMode: input.outputMode,
-        signal: abortController.signal,
-        onMutationState: (state: ArchiveMutationState) => {
-          if (state === "in_progress") targetMayBeDirty = true;
-          if (state === "subprocess_succeeded") {
-            restoreSubprocessSucceeded = true;
-          }
-        },
-        remotePreflightSession: context.remotePreflightSession
-      };
-      if (preparedSession) {
-        await preparedSession.restore(restoreOptions);
-      } else {
-        await dependencies.restoreArchiveToEnvironment(
-          target,
-          appConfig,
-          tempArchive,
-          restoreOptions
-        );
-      }
+      await restore();
     }
     restoreSubprocessSucceeded = true;
     targetMayBeDirty = true;
-    if (!input.collection) {
+    if (!input.collections) {
       currentPhase = "prune";
       const targetCollections = filterSyncCollections(
         await dependencies.listCollections(target, {
@@ -503,12 +481,10 @@ export async function runSync(
     currentPhase = "verify";
     runLogger.info("sync", "Verifying sync target", {
       to: input.to,
-      collection: input.collection
+      collections: input.collections
     });
     if (printSummary) {
-      dependencies.writeStdout(
-        `Verifying target ${input.collection ? `${input.to}.${input.collection}` : input.to}...\n`
-      );
+      dependencies.writeStdout(`Verifying target ${targetLabel}...\n`);
       dependencies.writeStdout(`Checking collection presence...\n`);
       dependencies.writeStdout(`Checking collection counts...\n`);
     }
@@ -537,7 +513,7 @@ export async function runSync(
           : undefined
       }
     );
-    const unexpectedCollections = input.collection
+    const unexpectedCollections = input.collections
       ? []
       : filterSyncCollections(verification.collectionsPresent).filter(
           (collection) => !expectedCollections.has(collection)
@@ -559,6 +535,7 @@ export async function runSync(
         message: formatSyncFailure({
           from: input.from,
           to: input.to,
+          collections: input.collections,
           phase: "verify",
           targetMayBeDirty: true,
           interrupted: false,
@@ -612,7 +589,7 @@ export async function runSync(
         message: formatSyncFailure({
           from: input.from,
           to: input.to,
-          collection: input.collection,
+          collections: input.collections,
           phase: currentPhase,
           targetMayBeDirty,
           targetVerified: verificationSucceeded,
@@ -656,7 +633,7 @@ export async function runSync(
           message: formatSyncFailure({
             from: input.from,
             to: input.to,
-            collection: input.collection,
+            collections: input.collections,
             phase: "cleanup",
             targetMayBeDirty,
             targetVerified: verificationSucceeded,
@@ -714,7 +691,7 @@ export async function runSync(
           message: formatSyncFailure({
             from: input.from,
             to: input.to,
-            collection: input.collection,
+            collections: input.collections,
             phase: "cleanup",
             targetMayBeDirty,
             targetVerified: verificationSucceeded,
@@ -731,7 +708,7 @@ export async function runSync(
     runLogger.error("sync", "Sync workflow failed", {
       from: input.from,
       to: input.to,
-      collection: input.collection,
+      collections: input.collections,
       phase: primaryError.phase,
       interrupted: primaryError.interrupted,
       cleanupFailed: primaryError.cleanupFailed,
@@ -760,7 +737,7 @@ export async function runSync(
   runLogger.info("sync", "Sync workflow completed", {
     from: input.from,
     to: input.to,
-    collection: input.collection,
+    collections: input.collections,
     verifiedCollectionCount: verificationCollectionList.length
   });
 }

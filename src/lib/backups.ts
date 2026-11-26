@@ -14,6 +14,16 @@ import {
 } from "./fs.js";
 
 const BACKUP_NAME_PATTERN = /^[A-Za-z0-9._-]+$/;
+export const FULL_ARCHIVE = "dump.archive.gz";
+export const COLLECTION_ARCHIVE = "collections.archive.gz";
+
+export function requireFullBackup(backup: BackupRecord): void {
+  if (backup.manifest.archiveFile === COLLECTION_ARCHIVE) {
+    throw new Error(
+      `Backup ${backup.name} contains selected collections. Use dbh restore collection with --collections=name1,name2 or repeat --collection <name>.`
+    );
+  }
+}
 
 export function buildBackupName(env: EnvironmentConfig): string {
   return `${new Date()
@@ -67,9 +77,15 @@ export function backupPath(backupRoot: string, backupName: string): string {
 
 export function archivePathForBackup(
   backupRoot: string,
-  backupName: string
+  backupName: string,
+  archiveFile = FULL_ARCHIVE
 ): string {
-  return path.join(backupPath(backupRoot, backupName), "dump.archive.gz");
+  if (archiveFile !== FULL_ARCHIVE && archiveFile !== COLLECTION_ARCHIVE) {
+    throw new Error(
+      `Backup ${backupName} has an unsupported archive filename.`
+    );
+  }
+  return path.join(backupPath(backupRoot, backupName), archiveFile);
 }
 
 export function manifestPathForBackup(
@@ -139,22 +155,27 @@ export async function ensureBackupArtifacts(
   backupName: string
 ): Promise<void> {
   const manifestFile = manifestPathForBackup(backupRoot, backupName);
-  const archiveFile = archivePathForBackup(backupRoot, backupName);
-
   if (!(await exists(manifestFile))) {
     throw new Error(`Backup ${backupName} is missing manifest.json`);
   }
+  const manifestContent = await readFile(manifestFile, "utf8");
+  if (!manifestContent.trim()) {
+    throw new Error(`Backup ${backupName} manifest.json is empty`);
+  }
+  const manifest = JSON.parse(manifestContent) as BackupManifest;
+  const archiveFile = archivePathForBackup(
+    backupRoot,
+    backupName,
+    manifest.archiveFile
+  );
   if (!(await exists(archiveFile))) {
-    throw new Error(`Backup ${backupName} is missing dump.archive.gz`);
+    throw new Error(
+      `Backup ${backupName} is missing ${path.basename(archiveFile)}`
+    );
   }
 
   const archiveStats = await stat(archiveFile);
   if (archiveStats.size <= 0) {
     throw new Error(`Backup ${backupName} archive is empty`);
-  }
-
-  const manifestContent = await readFile(manifestFile, "utf8");
-  if (!manifestContent.trim()) {
-    throw new Error(`Backup ${backupName} manifest.json is empty`);
   }
 }

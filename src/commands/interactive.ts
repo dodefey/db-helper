@@ -6,6 +6,7 @@ import { recoverDatabase } from "./recover.js";
 import { restoreCollection, restoreFull } from "./restore.js";
 import { syncDatabase } from "./sync.js";
 import { getRunLogger } from "../lib/runLog.js";
+import { validateCollectionSelection } from "../lib/collections.js";
 
 function environmentChoices(appConfig: AppConfig): Array<{
   label: string;
@@ -17,15 +18,31 @@ function environmentChoices(appConfig: AppConfig): Array<{
   }));
 }
 
+async function promptCollections(): Promise<string[]> {
+  const collections: string[] = [];
+  const options = { preserveWhitespace: true };
+  let name = await promptText("Collection name", options);
+  while (name !== "") {
+    collections.push(name);
+    name = await promptText(
+      "Next collection name (leave blank to finish)",
+      options
+    );
+  }
+  validateCollectionSelection(collections);
+  return collections;
+}
+
 export async function runInteractive(appConfig: AppConfig): Promise<void> {
   const runLogger = getRunLogger();
   const action = await promptChoice("Select a workflow", [
     { label: "Restore known clean backup", value: "recover" },
-    { label: "Back up one environment", value: "backup-environment" },
+    { label: "Back up full environment", value: "backup-environment" },
+    { label: "Back up selected collections", value: "backup-collections" },
     { label: "Sync full environment", value: "sync-environment" },
-    { label: "Sync one collection", value: "sync-collection" },
+    { label: "Sync selected collections", value: "sync-collection" },
     { label: "Restore full backup", value: "restore-full" },
-    { label: "Restore one collection", value: "restore-collection" },
+    { label: "Restore selected collections", value: "restore-collection" },
     { label: "Run doctor checks", value: "doctor" }
   ]);
   runLogger.info("interactive", "Selected interactive workflow", { action });
@@ -34,13 +51,18 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
     case "recover":
       await recoverDatabase(appConfig);
       return;
-    case "backup-environment": {
+    case "backup-environment":
+    case "backup-collections": {
       const from = await promptChoice<EnvironmentId>(
         "Source environment",
         environmentChoices(appConfig)
       );
       await backupCreate(appConfig, {
         from,
+        collections:
+          action === "backup-collections"
+            ? await promptCollections()
+            : undefined,
         outputMode: "default"
       });
       return;
@@ -71,11 +93,11 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
         "Target environment",
         environmentChoices(appConfig)
       );
-      const collection = await promptText("Collection name");
+      const collections = await promptCollections();
       await syncDatabase(appConfig, {
         from,
         to,
-        collection,
+        collections,
         yes: false,
         outputMode: "default"
       });
@@ -99,14 +121,14 @@ export async function runInteractive(appConfig: AppConfig): Promise<void> {
     }
     case "restore-collection": {
       const backup = await promptText("Backup name");
-      const collection = await promptText("Collection name");
+      const collections = await promptCollections();
       const target = await promptChoice<EnvironmentId>(
         "Target environment",
         environmentChoices(appConfig)
       );
       await restoreCollection(appConfig, {
         backup,
-        collection,
+        collections,
         to: target,
         yes: false,
         forceProductionRestore: appConfig.environments[target].isProduction,

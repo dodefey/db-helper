@@ -7,7 +7,8 @@ import {
 import {
   archivePathForBackup,
   ensureBackupArtifacts,
-  readBackup
+  readBackup,
+  requireFullBackup
 } from "./backups.js";
 import {
   ArchiveMutationState,
@@ -28,6 +29,10 @@ import {
 } from "./invocationContext.js";
 import { OutputMode } from "./output.js";
 import { getRunLogger } from "./runLog.js";
+import {
+  requireCollections,
+  validateCollectionSelection
+} from "./collections.js";
 
 export interface RunRestoreDependencies {
   ensureBackupArtifacts: typeof ensureBackupArtifacts;
@@ -221,7 +226,7 @@ function manifestCollectionsFromBackup(backup: BackupRecord): string[] {
 }
 
 function formatRestoreVerificationFailure(
-  backup: BackupRecord,
+  backupLabel: string,
   to: EnvironmentId,
   verification: {
     missingCollections: string[];
@@ -233,7 +238,7 @@ function formatRestoreVerificationFailure(
   }
 ): string {
   return (
-    `Restore verification failed for ${backup.name} -> ${to}\n` +
+    `Restore verification failed for ${backupLabel} -> ${to}\n` +
     `Missing collections: ${verification.missingCollections.join(", ") || "none"}\n` +
     `Count mismatches: ${
       verification.countMismatches
@@ -292,6 +297,7 @@ export async function runRestoreFull(
       appConfig.backupRoot,
       input.backup
     );
+    requireFullBackup(backup);
 
     const manifestCollections = manifestCollectionsFromBackup(backup);
     const archivePath = dependencies.archivePathForBackup(
@@ -455,7 +461,7 @@ export async function runRestoreFull(
       unexpectedCollections.length > 0
     ) {
       throw new Error(
-        `${formatRestoreVerificationFailure(backup, input.to, verification)}\n` +
+        `${formatRestoreVerificationFailure(backup.name, input.to, verification)}\n` +
           `Unexpected collections: ${unexpectedCollections.join(", ") || "none"}`
       );
     }
@@ -540,7 +546,7 @@ export async function runRestoreCollection(
   appConfig: AppConfig,
   input: {
     backup: string;
-    collection: string;
+    collections: readonly string[];
     to: EnvironmentId;
     outputMode: OutputMode;
   },
@@ -548,6 +554,11 @@ export async function runRestoreCollection(
   context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
+  const { collections } = input;
+  validateCollectionSelection(collections);
+  const label = collections.join(", ");
+  const scopeLabel = collections.length === 1 ? "collection" : "collections";
+  const backupLabel = `${input.backup}:${label}`;
   const abortController = new AbortController();
   let currentPhase: RestorePhase = "backup_validation";
   let targetMayBeDirty = false;
@@ -563,13 +574,13 @@ export async function runRestoreCollection(
   try {
     runLogger.info("restore", "Restore collection workflow started", {
       backup: input.backup,
-      collection: input.collection,
+      collections,
       to: input.to,
       outputMode: input.outputMode
     });
     if (printSummary) {
       dependencies.writeStdout(
-        `Starting restore ${input.backup}:${input.collection} -> ${input.to}\n`
+        `Starting restore ${backupLabel} -> ${input.to}\n`
       );
     }
     await dependencies.ensureBackupArtifacts(
@@ -580,40 +591,47 @@ export async function runRestoreCollection(
       appConfig.backupRoot,
       input.backup
     );
-    if (!backup.manifest.collectionList.includes(input.collection)) {
-      throw new Error(
-        `Collection ${input.collection} not present in backup ${input.backup}`
-      );
-    }
-    const expectedCount = backup.manifest.collectionCounts?.[input.collection];
-    if (
-      expectedCount === undefined ||
-      !Number.isInteger(expectedCount) ||
-      expectedCount < 0
-    ) {
-      throw new Error(
-        `Collection ${input.collection} has no valid manifest count in backup ${input.backup}`
-      );
-    }
+    requireCollections(
+      collections,
+      backup.manifest.collectionList,
+      `not present in backup ${input.backup}`
+    );
+    const collectionCounts = Object.fromEntries(
+      collections.map((name) => {
+        const counts = backup.manifest.collectionCounts;
+        const count =
+          counts && Object.hasOwn(counts, name) ? counts[name] : undefined;
+        if (count === undefined || !Number.isSafeInteger(count) || count < 0) {
+          throw new Error(
+            `Collection ${name} has no valid manifest count in backup ${input.backup}`
+          );
+        }
+        return [name, count];
+      })
+    );
 
     currentPhase = "restore";
     runLogger.info("restore", "Restoring collection into target", {
       backup: input.backup,
-      collection: input.collection,
+      collections,
       to: input.to
     });
     if (printSummary) {
       dependencies.writeStdout(
-        `Restoring collection ${input.collection} into ${input.to}...\n`
+        `Restoring ${scopeLabel} ${label} into ${input.to}...\n`
       );
     }
     await dependencies.restoreArchiveToEnvironment(
       target,
       appConfig,
-      dependencies.archivePathForBackup(appConfig.backupRoot, input.backup),
+      dependencies.archivePathForBackup(
+        appConfig.backupRoot,
+        input.backup,
+        backup.manifest.archiveFile
+      ),
       {
         sourceDatabaseName: backup.manifest.databaseName,
-        collection: input.collection,
+        collections,
         drop: true,
         outputMode: input.outputMode,
         signal: abortController.signal,
@@ -630,15 +648,15 @@ export async function runRestoreCollection(
     currentPhase = "verify";
     if (printSummary) {
       dependencies.writeStdout(
-        `Verifying collection ${input.collection} in ${input.to}...\n`
+        `Verifying ${scopeLabel} ${label} in ${input.to}...\n`
       );
     }
     const verification = await dependencies.verifyRestore(
       target,
       {
         ...backup.manifest,
-        collectionList: [input.collection],
-        collectionCounts: { [input.collection]: expectedCount }
+        collectionList: [...collections],
+        collectionCounts
       },
       {
         outputMode: input.outputMode,
@@ -651,27 +669,18 @@ export async function runRestoreCollection(
       verification.countMismatches.length > 0
     ) {
       throw new Error(
-        `Collection restore verification failed for ${backup.name}:${input.collection} -> ${input.to}\n` +
-          `Missing collections: ${verification.missingCollections.join(", ") || "none"}\n` +
-          `Count mismatches: ${
-            verification.countMismatches
-              .map(
-                (item) =>
-                  `${item.collection} expected=${item.expected} actual=${item.actual}`
-              )
-              .join(", ") || "none"
-          }`
+        formatRestoreVerificationFailure(backupLabel, input.to, verification)
       );
     }
     verificationState = "succeeded";
     if (printSummary) {
       dependencies.writeStdout(
-        `Restore complete: ${input.backup}:${input.collection} -> ${input.to}\n`
+        `Restore complete: ${backupLabel} -> ${input.to}\n`
       );
     }
     runLogger.info("restore", "Restore collection workflow completed", {
       backup: input.backup,
-      collection: input.collection,
+      collections,
       to: input.to
     });
   } catch (error) {
@@ -693,7 +702,7 @@ export async function runRestoreCollection(
     if (currentPhase === "verify") verificationState = "failed";
     runLogger.error("restore", "Restore collection workflow failed", {
       backup: input.backup,
-      collection: input.collection,
+      collections,
       to: input.to,
       phase: currentPhase,
       interrupted: isInterruptedError(error),
@@ -710,7 +719,7 @@ export async function runRestoreCollection(
     });
     throw new Error(
       formatRestoreFailure({
-        backup: input.backup,
+        backup: backupLabel,
         to: input.to,
         phase: currentPhase,
         targetMayBeDirty,
@@ -730,7 +739,7 @@ export async function runRestoreCollection(
   } finally {
     runLogger.debug("restore", "Removing restore interrupt handler", {
       backup: input.backup,
-      collection: input.collection,
+      collections,
       to: input.to
     });
     removeInterruptHandler();

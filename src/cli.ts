@@ -41,6 +41,7 @@ import { runDoctor } from "./commands/doctor.js";
 import { runInteractive } from "./commands/interactive.js";
 import { recoverDatabase } from "./commands/recover.js";
 import { restoreCollection, restoreFull } from "./commands/restore.js";
+import { validateCollectionSelection } from "./lib/collections.js";
 import { syncDatabase } from "./commands/sync.js";
 import { createCommandInvocationContext } from "./lib/invocationContext.js";
 import { parseOutputMode } from "./lib/output.js";
@@ -55,11 +56,15 @@ import { TOOL_VERSION } from "./version.js";
 type ParsedArgs = {
   positional: string[];
   flags: Record<string, string | boolean>;
+  flagEntries: Array<[name: string, value: string | boolean]>;
+  collectionSelections: Array<{ flag: string; names: string[] }>;
 };
 
 function parseArgs(argv: string[]): ParsedArgs {
   const positional: string[] = [];
-  const flags: Record<string, string | boolean> = {};
+  const flags: ParsedArgs["flags"] = Object.create(null);
+  const flagEntries: ParsedArgs["flagEntries"] = [];
+  const collectionSelections: ParsedArgs["collectionSelections"] = [];
 
   for (let index = 0; index < argv.length; index += 1) {
     const token = argv[index];
@@ -70,16 +75,39 @@ function parseArgs(argv: string[]): ParsedArgs {
 
     const name = token.slice(2);
     const next = argv[index + 1];
-    if (!next || next.startsWith("--")) {
-      flags[name] = true;
+    const collectionFlag = /^(collection|collections)(?:=(.*))?$/s.exec(name);
+    if (collectionFlag) {
+      const [, flag, attached] = collectionFlag;
+      if (flag === "collections") {
+        collectionSelections.push({
+          flag,
+          names: attached === undefined ? [] : attached.split(",")
+        });
+      } else {
+        const hasSeparateValue =
+          attached === undefined &&
+          next !== undefined &&
+          !next.startsWith("--");
+        const value = hasSeparateValue ? next : attached;
+        collectionSelections.push({
+          flag,
+          names: value === undefined ? [] : [value]
+        });
+        if (hasSeparateValue) index += 1;
+      }
       continue;
     }
-
-    flags[name] = next;
-    index += 1;
+    const missingValue =
+      next === undefined ||
+      (next === "" && name !== "note") ||
+      next.startsWith("--");
+    const value = missingValue ? true : next;
+    flagEntries.push([name, value]);
+    flags[name] = value;
+    if (typeof value === "string") index += 1;
   }
 
-  return { positional, flags };
+  return { positional, flags, flagEntries, collectionSelections };
 }
 
 function getFlag(
@@ -239,6 +267,75 @@ async function main(): Promise<void> {
   };
 
   validateQueryArguments();
+  const pluralSelection = args.collectionSelections.find(
+    ({ flag }) => flag === "collections"
+  );
+  if (pluralSelection?.names.length === 0) {
+    throw new Error(
+      "Use --collections=name1,name2 or repeat --collection <name>."
+    );
+  }
+  const backupCreateCommand = command === "backup" && subcommand === "create";
+  if (backupCreateCommand) {
+    if (args.positional.length !== 2) {
+      throw new Error("Unexpected positional arguments for backup create.");
+    }
+    const valueFlags = new Set(["from", "name", "note", "tag", "config"]);
+    const booleanFlags = new Set(["quiet", "verbose", "log", "help"]);
+    for (const [flag, value] of args.flagEntries) {
+      const takesValue = valueFlags.has(flag);
+      if (!takesValue && !booleanFlags.has(flag)) {
+        throw new Error(`Unknown flag --${flag}`);
+      }
+      if (takesValue && typeof value !== "string") {
+        throw new Error(`Flag --${flag} requires a value.`);
+      }
+      if (!takesValue && value !== true) {
+        throw new Error(`Flag --${flag} does not accept a value.`);
+      }
+    }
+  }
+  const collectionCommand =
+    (command === "sync" || command === "restore") &&
+    subcommand === "collection";
+  const [selection] = args.collectionSelections;
+  let collections: string[] | undefined;
+  if (selection) {
+    if (!collectionCommand && !backupCreateCommand) {
+      throw new Error(
+        `--${selection.flag} is supported by backup create, sync collection, and restore collection.`
+      );
+    }
+    if (pluralSelection && args.collectionSelections.length > 1) {
+      throw new Error(
+        "Use either one --collections=name1,name2 flag or repeat --collection."
+      );
+    }
+    const missingName = args.collectionSelections.find(
+      ({ names }) => names.length === 0 || names.includes("")
+    );
+    if (missingName) {
+      throw new Error(`Flag --${missingName.flag} requires a collection name.`);
+    }
+    collections = args.collectionSelections.flatMap(({ names }) => names);
+    validateCollectionSelection(collections);
+    if (args.positional.length !== 2) {
+      throw new Error(
+        "Use --collections=name1,name2 or repeat --collection <name>."
+      );
+    }
+  } else if (collectionCommand && !getBooleanFlag(args.flags, "help")) {
+    throw new Error(
+      "Missing collection selection. Use --collections=name1,name2 or repeat --collection <name>."
+    );
+  }
+  if (
+    command === "sync" &&
+    subcommand &&
+    !["collection", "full"].includes(subcommand)
+  ) {
+    throw new Error(`Unknown sync subcommand: ${subcommand}`);
+  }
   if (command === "backup" && subcommand === "delete") {
     if (args.positional.length !== 2)
       throw new Error("Backup delete accepts one name via --backup only.");
@@ -462,7 +559,8 @@ async function main(): Promise<void> {
               "--from"
             ),
             backupName: getFlag(args.flags, "name"),
-            note: getFlag(args.flags, "note"),
+            collections,
+            note: getFlag(args.flags, "note") || undefined,
             tags: getFlag(args.flags, "tag")
               ? [getFlag(args.flags, "tag")!]
               : [],
@@ -530,32 +628,10 @@ async function main(): Promise<void> {
       }
       break;
     case "sync":
-      if (subcommand === "collection") {
-        runLogger.info("cli", "Running sync collection");
-        await syncDatabase(
-          appConfig,
-          {
-            from: resolveEnvironment(
-              appConfig,
-              getFlag(args.flags, "from", true),
-              "--from"
-            ),
-            to: resolveEnvironment(
-              appConfig,
-              getFlag(args.flags, "to", true),
-              "--to"
-            ),
-            collection: getFlag(args.flags, "collection", true)!,
-            yes: getBooleanFlag(args.flags, "yes"),
-            outputMode
-          },
-          undefined,
-          invocationContext
-        );
-        await finishSuccess();
-        return;
-      }
-      runLogger.info("cli", "Running sync");
+      runLogger.info(
+        "cli",
+        collections ? "Running sync collection" : "Running sync"
+      );
       await syncDatabase(
         appConfig,
         {
@@ -569,6 +645,7 @@ async function main(): Promise<void> {
             getFlag(args.flags, "to", true),
             "--to"
           ),
+          collections,
           yes: getBooleanFlag(args.flags, "yes"),
           outputMode
         },
@@ -607,7 +684,7 @@ async function main(): Promise<void> {
         await finishSuccess();
         return;
       }
-      if (subcommand === "collection") {
+      if (subcommand === "collection" && collections) {
         if (getBooleanFlag(args.flags, "explain")) {
           throw new Error("--explain is only supported for full restore.");
         }
@@ -616,7 +693,7 @@ async function main(): Promise<void> {
           appConfig,
           {
             backup: getFlag(args.flags, "backup", true)!,
-            collection: getFlag(args.flags, "collection", true)!,
+            collections,
             to: resolveEnvironment(
               appConfig,
               getFlag(args.flags, "to", true),

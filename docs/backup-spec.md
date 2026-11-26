@@ -2,7 +2,7 @@
 
 ## Purpose
 
-`backup` captures a full Mongo database from one configured environment into a local archive plus manifest.
+`backup` captures a full Mongo database or selected collections from one configured environment into a local archive plus manifest.
 
 The command exists for operational workflows such as:
 
@@ -12,14 +12,14 @@ The command exists for operational workflows such as:
 - inspecting or restoring a previously saved snapshot later
 
 `backup` also supports exact-name deletion and manual pruning by retained count.
-Automatic retention, replication, and selective export are outside its scope.
+Automatic retention and replication are outside its scope.
 
 ## Command Surface
 
 CLI forms:
 
 ```bash
-dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
+dbh backup create --from <environment> [--name <name>] [--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
 dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose] [--log]
 dbh backup usage [--json] [--quiet] [--verbose] [--log]
 dbh backup delete --backup <name> [--yes] [--quiet] [--verbose] [--log]
@@ -36,22 +36,22 @@ Required flags:
 
 Optional flags:
 
-- `backup create`: `--name`, `--note`, `--tag`, `--quiet`, `--verbose`, `--log`
+- `backup create` accepts `--collections=name1,name2` or repeatable `--collection <name>`, plus `--name`, `--note`, `--tag`, `--quiet`, `--verbose`, and `--log`
 - `backup list`: `--from`, `--tag`, `--json`, `--quiet`, `--verbose`, `--log`
 - `backup usage`: `--json`, `--quiet`, `--verbose`, `--log`
 - `backup delete`: `--yes`, `--quiet`, `--verbose`, `--log`
 - `backup prune`: `--dry-run`, `--yes`, `--quiet`, `--verbose`, `--log`
 
-No selective collection backup mode is supported.
-
 ## Data Semantics
 
-`backup create` captures a full database archive and a manifest for the chosen source environment.
+`backup create` captures a full database by default. With a collection selection, it requires every requested name to exist in the source and verifies that the new archive contains exactly that selection before writing a manifest.
+
+Collection backup requires data collections. A selected view fails metadata collection, and the error names the view and its backing collection. Time-series collections are eligible.
 
 Current behavior:
 
 - create a timestamped backup directory under the configured backup root
-- create `dump.archive.gz`
+- create `dump.archive.gz` for a full backup or `collections.archive.gz` for a collection backup
 - register a local creation marker before exposing a new backup directory; refuse existing directories and same-name creation markers
 - write `manifest.json`
 - remove the creation marker after validation or failure cleanup
@@ -75,7 +75,7 @@ Each backup must be stored under:
 
 Required contents:
 
-- `dump.archive.gz`
+- `dump.archive.gz` for a full backup or `collections.archive.gz` for a collection backup
 - `manifest.json`
 
 Manifest contents must include:
@@ -274,7 +274,7 @@ The command assumes:
 - reading manifest metadata
 
 `backup delete` owns exact-name removal. `backup prune` owns manual selection by
-retained count per environment and guarded removal of the confirmed candidates.
+retained full-backup count per environment and guarded removal of the confirmed candidates.
 
 `backup` does not own:
 
@@ -282,7 +282,6 @@ retained count per environment and guarded removal of the confirmed candidates.
 - offsite upload
 - encryption
 - incremental backup strategy
-- collection-level export filters
 
 ## Refactor Guidance
 
@@ -301,7 +300,6 @@ These are intentionally out of scope and should not be added implicitly during r
 - automatic retention/pruning
 - offsite upload
 - encryption
-- collection-level backup filters
 - incremental backups
 
 ## Delete
@@ -368,13 +366,13 @@ pre-restore backups keep their existing output. Automatic retention is deferred.
 ## Prune
 
 `dbh backup prune --keep-last <N> [--dry-run] [--yes] [--quiet] [--verbose] [--log]`
-keeps the newest N eligible backups per manifest source environment, including
+keeps the newest N eligible full backups per manifest source environment, including
 historical environments absent from current config. N is a required safe integer
 of at least 1. Order is descending manifest creation timestamp, then ascending
 backup name (ordinal comparison) for ties. Directory dates and names do not set age.
 
-Eligibility requires valid metadata, a present nonempty regular archive, a supported
-name, a real backup directory, and proof that creation has stopped. This does not
+Eligibility requires valid full-backup metadata, a present nonempty regular archive,
+a supported name, a real backup directory, and proof that creation has stopped. This does not
 verify archive integrity or restorability. Ineligible entries are shown with skip
 reasons and never count toward N. Root enumeration failures stop the command.
 

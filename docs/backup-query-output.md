@@ -81,7 +81,7 @@ Each backup entry contains:
   not part of the public projection. Manifests are not modified on disk.
 - `manifestStatus`: `valid`, `missing`, `invalid`, `unreadable`, `symlink`, or
   `not-inspected`. Valid metadata must match the directory identity and use
-  the supported `dump.archive.gz` artifact name.
+  `dump.archive.gz` for a full backup or `collections.archive.gz` for a collection backup.
 - `matchesFilters`: true for matching valid metadata; null when metadata cannot
   establish a match. Known nonmatches are excluded. Unclassifiable entries remain
   visible even with filters, and the report is partial. `--from` accepts a

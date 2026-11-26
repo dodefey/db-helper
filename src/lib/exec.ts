@@ -6,7 +6,18 @@ export interface RunCommandOptions {
   env?: NodeJS.ProcessEnv;
   stdin?: string;
   streamOutput?: boolean;
+  captureOutput?: "combined" | "combined-on-failure";
   signal?: AbortSignal;
+}
+
+export class CommandExitError extends Error {
+  constructor(
+    message: string,
+    readonly exitCode: number | null
+  ) {
+    super(message);
+    this.name = "CommandExitError";
+  }
 }
 
 function shellEscape(value: string): string {
@@ -22,7 +33,7 @@ export async function runCommand(
   args: string[],
   options: RunCommandOptions = {}
 ): Promise<string> {
-  const rendered = formatCommand(command, args);
+  const rendered = redactText(formatCommand(command, args));
   const runLogger = getRunLogger();
   const startedAt = Date.now();
   runLogger.debug("exec", "Starting subprocess", {
@@ -42,6 +53,8 @@ export async function runCommand(
 
     let stdout = "";
     let stderr = "";
+    const combinedOutput = () =>
+      [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
 
     const abortListener = (): void => {
       runLogger.warn("exec", "Interrupting subprocess", {
@@ -99,7 +112,9 @@ export async function runCommand(
         error: error.message
       });
       rejectOnce(
-        new Error(`Failed to run command: ${rendered}\n${error.message}`)
+        new Error(
+          `Failed to run command: ${rendered}\n${redactText(error.message)}`
+        )
       );
     });
 
@@ -112,7 +127,11 @@ export async function runCommand(
           stdout: redactText(stdout),
           stderr: redactText(stderr)
         });
-        resolveOnce(stdout.trim());
+        resolveOnce(
+          options.captureOutput === "combined"
+            ? combinedOutput()
+            : stdout.trim()
+        );
         return;
       }
 
@@ -123,8 +142,14 @@ export async function runCommand(
         stdout: redactText(stdout),
         stderr: redactText(stderr)
       });
+      const diagnostic = options.captureOutput
+        ? combinedOutput()
+        : stderr.trim();
       rejectOnce(
-        new Error(`Command failed (${code}): ${rendered}\n${stderr.trim()}`)
+        new CommandExitError(
+          `Command failed (${code}): ${rendered}\n${redactText(diagnostic)}`,
+          code
+        )
       );
     });
 

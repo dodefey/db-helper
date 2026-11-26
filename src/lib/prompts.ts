@@ -1,10 +1,14 @@
 import { createInterface } from "node:readline/promises";
 import { stdin, stdout } from "node:process";
 
-export async function promptText(message: string): Promise<string> {
+export async function promptText(
+  message: string,
+  { preserveWhitespace = false }: { preserveWhitespace?: boolean } = {}
+): Promise<string> {
   const rl = createInterface({ input: stdin, output: stdout });
   try {
-    return (await rl.question(`${message}: `)).trim();
+    const answer = await rl.question(`${message}: `);
+    return preserveWhitespace ? answer : answer.trim();
   } finally {
     rl.close();
   }
