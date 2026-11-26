@@ -37,14 +37,16 @@ dbh restore full --backup 2026-03-16T10-30-00-production --to production --force
 
 Production restore triggers an automatic pre-restore production backup unless `--skip-pre-backup` is passed.
 
-## Restore a single collection
+## Restore selected collections
 
 ```bash
-# restore one collection from a backup
-dbh restore collection --backup 2026-03-16T10-30-00-production --collection orders --to development --yes
+# Replace orders and customers in development using the selected backup.
+dbh restore collection --backup selected --collections=orders,customers --to development
 ```
 
 ## Guided recovery
+
+Guided recovery lists full backups. For a collection backup, follow the [selected collection restore steps](#restore-selected-collections).
 
 ```bash
 # use the guided recovery flow

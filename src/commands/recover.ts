@@ -3,16 +3,28 @@ import { backupList } from "./backup.js";
 import { promptChoice, promptConfirm } from "../lib/prompts.js";
 import { getRunLogger } from "../lib/runLog.js";
 import { restoreFull } from "./restore.js";
+import { COLLECTION_ARCHIVE, FULL_ARCHIVE } from "../lib/backups.js";
 
 export async function recoverDatabase(appConfig: AppConfig): Promise<void> {
   const runLogger = getRunLogger();
   const backups = await backupList(appConfig, {});
-  if (backups.length === 0) {
-    runLogger.warn("recover", "No backups available for recovery");
-    throw new Error("No backups available.");
+  const fullBackups = backups.filter(
+    (backup) => backup.manifest.archiveFile === FULL_ARCHIVE
+  );
+  if (fullBackups.length === 0) {
+    const hasCollectionBackups = backups.some(
+      (backup) => backup.manifest.archiveFile === COLLECTION_ARCHIVE
+    );
+    const message = "No full backups available for guided recovery.";
+    runLogger.warn("recover", message, { hasCollectionBackups });
+    throw new Error(
+      hasCollectionBackups
+        ? `${message} Use dbh restore collection to restore selected collections.`
+        : message
+    );
   }
 
-  const sorted = [...backups].sort((left, right) => {
+  const sorted = fullBackups.sort((left, right) => {
     const leftKnownClean = left.manifest.tags.includes("known-clean") ? 1 : 0;
     const rightKnownClean = right.manifest.tags.includes("known-clean") ? 1 : 0;
     return (

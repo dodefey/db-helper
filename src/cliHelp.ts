@@ -16,16 +16,16 @@ Commands:
   config path
   config show [--unredacted]
   interactive
-  backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
+  backup create --from <environment> [--name <name>] [--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
   backup usage [--json] [--quiet] [--verbose]
   backup prune --keep-last <N> [--dry-run] [--yes] [--quiet] [--verbose] [--log]
   backup delete --backup <backup-name> [--yes] [--quiet] [--verbose] [--log]
   backup inspect --backup <backup-name>
   sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
-  sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
+  sync collection --from <environment> --to <environment> (--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]) [--yes] [--quiet] [--verbose] [--log]
   restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose] [--log]
-  restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
+  restore collection --backup <backup-name> (--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]) --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
   recover
   doctor
 
@@ -78,7 +78,7 @@ Purpose:
   Create, list, inspect, prune, and delete local backup snapshots.
 
 Usage:
-  dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
+  dbh backup create --from <environment> [--name <name>] [--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
   dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose]
   dbh backup usage [--json] [--quiet] [--verbose]
   dbh backup prune --keep-last <N> [--dry-run] [--yes] [--quiet] [--verbose] [--log]
@@ -88,6 +88,8 @@ Usage:
 Commands:
   create
     Create a backup from one configured environment.
+    Use --collections=name1,name2 or repeat --collection <name> to select collections.
+    Use --collection for exact names containing commas.
     Use --name to set an explicit backup directory name.
 
   list
@@ -101,7 +103,7 @@ Commands:
     Use --json for exact bytes and shared-filesystem information.
 
   prune
-    Preview and confirm deletion, keeping the newest N eligible backups per environment.
+    Preview and confirm deletion, keeping the newest N eligible full backups per environment.
     --dry-run previews only. Tags do not protect backups; incomplete entries are skipped.
 
   delete
@@ -128,6 +130,7 @@ Important notes:
 Examples:
   dbh backup create --from production
   dbh backup create --from production --name before-maintenance
+  dbh backup create --from production --name selected --collections=orders,customers
   dbh backup list --json
   dbh backup usage --json
   dbh backup inspect --backup 2026-03-16T10-30-00-production
@@ -142,18 +145,18 @@ Purpose:
 
 Usage:
   dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
-  dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
+  dbh sync collection --from <environment> --to <environment> (--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]) [--yes] [--quiet] [--verbose] [--log]
 
 Commands:
   sync
     Replace the target environment with an exact copy of the source snapshot.
 
   collection
-    Restore one named collection from source to target.
+    Replace one or more named collections on the target.
 
 Required flags:
   sync: --from, --to
-  collection: --from, --to, --collection
+  collection: --from, --to, and either --collections=name1,name2 or repeatable --collection <name>
 
 Important notes:
   Full sync overwrites the target and prunes target-only non-system collections.
@@ -164,7 +167,7 @@ Important notes:
 
 Examples:
   dbh sync --from production --to development
-  dbh sync collection --from production --to development --collection orders
+  dbh sync collection --from production --to development --collections=orders,customers
 `);
 }
 
@@ -176,7 +179,7 @@ Purpose:
 
 Usage:
   dbh restore full --backup <backup-name> --to <environment> [--explain] [--yes] [--skip-pre-backup] [--force-production-restore] [--quiet] [--verbose] [--log]
-  dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
+  dbh restore collection --backup <backup-name> (--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]) --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
 
 Commands:
   full
@@ -184,11 +187,11 @@ Commands:
     Use --explain to inspect the archive and show planned pruning without mutation.
 
   collection
-    Restore one collection from a backup into one configured environment.
+    Replace one or more collections from a full or collection backup.
 
 Required flags:
   full: --backup, --to
-  collection: --backup, --collection, --to
+  collection: --backup, --to, and either --collections=name1,name2 or repeatable --collection <name>
 
 Important notes:
   full restore verifies the restored result before reporting success.
@@ -197,6 +200,6 @@ Important notes:
 
 Examples:
   dbh restore full --backup 2026-03-16T10-30-00-production --to development
-  dbh restore collection --backup 2026-03-16T10-30-00-production --collection orders --to development
+  dbh restore collection --backup selected --collections=orders,customers --to development
 `);
 }

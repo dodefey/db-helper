@@ -1,14 +1,25 @@
 import { randomUUID } from "node:crypto";
+import { open } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { AppConfig, EnvironmentConfig } from "../config/types.js";
 import { CommandInvocationContext } from "./invocationContext.js";
 import { OutputMode, shouldStreamSubprocessOutput } from "./output.js";
-import { runCommand } from "./exec.js";
+import {
+  CommandExitError,
+  formatCommand,
+  runCommand,
+  RunCommandOptions
+} from "./exec.js";
 import { ensureRemotePreflight } from "./remotePreflight.js";
+import {
+  requireCollections,
+  validateCollectionSelection
+} from "./collections.js";
 
 type RemoteInvocationOptions = {
   remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
+  captureOutput?: RunCommandOptions["captureOutput"];
 };
 
 type MongoShellOptions = {
@@ -85,44 +96,31 @@ export function mongoServerUri(env: EnvironmentConfig): string {
   return mongoUriForScope(env, "server");
 }
 
+type RestoreNamespaceOptions = {
+  sourceDatabaseName: string;
+  collections?: readonly string[];
+};
+
 export function buildRestoreNamespaceContract(
   env: EnvironmentConfig,
-  options: { sourceDatabaseName: string; collection?: string }
+  options: RestoreNamespaceOptions
 ): { sourceNamespace: string; targetNamespace: string; args: string[] } {
-  if (options.collection !== undefined) {
-    if (!options.collection.trim() || options.collection.includes("*")) {
-      throw new Error(
-        `Collection name cannot be represented as an exact namespace filter: ${options.collection}`
-      );
-    }
+  const { collections, sourceDatabaseName } = options;
+  if (collections) validateCollectionSelection(collections);
+  const sameDatabase = sourceDatabaseName === env.databaseName;
+  const sourceNamespace = `${sourceDatabaseName}.*`;
+  const targetNamespace = `${env.databaseName}.*`;
+  const args = collections
+    ? collections.flatMap((name) => [
+        "--nsInclude",
+        `${sourceDatabaseName}.${name}`
+      ])
+    : [];
+  if (!sameDatabase) {
+    if (!collections) args.push("--nsInclude", sourceNamespace);
+    args.push("--nsFrom", sourceNamespace, "--nsTo", targetNamespace);
   }
-  const sourceNamespace = options.collection
-    ? `${options.sourceDatabaseName}.${options.collection}`
-    : `${options.sourceDatabaseName}.*`;
-  const targetNamespace = options.collection
-    ? `${env.databaseName}.${options.collection}`
-    : `${env.databaseName}.*`;
-
-  if (options.sourceDatabaseName === env.databaseName) {
-    return {
-      sourceNamespace,
-      targetNamespace,
-      args: options.collection ? ["--nsInclude", sourceNamespace] : []
-    };
-  }
-
-  return {
-    sourceNamespace,
-    targetNamespace,
-    args: [
-      "--nsInclude",
-      sourceNamespace,
-      "--nsFrom",
-      sourceNamespace,
-      "--nsTo",
-      targetNamespace
-    ]
-  };
+  return { sourceNamespace, targetNamespace, args };
 }
 
 function remoteArchivePath(
@@ -131,7 +129,7 @@ function remoteArchivePath(
 ): string {
   return path.posix.join(
     appConfig.tempRoot,
-    `db-helper-${Date.now()}-${env.id}.archive.gz`
+    `db-helper-${randomUUID()}-${env.id}.archive.gz`
   );
 }
 
@@ -143,7 +141,7 @@ export async function cleanupRemoteArchive(
   try {
     await runRemote(
       env,
-      `rm -f ${JSON.stringify(remotePath)}`,
+      formatCommand("rm", ["-f", "--", remotePath]),
       true,
       undefined,
       invocation
@@ -207,7 +205,14 @@ export function translateRemoteProcessError(input: {
 
   const rawDetails = extractCommandFailureBody(getErrorDetails(input.error));
   const interrupted = isInterruptedTransportFailure(input.error);
-  const trustFailure = hasKnownHostsTrustFailure(rawDetails);
+  // OpenSSH uses 255 when the transport fails. Other exit codes come from the remote command.
+  const remoteCommandFailed =
+    input.operation === "ssh" &&
+    input.error instanceof CommandExitError &&
+    input.error.exitCode !== null &&
+    input.error.exitCode !== 255;
+  const trustFailure =
+    !remoteCommandFailed && hasKnownHostsTrustFailure(rawDetails);
 
   if (input.operation === "ssh") {
     return new RemoteOperationError({
@@ -218,7 +223,9 @@ export function translateRemoteProcessError(input: {
       interrupted,
       details: trustFailure
         ? `SSH could not verify or access host-key trust for ${input.host}. Check known_hosts access and trust the host before retrying.`
-        : `SSH transport to ${input.host} failed.\n${rawDetails}`,
+        : remoteCommandFailed
+          ? `Remote command on ${input.host} failed.\n${rawDetails}`
+          : `SSH transport to ${input.host} failed.\n${rawDetails}`,
       cause: input.error
     });
   }
@@ -307,7 +314,11 @@ async function runRemote(
     : [target, remoteCommand];
 
   try {
-    return await runCommand("ssh", sshArgs, { streamOutput, signal });
+    return await runCommand("ssh", sshArgs, {
+      streamOutput,
+      signal,
+      captureOutput: invocation?.captureOutput
+    });
   } catch (error) {
     throw translateRemoteProcessError({
       host: env.host,
@@ -396,7 +407,12 @@ async function runMongoShell(
 
   return runRemote(
     env,
-    `mongosh ${JSON.stringify(mongoDatabaseUri(env))} --quiet --eval ${JSON.stringify(script)}`,
+    formatCommand("mongosh", [
+      mongoDatabaseUri(env),
+      "--quiet",
+      "--eval",
+      script
+    ]),
     streamOutput,
     options.signal,
     options
@@ -498,6 +514,58 @@ export function parseMongoShellCollectionList(
   return assertCollectionList(parseMongoShellResult(output, marker));
 }
 
+function parseScopedCollectionList(output: string, marker: string): string[] {
+  const result = parseMongoShellResult<unknown>(output, marker);
+  if (result === null || typeof result !== "object" || Array.isArray(result)) {
+    throw new Error("mongosh returned invalid scoped collection metadata.");
+  }
+  const { collections, selectedViews, viewDefinitions } = result as Record<
+    string,
+    unknown
+  >;
+  const names = assertCollectionList(collections);
+  const views = assertCollectionList(selectedViews);
+  if (views.length === 0) return names;
+
+  if (viewDefinitions === null) {
+    const quotedViews = views.map((name) => JSON.stringify(name)).join(", ");
+    throw new Error(
+      `Scoped backup and sync cannot include selected views ${quotedViews}. MongoDB denied access to their backing collection metadata.`
+    );
+  }
+  if (!Array.isArray(viewDefinitions)) {
+    throw new Error("mongosh returned invalid view metadata.");
+  }
+  const definitions = new Map<string, string>();
+  for (const view of viewDefinitions) {
+    if (
+      !Array.isArray(view) ||
+      view.length !== 2 ||
+      view.some((value) => typeof value !== "string" || value.length === 0)
+    ) {
+      throw new Error("mongosh returned invalid view metadata.");
+    }
+    const [name, backing] = view;
+    definitions.set(name, backing);
+  }
+  const descriptions = views.map((name) => {
+    const seen = new Set([name]);
+    let backing = definitions.get(name);
+    while (backing && definitions.has(backing)) {
+      if (seen.has(backing))
+        throw new Error("mongosh returned cyclic view metadata.");
+      seen.add(backing);
+      backing = definitions.get(backing);
+    }
+    return backing
+      ? `Selected view ${JSON.stringify(name)} is backed by collection ${JSON.stringify(backing)}.`
+      : `The backing collection for selected view ${JSON.stringify(name)} could not be determined.`;
+  });
+  throw new Error(
+    `${descriptions.join(" ")} Scoped backup and sync require data collections. Select the backing collections or use a full backup.`
+  );
+}
+
 export function parseMongoShellCollectionCounts(
   output: string,
   marker: string,
@@ -550,16 +618,6 @@ async function runMongoShellResult<T>(
   }
 
   return result;
-}
-
-async function runCommandViaShell(
-  command: string,
-  options: { signal?: AbortSignal } = {}
-): Promise<string> {
-  return runCommand("sh", ["-lc", `${command} 2>&1`], {
-    streamOutput: false,
-    signal: options.signal
-  });
 }
 
 export function parseArchiveCollections(
@@ -646,7 +704,6 @@ export interface PrepareArchiveRestoreDependencies {
   runRemote: typeof runRemote;
   copyToRemote: typeof copyToRemote;
   cleanupRemoteArchive: typeof cleanupRemoteArchive;
-  runCommandViaShell: typeof runCommandViaShell;
   runCommand: typeof runCommand;
 }
 
@@ -655,27 +712,73 @@ const DEFAULT_PREPARE_ARCHIVE_RESTORE_DEPENDENCIES: PrepareArchiveRestoreDepende
     runRemote,
     copyToRemote,
     cleanupRemoteArchive,
-    runCommandViaShell,
     runCommand
   };
+
+async function runArchiveInspection(
+  env: EnvironmentConfig,
+  args: string[],
+  options: RemoteInvocationOptions & { signal?: AbortSignal },
+  dependencies: Pick<
+    PrepareArchiveRestoreDependencies,
+    "runCommand" | "runRemote"
+  > = DEFAULT_PREPARE_ARCHIVE_RESTORE_DEPENDENCIES
+): Promise<string> {
+  if (env.kind === "remote") {
+    return dependencies.runRemote(
+      env,
+      `${formatCommand("mongorestore", args)} 2>&1`,
+      false,
+      options.signal,
+      { ...options, captureOutput: "combined-on-failure" }
+    );
+  }
+  return dependencies.runCommand("mongorestore", args, {
+    streamOutput: false,
+    signal: options.signal,
+    captureOutput: "combined"
+  });
+}
 
 function validateArchiveInspectionScope(
   inspection: ArchiveInspectionResult,
   env: EnvironmentConfig,
-  options: { sourceDatabaseName: string; collection?: string }
+  options: RestoreNamespaceOptions
 ): void {
-  if (!options.collection) {
-    return;
-  }
-  const expectedSource = `${options.sourceDatabaseName}.${options.collection}`;
-  const expectedTarget = `${env.databaseName}.${options.collection}`;
+  if (!options.collections) return;
+  const reported = new Map(
+    inspection.mappings.map(({ sourceNamespace, targetNamespace }) => [
+      sourceNamespace,
+      targetNamespace
+    ])
+  );
+  const expected = new Map(
+    options.collections.map((name) => [
+      `${options.sourceDatabaseName}.${name}`,
+      `${env.databaseName}.${name}`
+    ])
+  );
+  // MongoDB reports a separate physical bucket mapping for time-series data.
+  // The matching logical collection must still appear in the inspected archive.
+  const buckets = new Map(
+    options.collections.map((name) => [
+      `${options.sourceDatabaseName}.system.buckets.${name}`,
+      `${env.databaseName}.system.buckets.${name}`
+    ])
+  );
   if (
-    inspection.mappings.length !== 1 ||
-    inspection.mappings[0]?.sourceNamespace !== expectedSource ||
-    inspection.mappings[0]?.targetNamespace !== expectedTarget
+    [...expected].some(([source, target]) => reported.get(source) !== target) ||
+    inspection.mappings.some(
+      ({ sourceNamespace, targetNamespace }) =>
+        targetNamespace !==
+        (expected.get(sourceNamespace) ?? buckets.get(sourceNamespace))
+    )
   ) {
+    const expectedPairs = [...expected].map(
+      ([source, target]) => `${source} -> ${target}`
+    );
     throw new Error(
-      `Archive inspection did not select exactly ${expectedSource} -> ${expectedTarget}.`
+      `Archive inspection did not select exactly ${expectedPairs.join(", ")}.`
     );
   }
 }
@@ -685,36 +788,37 @@ export function parseArchiveInspection(
   sourceDatabaseName: string,
   targetDatabaseName: string
 ): ArchiveInspectionResult {
-  const normalizedOutput = output.replace(/`/g, "");
-  const mappings = new Map<
-    string,
-    { sourceNamespace: string; targetNamespace: string }
-  >();
-  const mappingPattern =
-    /^.*found collection (?:metadata from )?([^\s]+) to restore to ([^\s]+).*$/gm;
-
-  for (const match of normalizedOutput.matchAll(mappingPattern)) {
-    const sourceNamespace = match[1];
-    const targetNamespace = match[2];
-    const [sourceDatabase] = sourceNamespace.split(".");
-    const [targetDatabase] = targetNamespace.split(".");
-    if (
-      sourceDatabase === sourceDatabaseName &&
-      targetDatabase === targetDatabaseName
-    ) {
-      const key = `${sourceNamespace}\u0000${targetNamespace}`;
-      mappings.set(key, { sourceNamespace, targetNamespace });
-    }
-  }
-
   const completed =
     /\d+ document\(s\) restored successfully\.\s*\d+ document\(s\) failed to restore\./i.test(
-      normalizedOutput
-    ) || /dry run completed successfully/i.test(normalizedOutput);
+      output
+    ) || /dry run completed successfully/i.test(output);
   if (!completed) {
     throw new Error(
       "Archive inspection did not report a recognized completion signal."
     );
+  }
+
+  const mappings = new Map<
+    string,
+    { sourceNamespace: string; targetNamespace: string }
+  >();
+  // A namespace or diagnostic can contain "found collection" in the message body.
+  const mappingLine =
+    /^(?:\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})[ \t]+)?found collection(?:[ \t]+(.*))?$/gm;
+  const mappingPattern =
+    /^(?:metadata from )?(?:\x60([^\x60]+)\x60|(\S+))(?: bson)? to restore to (?:\x60([^\x60]+)\x60|(\S+))[ \t]*$/;
+
+  for (const [, description] of output.matchAll(mappingLine)) {
+    const match = mappingPattern.exec(description ?? "");
+    if (!match) {
+      throw new Error(
+        "Archive inspection reported an unreadable namespace mapping."
+      );
+    }
+    const sourceNamespace = match[1] ?? match[2];
+    const targetNamespace = match[3] ?? match[4];
+    const key = JSON.stringify([sourceNamespace, targetNamespace]);
+    mappings.set(key, { sourceNamespace, targetNamespace });
   }
 
   return {
@@ -722,6 +826,11 @@ export function parseArchiveInspection(
       a.sourceNamespace.localeCompare(b.sourceNamespace)
     ),
     collections: [...mappings.values()]
+      .filter(
+        ({ sourceNamespace, targetNamespace }) =>
+          sourceNamespace.startsWith(sourceDatabaseName + ".") &&
+          targetNamespace.startsWith(targetDatabaseName + ".")
+      )
       .map(({ targetNamespace }) =>
         targetNamespace.slice(targetDatabaseName.length + 1)
       )
@@ -732,12 +841,36 @@ export function parseArchiveInspection(
 
 export async function listCollections(
   env: EnvironmentConfig,
-  options: MongoShellOptions = {}
+  options: MongoShellOptions & { rejectViewsIn?: readonly string[] } = {}
 ): Promise<string[]> {
-  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const __dbhResult = dbx.getCollectionNames().sort();`;
+  const database = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)});`;
+  if (options.rejectViewsIn) {
+    const script = `
+      ${database}
+      const selected = new Set(${JSON.stringify(options.rejectViewsIn)});
+      const infos = dbx.getCollectionInfos({}, { nameOnly: true, authorizedCollections: true });
+      const collections = infos.map(({ name }) => name).sort();
+      const selectedViews = infos.filter(({ name, type }) =>
+        type === "view" && selected.has(name)
+      ).map(({ name }) => name);
+      let viewDefinitions = [];
+      if (selectedViews.length > 0) {
+        try {
+          viewDefinitions = dbx.getCollectionInfos({ type: "view" })
+            .map(({ name, options }) => [name, options.viewOn]);
+        } catch (error) {
+          if (error.code !== 13) throw error;
+          viewDefinitions = null;
+        }
+      }
+      const __dbhResult = { collections, selectedViews, viewDefinitions };
+    `;
+    return runMongoShellResult(env, script, parseScopedCollectionList, options);
+  }
+
   return runMongoShellResult(
     env,
-    script,
+    `${database} const __dbhResult = dbx.getCollectionNames().sort();`,
     parseMongoShellCollectionList,
     options
   );
@@ -752,7 +885,7 @@ export async function getCollectionCounts(
     return {};
   }
 
-  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const names = ${JSON.stringify(collections)}; const __dbhResult = {}; for (const name of names) __dbhResult[name] = dbx.getCollection(name).countDocuments({});`;
+  const script = `const dbx = db.getSiblingDB(${JSON.stringify(env.databaseName)}); const names = ${JSON.stringify(collections)}; const __dbhResult = Object.create(null); for (const name of names) __dbhResult[name] = dbx.getCollection(name).countDocuments({});`;
   return runMongoShellResult(
     env,
     script,
@@ -779,11 +912,17 @@ export async function dropCollections(
   await runMongoShell(env, script, options);
 }
 
+type DumpSelection = {
+  collections: readonly string[];
+  sourceCollections: readonly string[];
+};
+
 export async function createArchiveBackup(
   env: EnvironmentConfig,
   appConfig: AppConfig,
   destinationFile: string,
   options: {
+    selection?: DumpSelection;
     outputMode?: OutputMode;
     signal?: AbortSignal;
     remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
@@ -792,18 +931,60 @@ export async function createArchiveBackup(
   const streamOutput = shouldStreamSubprocessOutput(
     options.outputMode ?? "verbose"
   );
+  const dumpArgs = ["--uri", mongoDatabaseUri(env), "--gzip"];
+  const selection = options.selection;
+  if (selection) {
+    const { collections, sourceCollections } = selection;
+    validateCollectionSelection(collections);
+    requireCollections(
+      collections,
+      sourceCollections,
+      `not found in source ${env.id}.`
+    );
+    if (collections.length === 1) {
+      dumpArgs.push(`--collection=${collections[0]}`);
+    } else {
+      // mongodump supports either one explicit collection or a database-wide exclusion list.
+      const selected = new Set(collections);
+      dumpArgs.push(
+        ...sourceCollections
+          .filter((name) => !selected.has(name))
+          .map((name) => `--excludeCollection=${name}`)
+      );
+    }
+    await (await open(destinationFile, "wx", 0o600)).close();
+  }
+
+  const verifyDumpScope = async (archivePath: string): Promise<void> => {
+    if (!selection) return;
+    const args = [
+      "--uri",
+      mongoServerUri(env),
+      "--gzip",
+      "--dryRun",
+      "--verbose",
+      `--archive=${archivePath}`
+    ];
+    const output = await runArchiveInspection(env, args, options);
+    const inspection = parseArchiveInspection(
+      output,
+      env.databaseName,
+      env.databaseName
+    );
+    // Check the unfiltered archive because a collection can appear after we list the source.
+    validateArchiveInspectionScope(inspection, env, {
+      sourceDatabaseName: env.databaseName,
+      collections: selection.collections
+    });
+  };
 
   if (env.kind === "local") {
     await runCommand(
       "mongodump",
-      [
-        "--uri",
-        mongoDatabaseUri(env),
-        "--gzip",
-        `--archive=${destinationFile}`
-      ],
+      [...dumpArgs, `--archive=${destinationFile}`],
       { streamOutput, signal: options.signal }
     );
+    await verifyDumpScope(destinationFile);
     return;
   }
 
@@ -813,11 +994,12 @@ export async function createArchiveBackup(
   try {
     await runRemote(
       env,
-      `mkdir -p ${JSON.stringify(appConfig.tempRoot)} && mongodump --uri ${JSON.stringify(mongoDatabaseUri(env))} --gzip --archive=${JSON.stringify(remotePath)}`,
+      `umask 077 && ${formatCommand("mkdir", ["-p", "--", appConfig.tempRoot])} && ${formatCommand("mongodump", [...dumpArgs, `--archive=${remotePath}`])}`,
       streamOutput,
       options.signal,
       options
     );
+    await verifyDumpScope(remotePath);
     await copyFromRemote(
       env,
       remotePath,
@@ -860,9 +1042,7 @@ export async function restoreArchiveToEnvironment(
   env: EnvironmentConfig,
   appConfig: AppConfig,
   archiveFile: string,
-  options: {
-    sourceDatabaseName: string;
-    collection?: string;
+  options: RestoreNamespaceOptions & {
     drop: boolean;
     outputMode?: OutputMode;
     signal?: AbortSignal;
@@ -876,7 +1056,7 @@ export async function restoreArchiveToEnvironment(
   try {
     session = await prepareArchiveRestoreSession(env, appConfig, archiveFile, {
       sourceDatabaseName: options.sourceDatabaseName,
-      collection: options.collection,
+      collections: options.collections,
       outputMode: options.outputMode,
       signal: options.signal,
       remotePreflightSession: options.remotePreflightSession
@@ -914,9 +1094,7 @@ export async function prepareArchiveRestoreSession(
   env: EnvironmentConfig,
   appConfig: AppConfig,
   archiveFile: string,
-  options: {
-    sourceDatabaseName: string;
-    collection?: string;
+  options: RestoreNamespaceOptions & {
     outputMode?: OutputMode;
     signal?: AbortSignal;
     remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
@@ -943,7 +1121,7 @@ export async function prepareArchiveRestoreSession(
     if (env.kind === "remote") {
       await dependencies.runRemote(
         env,
-        `mkdir -p ${JSON.stringify(appConfig.tempRoot)}`,
+        formatCommand("mkdir", ["-p", "--", appConfig.tempRoot]),
         false,
         options.signal,
         options
@@ -957,19 +1135,12 @@ export async function prepareArchiveRestoreSession(
         options
       );
     }
-    const inspectionOutput =
-      env.kind === "remote"
-        ? await dependencies.runRemote(
-            env,
-            `mongorestore ${inspectionArgs.map((arg) => JSON.stringify(arg)).join(" ")} 2>&1`,
-            false,
-            options.signal,
-            options
-          )
-        : await dependencies.runCommandViaShell(
-            `mongorestore ${inspectionArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
-            { signal: options.signal }
-          );
+    const inspectionOutput = await runArchiveInspection(
+      env,
+      inspectionArgs,
+      options,
+      dependencies
+    );
     const inspection = parseArchiveInspection(
       inspectionOutput,
       options.sourceDatabaseName,
@@ -991,7 +1162,7 @@ export async function prepareArchiveRestoreSession(
         if (env.kind === "remote") {
           await dependencies.runRemote(
             env,
-            `mongorestore ${restoreArgs.map((arg) => JSON.stringify(arg)).join(" ")}`,
+            formatCommand("mongorestore", restoreArgs),
             shouldStreamSubprocessOutput(
               restoreOptions.outputMode ?? options.outputMode ?? "verbose"
             ),

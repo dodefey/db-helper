@@ -4,6 +4,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { EnvironmentConfig } from "../src/config/types.js";
+import { runCommand } from "../src/lib/exec.js";
 
 import {
   combineRemoteTransportErrors,
@@ -75,7 +76,7 @@ test("restore namespace contract covers full and collection scope", () => {
   assert.deepEqual(
     buildRestoreNamespaceContract(TEST_ENV, {
       sourceDatabaseName: "target_db",
-      collection: "orders"
+      collections: ["orders"]
     }).args,
     ["--nsInclude", "target_db.orders"]
   );
@@ -95,15 +96,31 @@ test("restore namespace contract covers full and collection scope", () => {
   assert.deepEqual(
     buildRestoreNamespaceContract(TEST_ENV, {
       sourceDatabaseName: "archive_db",
-      collection: "orders"
+      collections: ["orders"]
     }).args,
     [
       "--nsInclude",
       "archive_db.orders",
       "--nsFrom",
-      "archive_db.orders",
+      "archive_db.*",
       "--nsTo",
-      "target_db.orders"
+      "target_db.*"
+    ]
+  );
+  assert.deepEqual(
+    buildRestoreNamespaceContract(TEST_ENV, {
+      sourceDatabaseName: "archive_db",
+      collections: ["orders", "events archive"]
+    }).args,
+    [
+      "--nsInclude",
+      "archive_db.orders",
+      "--nsInclude",
+      "archive_db.events archive",
+      "--nsFrom",
+      "archive_db.*",
+      "--nsTo",
+      "target_db.*"
     ]
   );
 });
@@ -113,7 +130,7 @@ test("restore namespace contract rejects wildcard collection filters", () => {
     () =>
       buildRestoreNamespaceContract(TEST_ENV, {
         sourceDatabaseName: "archive_db",
-        collection: "orders*"
+        collections: ["orders*"]
       }),
     /cannot be represented as an exact namespace filter/
   );
@@ -147,6 +164,43 @@ test("parseArchiveInspection returns exact mappings and requires completion", ()
       ),
     /recognized completion signal/
   );
+});
+
+test("parseArchiveInspection ignores the mapping phrase inside other log messages", () => {
+  const result = parseArchiveInspection(
+    [
+      "2026-04-28T21:31:04.842-0500\tarchive prelude `archive_db.found collection records`",
+      "warning from SSH wrapper: found collection text in archive path",
+      "2026-04-28T21:31:04.843-0500\tfound collection `archive_db.found collection records` bson to restore to `target_db.found collection records`",
+      "2026-04-28T21:31:04.844-0500\tfound collection metadata from `archive_db.found collection records` to restore to `target_db.found collection records`",
+      "2026-04-28T21:31:04.845-0500\t0 document(s) restored successfully. 0 document(s) failed to restore."
+    ].join("\r\n"),
+    "archive_db",
+    "target_db"
+  );
+  assert.deepEqual(result.mappings, [
+    {
+      sourceNamespace: "archive_db.found collection records",
+      targetNamespace: "target_db.found collection records"
+    }
+  ]);
+});
+
+test("parseArchiveInspection rejects malformed mapping messages despite a completion signal", () => {
+  for (const message of [
+    "found collection metadata from archive_db.orders to restore to",
+    "found collection"
+  ]) {
+    const output = [
+      "2026-04-28T21:31:04.843-0500\tfound collection archive_db.orders bson to restore to target_db.orders",
+      `2026-04-28T21:31:04.844-0500\t${message}`,
+      "2026-04-28T21:31:04.845-0500\t0 document(s) restored successfully. 0 document(s) failed to restore."
+    ].join("\n");
+    assert.throws(
+      () => parseArchiveInspection(output, "archive_db", "target_db"),
+      /unreadable namespace mapping/
+    );
+  }
 });
 
 test("parseMongoShellCollectionList ignores diagnostics around a tagged result", () => {
@@ -260,6 +314,65 @@ test("listCollections preserves a nonzero mongosh failure", async () => {
   }
 });
 
+test("scoped collection metadata preserves limited access and resolves backing collections for selected views", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "dbh-mongosh-view-"));
+  const mongoshPath = path.join(root, "mongosh");
+  const fixture = `#!${process.execPath}
+const vm = require("node:vm");
+const infos = [
+  { name: "orders", type: "collection" },
+  { name: "orders_view", type: "view", options: { viewOn: "orders" } },
+  { name: "orders_summary", type: "view", options: { viewOn: "orders_view" } }
+];
+const database = {
+  getCollectionInfos(filter, options) {
+    if (options?.authorizedCollections && options.nameOnly) {
+      return infos.map(({ name, type }) => ({ name, type }));
+    }
+    if (process.env.DBH_TEST_LIMITED_METADATA) {
+      throw Object.assign(new Error("Unauthorized"), { code: 13 });
+    }
+    return infos.filter(({ type }) => type === filter.type);
+  }
+};
+vm.runInNewContext(process.argv.at(-1), {
+  db: { getSiblingDB: () => database },
+  print: (text) => console.log(text)
+});
+`;
+  try {
+    await writeFile(mongoshPath, fixture, { mode: 0o700 });
+    const options = { outputMode: "quiet" as const, env: { PATH: root } };
+    const restricted = {
+      ...options,
+      env: { PATH: root, DBH_TEST_LIMITED_METADATA: "1" }
+    };
+    assert.deepEqual(
+      await listCollections(TEST_ENV, {
+        ...restricted,
+        rejectViewsIn: ["orders"]
+      }),
+      ["orders", "orders_summary", "orders_view"]
+    );
+    await assert.rejects(
+      listCollections(TEST_ENV, {
+        ...options,
+        rejectViewsIn: ["orders_summary"]
+      }),
+      /Selected view "orders_summary" is backed by collection "orders"/
+    );
+    await assert.rejects(
+      listCollections(TEST_ENV, {
+        ...restricted,
+        rejectViewsIn: ["orders_view"]
+      }),
+      /selected views "orders_view". MongoDB denied access to their backing collection metadata/
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("parseArchiveCollections recognizes mongorestore dry-run restore targets", () => {
   const output = [
     "2026-04-28T21:31:04.842-0500\tarchive prelude source_db.alpha",
@@ -345,6 +458,31 @@ test("translateRemoteProcessError keeps generic ssh transport failures typed", (
   assert.match(error.details, /connection reset/);
 });
 
+test("remote archive inspection preserves tool errors alongside SSH debug output", async () => {
+  const program =
+    'console.log("mongorestore: invalid gzip header"); console.error("debug1: checking known_hosts2"); process.exitCode = 1;';
+  await assert.rejects(
+    runCommand(process.execPath, ["-e", program], {
+      streamOutput: false,
+      captureOutput: "combined-on-failure"
+    }),
+    (error: Error) => {
+      const translated = translateRemoteProcessError({
+        host: "source.example.com",
+        operation: "ssh",
+        error
+      });
+      assert.match(
+        translated.details,
+        /Remote command on source\.example\.com failed/
+      );
+      assert.match(translated.details, /invalid gzip header/);
+      assert.match(translated.details, /debug1: checking known_hosts2/);
+      return true;
+    }
+  );
+});
+
 test("translateRemoteProcessError marks scp upload and preserves remote temp path", () => {
   const error = translateRemoteProcessError({
     host: "gnomebrewshop.com",
@@ -401,18 +539,37 @@ test("prepared remote archive session uploads, dry-runs, mutates, and cleans exa
     host: "remote.example.com"
   };
   const dependencies: PrepareArchiveRestoreDependencies = {
-    async runRemote(_env, command): Promise<string> {
+    async runRemote(
+      _env,
+      command,
+      streamOutput,
+      _signal,
+      invocation
+    ): Promise<string> {
       if (command.startsWith("mkdir")) {
         events.push("mkdir");
         return "";
       }
       if (command.includes("--dryRun")) {
+        assert.equal(streamOutput, false);
+        assert.equal(invocation?.captureOutput, "combined-on-failure");
+        assert.ok(command.endsWith(" 2>&1"));
         events.push("dry-run");
-        return [
+        const dryRunOutput = [
           "found collection archive_db.orders bson to restore to target_db.orders",
           "found collection metadata from archive_db.orders to restore to target_db.orders",
           "2 document(s) restored successfully. 0 document(s) failed to restore."
         ].join("\n");
+        return runCommand(
+          process.execPath,
+          [
+            "-e",
+            "console.log(process.argv[1]); console.error(process.argv[2]);",
+            dryRunOutput,
+            "debug1: Sending command: mongorestore --archive=/tmp/found collection backups/example.gz"
+          ],
+          { streamOutput: false, captureOutput: invocation?.captureOutput }
+        );
       }
       events.push("mutation");
       return "";
@@ -422,9 +579,6 @@ test("prepared remote archive session uploads, dry-runs, mutates, and cleans exa
     },
     async cleanupRemoteArchive(): Promise<void> {
       events.push("cleanup");
-    },
-    async runCommandViaShell(): Promise<string> {
-      throw new Error("local shell should not run");
     },
     async runCommand() {
       throw new Error("local restore should not run");

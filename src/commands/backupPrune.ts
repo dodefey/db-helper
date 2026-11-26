@@ -37,7 +37,7 @@ export async function backupPrune(
   });
   // A destructive preview remains visible even in quiet mode.
   dependencies.write(
-    `Backup root: ${plan.root}\nKeep newest ${plan.keepLast} per environment. Tags do not protect backups.\n`
+    `Backup root: ${plan.root}\nKeep newest ${plan.keepLast} full backups per environment. Tags do not protect backups.\n`
   );
   const environments = [
     ...new Set(

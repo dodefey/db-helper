@@ -1,6 +1,6 @@
 # db-helper
 
-Back up MongoDB, restore a database or collection, and sync data between named
+Back up and restore MongoDB databases or selected collections, and sync data between named
 environments from your terminal.
 
 `db-helper` wraps MongoDB's command-line tools in repeatable workflows for local
@@ -9,7 +9,7 @@ databases and remote hosts over SSH. The executable is `dbh`.
 - Create a backup before maintenance, with an archive and a manifest recording
   its source, collections, and available document counts.
 - Refresh a development or staging database from another configured environment.
-- Restore a full database or one collection from a named backup.
+- Restore a full database or selected collections from a named backup.
 
 ![Terminal recording: back up three sample orders, delete them, and restore all three.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/backup-restore.gif)
 
@@ -336,6 +336,8 @@ dbh config validate --config /path/to/config.json
 dbh interactive
 ```
 
+In the interactive collection workflows, enter one exact collection name per line. Press Enter on an empty line to finish the selection.
+
 ```bash
 # create a timestamped backup
 dbh backup create --from live
@@ -399,9 +401,16 @@ Global flags:
 
 ## Backup
 
-`backup` is the command for capturing a full snapshot of one configured environment into a local archive plus manifest. In practice, it is most useful before risky work, before replacing a target with `sync` or `restore`, or when you want to preserve a known-good production snapshot for later recovery.
+`backup create` captures a full database by default. To select collections, use `--collections=orders,customers` or repeat `--collection` once per name. Use the repeatable form for names that contain commas. Quote names that contain spaces, including the entire option when using the comma-separated form. Names starting with `--` are rejected.
 
-It creates a timestamped backup directory under the configured backup root, writes `dump.archive.gz`, writes `manifest.json`, and validates the result before reporting success. If backup creation fails or is interrupted, `dbh` treats the result as invalid and attempts cleanup of incomplete artifacts.
+Collection backups require data collections, including time-series collections. If a selection includes a view, `dbh` names its backing collection and stops. A full backup preserves view definitions with their backing data.
+
+```bash
+# Back up orders and customers together under the name selected.
+dbh backup create --from production --name selected --collections=orders,customers
+```
+
+Each backup directory contains `manifest.json` and one MongoDB archive. Full backups use `dump.archive.gz`. Collection backups use `collections.archive.gz` and list only the selected collections in the manifest. Use `restore collection` to restore from a collection backup. If backup creation fails or is interrupted, `dbh` attempts to clean up incomplete artifacts.
 
 ![Backup recording: create a tagged backup with a retained log, list and inspect it, check storage, and query JSON inventory.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/backup-catalog.gif)
 
@@ -442,7 +451,7 @@ concurrency guards and interrupted deletion.
 
 ### Prune backups
 
-To keep the newest N backups per environment, preview the prune plan first:
+To keep the newest N full backups per environment, preview the prune plan first:
 
 ```bash
 # Show kept, deleted, and skipped backups without changing files.
@@ -455,7 +464,7 @@ dbh backup prune --keep-last 5
 Use `--yes` for noninteractive deletion. N must be at least 1. Prune orders backups
 by manifest creation time, then name for ties. Only valid metadata with a present,
 nonempty archive counts toward N; this does not verify restorability. Active,
-incomplete, linked, or unclassifiable backups are skipped with reasons. Tags do
+incomplete, linked, collection, or unclassifiable backups are skipped with reasons. Tags do
 not protect backups. Plans never expand after confirmation; changes to retained
 backups or a deletion candidate stop execution. The first failure stops the batch
 with completed and remaining names. Quiet mode keeps the safety preview and final
@@ -504,7 +513,7 @@ If `backup create` is interrupted during archive creation, manifest write, or va
 CLI forms:
 
 ```bash
-dbh backup create --from <environment> [--name <name>] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
+dbh backup create --from <environment> [--name <name>] [--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]] [--note <text>] [--tag <tag>] [--quiet] [--verbose] [--log]
 dbh backup list [--from <environment>] [--tag <tag>] [--json] [--quiet] [--verbose] [--log]
 dbh backup usage [--json] [--quiet] [--verbose] [--log]
 dbh backup delete --backup <backup-name> [--yes] [--quiet] [--verbose] [--log]
@@ -521,7 +530,7 @@ Required flags:
 
 Optional flags:
 
-- `backup create`: `--name`, `--note`, `--tag`, `--quiet`, `--verbose`, `--log`
+- `backup create` accepts `--collections=name1,name2` or repeatable `--collection <name>`, plus `--name`, `--note`, `--tag`, `--quiet`, `--verbose`, and `--log`
 - `backup list`: `--from`, `--tag`, `--json`, `--quiet`, `--verbose`, `--log`
 - `backup usage`: `--json`, `--quiet`, `--verbose`, `--log`
 - `backup delete`: `--yes`, `--quiet`, `--verbose`, `--log`
@@ -597,7 +606,7 @@ Debug log retention:
 
 ## Sync
 
-`sync` is the command for replacing one configured database with another environment. It also supports syncing one named collection between configured environments.
+`sync` replaces one configured database with another environment. Use `sync collection` with `--collections=name1,name2` or repeat `--collection` to select what to copy.
 
 It is an exact target-replacement workflow, not a merge or replication tool. The intended end state is that the target matches the source database snapshot taken during sync for normal user collections: existing target data is overwritten, collections restored from the source replace their target counterparts, and collections that exist only in the target are removed. Internal Mongo namespaces such as `system.*` are the only exception to that exact-copy rule. Full sync inspects the archive before mutation and verifies the final collection set; an interrupted restore can still leave the target in a dirty state.
 
@@ -629,8 +638,8 @@ dbh sync --from test --to development --yes
 ```
 
 ```bash
-# sync one collection from production into development
-dbh sync collection --from production --to development --collection orders
+# Replace orders and customers in development with their production data.
+dbh sync collection --from production --to development --collections=orders,customers
 ```
 
 ```bash
@@ -646,14 +655,14 @@ CLI form:
 
 ```bash
 dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
-dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
+dbh sync collection --from <environment> --to <environment> (--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]) [--yes] [--quiet] [--verbose] [--log]
 ```
 
 Required flags:
 
 - `--from`
 - `--to`
-- `sync collection`: `--collection`
+- `sync collection` also requires `--collections=name1,name2` or at least one `--collection <name>`
 
 Optional flags:
 
@@ -670,9 +679,9 @@ Environment rules:
 
 Collection sync expectations:
 
-- `sync collection` restores one named collection only
-- the target collection is dropped before restore
-- unrelated target collections are left in place
+- `sync collection` checks that every requested collection exists before applying the archive
+- selections containing a view fail before archive creation, with the backing collection named
+- each selected target collection is dropped and replaced
 - `sync collection` uses the same environment rules as full sync
 
 Output modes:
@@ -689,9 +698,9 @@ Operator expectations:
 
 ## Restore
 
-`restore` is the command for applying a named backup to a target environment. In practice, it is most useful when you want to recover any configured environment from a known-good backup, or when you need to restore one collection without replacing the full database.
+`restore` applies a named backup to a target environment. Use `restore full` with a full database backup. Use `restore collection` with either kind of backup and select names with `--collections=name1,name2` or repeatable `--collection`.
 
-It is a backup-to-target recovery workflow, not a merge tool. Before mutation, restore inspects the archive and confirms its normal-user collection set matches the manifest. `restore full` then replaces the target with drop enabled, removes target-only normal-user collections, verifies the exact final set and counts, and enforces stronger safeguards for environments marked `isProduction: true`. `restore collection` preflights and restores only one named collection, then verifies that collection's presence and count; unrelated target collections remain untouched.
+Before applying a full backup, `dbh` checks the archive against the manifest. `restore full` replaces the target, removes target-only user collections, and verifies the final collection set and document counts. `restore collection` checks the requested collections in the manifest and archive before replacing them, then verifies each collection's presence and document count.
 
 ![Restore recording: preview a full restore, restore the database, then recover only orders while preserving an unrelated note.](https://raw.githubusercontent.com/dodefey/db-helper/main/docs/assets/restore.gif)
 
@@ -716,8 +725,8 @@ dbh restore full --backup 2026-03-16T10-30-00-production --to test --yes
 ```
 
 ```bash
-# restore one collection from a backup into development
-dbh restore collection --backup 2026-03-16T10-30-00-production --collection orders --to development
+# Restore orders and customers from the selected backup into development.
+dbh restore collection --backup selected --collections=orders,customers --to development
 ```
 
 ```bash
@@ -733,13 +742,13 @@ CLI forms:
 
 ```bash
 dbh restore full --backup <backup-name> --to <environment> [--yes] [--skip-pre-backup] [--force-production-restore] [--explain] [--quiet] [--verbose] [--log]
-dbh restore collection --backup <backup-name> --collection <name> --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
+dbh restore collection --backup <backup-name> (--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]) --to <environment> [--yes] [--force-production-restore] [--quiet] [--verbose] [--log]
 ```
 
 Required flags:
 
 - `restore full`: `--backup`, `--to`
-- `restore collection`: `--backup`, `--collection`, `--to`
+- `restore collection` requires `--backup`, `--to`, and either `--collections=name1,name2` or at least one `--collection <name>`
 
 Optional flags:
 
@@ -755,8 +764,8 @@ The following production safeguards apply to mutating restores, not `--explain`:
 
 - `restore` into an environment marked `isProduction: true` requires `--force-production-restore`
 - interactive production restore requires an additional typed confirmation
-- production restore creates a pre-restore backup of that same target by default
-- `--skip-pre-backup` bypasses that automatic pre-restore backup
+- `restore full` creates a pre-restore backup of the production target by default
+- `restore full --skip-pre-backup` bypasses that automatic backup
 
 Output modes:
 
@@ -781,7 +790,7 @@ Each backup is stored under:
 Required contents:
 
 - `manifest.json`
-- `dump.archive.gz`
+- `dump.archive.gz` for a full backup or `collections.archive.gz` for a collection backup
 
 The manifest includes the backup name, source environment, database name, timestamp, tags, note, collection list, and collection counts when available.
 

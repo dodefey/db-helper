@@ -11,7 +11,7 @@ The command exists for operational refresh workflows such as:
 - refresh `development` from `production`
 - refresh `test` from `production`
 - copy one non-production environment into the other
-- refresh one named collection between allowed environments
+- refresh selected collections between allowed environments
 
 `sync` is not a generic `copy anything to anywhere` command.
 
@@ -21,20 +21,18 @@ CLI forms:
 
 ```bash
 dbh sync --from <environment> --to <environment> [--yes] [--quiet] [--verbose] [--log]
-dbh sync collection --from <environment> --to <environment> --collection <name> [--yes] [--quiet] [--verbose] [--log]
+dbh sync collection --from <environment> --to <environment> (--collections=<name>[,<name>...] | --collection <name> [--collection <name> ...]) [--yes] [--quiet] [--verbose] [--log]
 ```
 
 Required flags:
 
 - `sync`: `--from`, `--to`
-- `sync collection`: `--from`, `--to`, `--collection`
+- `sync collection` requires `--from`, `--to`, and either `--collections=name1,name2` or at least one `--collection <name>`
 
 Optional flags:
 
 - `sync`: `--yes`, `--quiet`, `--verbose`, `--log`
 - `sync collection`: `--yes`, `--quiet`, `--verbose`, `--log`
-
-No selective multi-collection sync mode is supported.
 
 ## Allowed Paths
 
@@ -68,16 +66,17 @@ command.
 
 `sync collection` is the targeted collection workflow:
 
-- dump the source database archive used by the sync operation
+- reject selected views during source metadata collection and report their backing collections
+- dump the selected source collections into one archive and verify its collection set
 - preflight the effective archive namespace mapping before target mutation
-- require exactly one source-to-target mapping for the requested collection
-- restore and replace only the requested target collection
-- verify only the requested collection's presence and count
+- require one exact source-to-target mapping per requested collection
+- replace the selected target collections
+- verify presence and count for every selected collection
 - do not prune, rewrite, or verify unrelated target collections
 
 Collection sync uses a server-scoped restore connection and explicit namespace
-rules. Same-database collection sync uses an exact namespace include only;
-namespace remapping is used only when source and target database names differ.
+rules. Collection sync uses an exact namespace include for each name and
+remaps the database when the source and target database names differ.
 A collection name that cannot be represented as an exact namespace filter must
 fail before subprocess execution.
 
@@ -90,7 +89,7 @@ Minimum confirmation text must clearly state:
 
 - source environment
 - target environment
-- whether the full target or one named collection will be replaced
+- whether the full target will be replaced or which collections will be replaced
 
 If `--yes` is provided, the command may proceed without interactive
 confirmation. Typed confirmation is not required for non-production sync.
@@ -281,7 +280,6 @@ refactor:
 
 - target pre-backup
 - merge mode
-- multi-collection sync
 - typed confirmation for non-production sync
 - public sync `--dry-run` or `--explain` mode
 - machine-readable `--json` command output

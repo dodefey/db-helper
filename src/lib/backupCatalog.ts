@@ -2,7 +2,11 @@ import { lstat, readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { BackupActivity, readBackupActivity } from "./backupActivity.js";
 import { BackupManifest } from "../config/types.js";
-import { validateBackupName } from "./backups.js";
+import {
+  COLLECTION_ARCHIVE,
+  FULL_ARCHIVE,
+  validateBackupName
+} from "./backups.js";
 import { getDirectoryDiskUsage } from "./diskUsage.js";
 import {
   errorCode,
@@ -107,7 +111,8 @@ export function parseManifest(
     typeof value.createdAt !== "string" ||
     !/(Z|[+-]\d{2}:\d{2})$/.test(value.createdAt) ||
     !Number.isFinite(Date.parse(value.createdAt)) ||
-    value.archiveFile !== "dump.archive.gz" ||
+    (value.archiveFile !== FULL_ARCHIVE &&
+      value.archiveFile !== COLLECTION_ARCHIVE) ||
     !isStringArray(value.tags) ||
     !isStringArray(value.collectionList) ||
     (value.note !== undefined && typeof value.note !== "string") ||
@@ -124,7 +129,7 @@ export function parseManifest(
     databaseName: value.databaseName,
     toolVersion: value.toolVersion,
     createdAt: new Date(value.createdAt).toISOString(),
-    archiveFile: "dump.archive.gz",
+    archiveFile: value.archiveFile,
     tags: value.tags,
     collectionList: value.collectionList,
     ...(value.note === undefined ? {} : { note: value.note }),
@@ -181,7 +186,7 @@ export async function collectBackupCatalog(
     if (!directory.isDirectory() && !directory.isSymbolicLink()) continue;
     const entryPath = path.join(root, directory.name);
     const manifestPath = path.join(entryPath, "manifest.json");
-    const archivePath = path.join(entryPath, "dump.archive.gz");
+    let archivePath = path.join(entryPath, FULL_ARCHIVE);
     const activity = directory.isDirectory()
       ? await readBackupActivity(root, directory.name)
       : null;
@@ -273,6 +278,8 @@ export async function collectBackupCatalog(
         );
       }
       if (entry.manifest) {
+        archivePath = path.join(entryPath, entry.manifest.archiveFile);
+        entry.archive.path = archivePath;
         entry.matchesFilters =
           (!filters.from ||
             entry.manifest.sourceEnvironment === filters.from) &&

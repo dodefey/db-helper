@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- add `--collections=name1,name2` and repeatable `--collection <name>` to back up, sync, or restore selected collections, with selection also available in interactive mode. Collection backups use a dedicated archive filename and are excluded from full restore, guided recovery, and full-backup retention
+- reject unknown flags and unexpected arguments in `backup create` before starting a backup
+- reject views in scoped backup and sync and identify their backing collections in the error
+- distinguish namespace mapping messages from other MongoDB archive output so valid collection names containing "found collection" can be backed up and restored
+- preserve collection names as entered in interactive mode, including leading and trailing spaces, and finish selection on an empty line
+- quote and escape collection names in sync and restore confirmations so the selected names are unambiguous
+- clarify when guided recovery has no full backups and suggest `dbh restore collection` when collection backups are available
+
 ## 0.4.2
 
 - require completed automated Codex review and assessed findings for the current PR revision before merging or promoting a PR-covered release candidate; require explicit approval when review is unavailable

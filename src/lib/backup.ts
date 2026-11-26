@@ -6,6 +6,8 @@ import {
 } from "../config/types.js";
 import {
   archivePathForBackup,
+  COLLECTION_ARCHIVE,
+  FULL_ARCHIVE,
   buildBackupName,
   ensureBackupArtifacts,
   validateBackupName,
@@ -27,6 +29,10 @@ import {
 } from "./invocationContext.js";
 import { OutputMode } from "./output.js";
 import { getRunLogger } from "./runLog.js";
+import {
+  requireCollections,
+  validateCollectionSelection
+} from "./collections.js";
 import { TOOL_VERSION } from "../version.js";
 
 export interface RunBackupCreateDependencies {
@@ -178,6 +184,7 @@ export async function runBackupCreate(
   appConfig: AppConfig,
   input: {
     from: EnvironmentId;
+    collections?: readonly string[];
     note?: string;
     tags?: string[];
     backupName?: string;
@@ -192,9 +199,12 @@ export async function runBackupCreate(
   }
   const env = appConfig.environments[input.from];
   const backupName = input.backupName ?? dependencies.buildBackupName(env);
+  if (input.collections) validateCollectionSelection(input.collections);
+  const archiveName = input.collections ? COLLECTION_ARCHIVE : FULL_ARCHIVE;
   const archiveFile = dependencies.archivePathForBackup(
     appConfig.backupRoot,
-    backupName
+    backupName,
+    archiveName
   );
   const abortController = new AbortController();
   let interrupted = false;
@@ -212,10 +222,14 @@ export async function runBackupCreate(
     runLogger.info("backup", "Backup workflow started", {
       from: input.from,
       backupName,
+      collections: input.collections,
       outputMode: input.outputMode
     });
     if (printSummary) {
-      dependencies.writeStdout(`Starting backup from ${input.from}\n`);
+      const scope = input.collections
+        ? ` [${input.collections.join(", ")}]`
+        : "";
+      dependencies.writeStdout(`Starting backup from ${input.from}${scope}\n`);
     }
     await dependencies.ensureDirectory(appConfig.backupRoot);
     releaseActivity = await dependencies.beginBackupCreation(
@@ -228,52 +242,43 @@ export async function runBackupCreate(
     const metadataOutputMode =
       input.outputMode === "verbose" ? "default" : input.outputMode;
 
-    const metadataResult = useElapsedStatus
-      ? await dependencies.runWithElapsedStatus(
-          "Collecting source metadata...",
-          async () => {
-            const collectionList = filterBackupCollections(
-              await dependencies.listCollections(env, {
-                outputMode: metadataOutputMode,
-                signal: abortController.signal,
-                remotePreflightSession: context.remotePreflightSession
-              })
-            );
-            const collectionCounts = await dependencies.getCollectionCounts(
-              env,
-              collectionList,
-              {
-                outputMode: metadataOutputMode,
-                signal: abortController.signal,
-                remotePreflightSession: context.remotePreflightSession
-              }
-            );
-            return { collectionList, collectionCounts };
-          }
-        )
-      : await (async () => {
-          if (printSummary) {
-            dependencies.writeStdout("Collecting source metadata...\n");
-          }
-          const collectionList = filterBackupCollections(
-            await dependencies.listCollections(env, {
-              outputMode: metadataOutputMode,
-              signal: abortController.signal,
-              remotePreflightSession: context.remotePreflightSession
-            })
-          );
-          const collectionCounts = await dependencies.getCollectionCounts(
-            env,
-            collectionList,
-            {
-              outputMode: metadataOutputMode,
-              signal: abortController.signal,
-              remotePreflightSession: context.remotePreflightSession
-            }
-          );
-          return { collectionList, collectionCounts };
-        })();
-    const { collectionList, collectionCounts } = metadataResult;
+    const metadataOptions = {
+      outputMode: metadataOutputMode,
+      signal: abortController.signal,
+      remotePreflightSession: context.remotePreflightSession
+    };
+    const collectMetadata = async () => {
+      const sourceCollections = await dependencies.listCollections(env, {
+        ...metadataOptions,
+        rejectViewsIn: input.collections
+      });
+      if (input.collections) {
+        requireCollections(
+          input.collections,
+          sourceCollections,
+          `not found in source ${input.from}.`
+        );
+      }
+      const collectionList = input.collections
+        ? [...input.collections]
+        : filterBackupCollections(sourceCollections);
+      const collectionCounts = await dependencies.getCollectionCounts(
+        env,
+        collectionList,
+        metadataOptions
+      );
+      return { sourceCollections, collectionList, collectionCounts };
+    };
+    if (printSummary && !useElapsedStatus) {
+      dependencies.writeStdout("Collecting source metadata...\n");
+    }
+    const { sourceCollections, collectionList, collectionCounts } =
+      useElapsedStatus
+        ? await dependencies.runWithElapsedStatus(
+            "Collecting source metadata...",
+            collectMetadata
+          )
+        : await collectMetadata();
     runLogger.debug("backup", "Collected backup metadata", {
       backupName,
       collectionCount: collectionList.length
@@ -281,23 +286,33 @@ export async function runBackupCreate(
 
     currentPhase = "archive";
     runLogger.info("backup", "Creating backup archive", { backupName });
+    const dumpOptions = {
+      outputMode: input.outputMode,
+      signal: abortController.signal,
+      remotePreflightSession: context.remotePreflightSession,
+      ...(input.collections
+        ? { selection: { collections: input.collections, sourceCollections } }
+        : {})
+    };
     if (useElapsedStatus) {
       await dependencies.runWithElapsedStatus("Creating archive...", () =>
-        dependencies.createArchiveBackup(env, appConfig, archiveFile, {
-          outputMode: input.outputMode,
-          signal: abortController.signal,
-          remotePreflightSession: context.remotePreflightSession
-        })
+        dependencies.createArchiveBackup(
+          env,
+          appConfig,
+          archiveFile,
+          dumpOptions
+        )
       );
     } else {
       if (printSummary) {
         dependencies.writeStdout("Creating archive...\n");
       }
-      await dependencies.createArchiveBackup(env, appConfig, archiveFile, {
-        outputMode: input.outputMode,
-        signal: abortController.signal,
-        remotePreflightSession: context.remotePreflightSession
-      });
+      await dependencies.createArchiveBackup(
+        env,
+        appConfig,
+        archiveFile,
+        dumpOptions
+      );
     }
 
     const manifest: BackupManifest = {
@@ -309,7 +324,7 @@ export async function runBackupCreate(
       tags: input.tags ?? [],
       collectionList,
       toolVersion: TOOL_VERSION,
-      archiveFile: "dump.archive.gz",
+      archiveFile: archiveName,
       collectionCounts
     };
 

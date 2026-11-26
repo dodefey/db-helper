@@ -6,7 +6,11 @@ import {
   parseManifest
 } from "./backupCatalog.js";
 import { acquireBackupGuard } from "./backupActivity.js";
-import { validateBackupName } from "./backups.js";
+import {
+  COLLECTION_ARCHIVE,
+  FULL_ARCHIVE,
+  validateBackupName
+} from "./backups.js";
 import {
   deleteBackupUnderGuard,
   inspectBackupDeleteTarget,
@@ -36,6 +40,7 @@ function qualifies(entry: CatalogEntry): boolean {
   return (
     !entry.inProgress &&
     entry.manifestStatus === "valid" &&
+    entry.manifest?.archiveFile === FULL_ARCHIVE &&
     entry.archive.status === "present"
   );
 }
@@ -50,7 +55,7 @@ async function identity(
     [
       directory,
       path.join(directory, "manifest.json"),
-      path.join(directory, "dump.archive.gz")
+      path.join(directory, FULL_ARCHIVE)
     ].map((file) => lstat(file))
   );
   if (
@@ -99,7 +104,9 @@ export async function planBackupPrune(
       "unknown";
     let reason = entry.inProgress
       ? "creation in progress"
-      : "incomplete or unclassifiable backup";
+      : entry.manifest?.archiveFile === COLLECTION_ARCHIVE
+        ? "collection backup excluded from full-backup retention"
+        : "incomplete or unclassifiable backup";
     if (qualifies(entry)) {
       try {
         validateBackupName(entry.name);

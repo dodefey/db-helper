@@ -1,5 +1,9 @@
 import { AppConfig, BackupRecord, EnvironmentId } from "../config/types.js";
-import { readBackup } from "../lib/backups.js";
+import { readBackup, requireFullBackup } from "../lib/backups.js";
+import {
+  formatCollectionSelection,
+  validateCollectionSelection
+} from "../lib/collections.js";
 import {
   CommandInvocationContext,
   createCommandInvocationContext
@@ -26,7 +30,7 @@ const DEFAULT_RESTORE_DEPENDENCIES: RestoreDependencies = {
 };
 
 async function confirmRestore(
-  to: EnvironmentId,
+  message: string,
   yes: boolean,
   dependencies: RestoreDependencies
 ): Promise<void> {
@@ -34,9 +38,7 @@ async function confirmRestore(
     return;
   }
 
-  const approved = await dependencies.promptConfirm(
-    `This will restore data into ${to}. Continue?`
-  );
+  const approved = await dependencies.promptConfirm(message);
   if (!approved) {
     throw new Error("Restore cancelled.");
   }
@@ -83,10 +85,15 @@ export async function restoreFull(
     appConfig.backupRoot,
     input.backup
   );
+  requireFullBackup(backup);
   const target = appConfig.environments[input.to];
 
   if (!input.explain) {
-    await confirmRestore(input.to, input.yes, dependencies);
+    await confirmRestore(
+      `This will restore data into ${input.to}. Continue?`,
+      input.yes,
+      dependencies
+    );
   }
   runLogger.info("restore.command", "Restore target confirmed", {
     backup: input.backup,
@@ -127,7 +134,7 @@ export async function restoreCollection(
   appConfig: AppConfig,
   input: {
     backup: string;
-    collection: string;
+    collections: readonly string[];
     to: EnvironmentId;
     yes: boolean;
     forceProductionRestore: boolean;
@@ -137,17 +144,22 @@ export async function restoreCollection(
   context: CommandInvocationContext = createCommandInvocationContext()
 ): Promise<void> {
   const runLogger = getRunLogger();
+  validateCollectionSelection(input.collections);
   const backup = await dependencies.readBackup(
     appConfig.backupRoot,
     input.backup
   );
   const target = appConfig.environments[input.to];
 
-  await confirmRestore(input.to, input.yes, dependencies);
+  await confirmRestore(
+    `This will replace ${input.collections.length === 1 ? "collection" : "collections"} ${formatCollectionSelection(input.collections)} in ${input.to} using backup ${backup.name}. Continue?`,
+    input.yes,
+    dependencies
+  );
   runLogger.info("restore.command", "Restore target confirmed", {
     backup: input.backup,
     to: input.to,
-    collection: input.collection,
+    collections: input.collections,
     kind: "collection"
   });
 
@@ -162,7 +174,7 @@ export async function restoreCollection(
 
   runLogger.info("restore.command", "Starting restore collection execution", {
     backup: input.backup,
-    collection: input.collection,
+    collections: input.collections,
     to: input.to,
     outputMode: input.outputMode
   });
@@ -170,7 +182,7 @@ export async function restoreCollection(
     appConfig,
     {
       backup: input.backup,
-      collection: input.collection,
+      collections: input.collections,
       to: input.to,
       outputMode: input.outputMode
     },

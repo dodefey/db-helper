@@ -1,4 +1,5 @@
 import { CatalogEntry } from "../lib/backupCatalog.js";
+import { COLLECTION_ARCHIVE } from "../lib/backups.js";
 import { formatBytes, OutputMode } from "../lib/output.js";
 import { BackupUsage } from "../lib/storage.js";
 
@@ -15,7 +16,10 @@ export function formatBackupList(
     if (bytes === null) unavailable += 1;
     else totalBytes += bytes;
     const columns = [
-      record.name,
+      outputMode !== "quiet" &&
+      record.manifest?.archiveFile === COLLECTION_ARCHIVE
+        ? `${record.name} (collections)`
+        : record.name,
       record.inProgress?.sourceEnvironment ??
         record.manifest?.sourceEnvironment ??
         "unknown",
