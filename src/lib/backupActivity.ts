@@ -1,10 +1,14 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
+import { constants, writeFileSync } from "node:fs";
 import { lstat, mkdir, open, readdir, rm, rmdir } from "node:fs/promises";
 import { hostname } from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { errorCode } from "./queryReport.js";
 import { backupPath } from "./backups.js";
+import { runCommand } from "./exec.js";
+import { getRunLogger } from "./runLog.js";
 
 export interface BackupActivity {
   pid: number;
@@ -12,6 +16,46 @@ export interface BackupActivity {
   sourceEnvironment: string;
   startedAt: string;
   tags: string[];
+}
+
+interface BackupCreationMarker extends BackupActivity {
+  machineId?: string;
+}
+
+const execFileAsync = promisify(execFile);
+let machineIdLookup: Promise<string | undefined> | undefined;
+
+async function readMacMachineId(): Promise<string | undefined> {
+  if (process.platform !== "darwin") return undefined;
+  try {
+    const { stdout } = await execFileAsync(
+      "/usr/sbin/ioreg",
+      ["-rd1", "-c", "IOPlatformExpertDevice"],
+      { timeout: 2000, maxBuffer: 64 * 1024 }
+    );
+    const uuid = stdout
+      .match(
+        /"IOPlatformUUID"\s*=\s*"([a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12})"/i
+      )?.[1]
+      .toLowerCase();
+    if (!uuid || uuid === "00000000-0000-0000-0000-000000000000")
+      return undefined;
+    return createHash("sha256").update(`dbh:macos:${uuid}`).digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+function localMachineId(): Promise<string | undefined> {
+  return (machineIdLookup ??= readMacMachineId());
+}
+
+async function markerIsLocal(marker: BackupCreationMarker): Promise<boolean> {
+  if (typeof marker.hostname !== "string" || marker.hostname.length === 0)
+    return false;
+  if (marker.machineId === undefined) return marker.hostname === hostname();
+  // A marker with a machine ID requires a match even when hostnames agree.
+  return marker.machineId === (await localMachineId());
 }
 
 export function activityPath(root: string, name: string): string {
@@ -24,6 +68,46 @@ export function activityPath(root: string, name: string): string {
 
 export function deletionGuardPath(root: string, name: string): string {
   return `${activityPath(root, name.toLowerCase())}.guard`;
+}
+
+function archiveWriterPath(root: string, name: string): string {
+  return `${activityPath(root, name)}.writer`;
+}
+
+/** Publish the writer marker before spawn, so an unrecorded PID blocks removal. */
+export function createBackupArchiveCommand(
+  root: string,
+  name: string
+): typeof runCommand {
+  return async (command, args, options) => {
+    const marker = archiveWriterPath(root, name);
+    const handle = await open(marker, "wx", 0o600);
+    let output: string;
+    let cleanupError: unknown;
+    try {
+      output = await runCommand(command, args, {
+        ...options,
+        trackProcess: (pid) => writeFileSync(handle.fd, `${pid}\n`)
+      });
+    } finally {
+      try {
+        await handle.close();
+        await rm(marker);
+      } catch (error) {
+        cleanupError = error;
+        getRunLogger().warn(
+          "backup",
+          "Could not remove archive writer marker",
+          {
+            backupName: name,
+            error
+          }
+        );
+      }
+    }
+    if (cleanupError) throw cleanupError;
+    return output;
+  };
 }
 
 /** Serialize creation setup and deletion, including filesystem case aliases. */
@@ -71,10 +155,49 @@ export async function assertCreationStopped(
   }
   const staleMarkers: string[] = [];
   for (const candidate of names) {
-    if (await markerOwnerStopped(root, candidate))
-      staleMarkers.push(activityPath(root, candidate));
+    const ownerStopped = await markerOwnerStopped(root, candidate);
+    const writer = archiveWriterPath(root, candidate);
+    if (await archiveWriterStopped(writer, candidate, ownerStopped))
+      staleMarkers.push(writer);
+    if (ownerStopped) staleMarkers.push(activityPath(root, candidate));
   }
   return staleMarkers;
+}
+
+async function archiveWriterStopped(
+  marker: string,
+  name: string,
+  ownerStopped: boolean
+): Promise<boolean> {
+  let handle;
+  try {
+    handle = await open(
+      marker,
+      constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
+    );
+  } catch (error) {
+    if (errorCode(error) === "ENOENT") return false;
+    throw error;
+  }
+  try {
+    const contents = (await handle.stat()).isFile()
+      ? await handle.readFile("utf8")
+      : "";
+    const pid = /^[1-9]\d*\n$/.test(contents) ? Number(contents) : NaN;
+    if (!ownerStopped || !Number.isSafeInteger(pid) || pid > 2147483647)
+      throw new Error(
+        `Cannot verify backup archive writer has stopped: ${name} (${marker}).`
+      );
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (errorCode(error) === "ESRCH") return true;
+      if (errorCode(error) !== "EPERM") throw error;
+    }
+    throw new Error(`Backup archive writer is active: ${name}`);
+  } finally {
+    await handle.close();
+  }
 }
 
 async function markerOwnerStopped(
@@ -100,12 +223,14 @@ async function markerOwnerStopped(
   try {
     if (!(await handle.stat()).isFile())
       throw new Error("Creation marker is not a regular file.");
-    const owner = JSON.parse(await handle.readFile("utf8"));
+    const owner: BackupCreationMarker | null = JSON.parse(
+      await handle.readFile("utf8")
+    );
     if (
       !owner ||
-      owner.hostname !== hostname() ||
       !Number.isSafeInteger(owner.pid) ||
-      owner.pid <= 0
+      owner.pid <= 0 ||
+      !(await markerIsLocal(owner))
     ) {
       throw new Error(
         `Cannot establish ownership of backup creation marker: ${name}`
@@ -136,6 +261,7 @@ export async function beginBackupCreation(
   sourceEnvironment: string,
   tags: string[]
 ): Promise<() => Promise<void>> {
+  const machineId = await localMachineId();
   const releaseGuard = await acquireBackupGuard(root, name);
   const marker = activityPath(root, name);
   let handle;
@@ -149,10 +275,11 @@ export async function beginBackupCreation(
       JSON.stringify({
         pid: process.pid,
         hostname: hostname(),
+        machineId,
         sourceEnvironment,
         startedAt: new Date().toISOString(),
         tags
-      } satisfies BackupActivity)
+      } satisfies BackupCreationMarker)
     );
     await handle.close();
     await mkdir(backupPath(root, name));
@@ -202,7 +329,7 @@ export async function readBackupActivity(
       activityPath(root, name),
       constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK
     );
-    let activity: BackupActivity;
+    let activity: BackupCreationMarker | null;
     try {
       if (!(await handle.stat()).isFile()) return null;
       activity = JSON.parse(await handle.readFile("utf8"));
@@ -211,7 +338,6 @@ export async function readBackupActivity(
     }
     if (
       !activity ||
-      activity.hostname !== hostname() ||
       !Number.isSafeInteger(activity.pid) ||
       activity.pid <= 0 ||
       typeof activity.sourceEnvironment !== "string" ||
@@ -219,7 +345,8 @@ export async function readBackupActivity(
       typeof activity.startedAt !== "string" ||
       !Number.isFinite(Date.parse(activity.startedAt)) ||
       !Array.isArray(activity.tags) ||
-      !activity.tags.every((tag) => typeof tag === "string")
+      !activity.tags.every((tag) => typeof tag === "string") ||
+      !(await markerIsLocal(activity))
     )
       return null;
     try {

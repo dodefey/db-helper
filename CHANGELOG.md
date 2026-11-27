@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- protect backups from delete and prune while a local archive writer is still running after the backup command exits
+- recognize backup creation on the same Mac after a hostname change using new creation markers, while continuing to protect live processes and markers with unknown ownership
 - add `--collections=name1,name2` and repeatable `--collection <name>` to back up, sync, or restore selected collections, with selection also available in interactive mode. Collection backups use a dedicated archive filename and are excluded from full restore, guided recovery, and full-backup retention
 - reject unknown flags and unexpected arguments in `backup create` before starting a backup
 - reject views in scoped backup and sync and identify their backing collections in the error

@@ -333,7 +333,9 @@ async function copyFromRemote(
   remotePath: string,
   localPath: string,
   signal?: AbortSignal,
-  invocation?: RemoteInvocationOptions
+  invocation?: RemoteInvocationOptions & {
+    runArchiveWriter?: typeof runCommand;
+  }
 ): Promise<void> {
   if (env.kind === "remote" && invocation?.remotePreflightSession) {
     await ensureRemotePreflight(invocation.remotePreflightSession, env, [
@@ -345,7 +347,9 @@ async function copyFromRemote(
     ? ["-i", env.sshKeyPath, sourceTarget, localPath]
     : [sourceTarget, localPath];
   try {
-    await runCommand("scp", scpArgs, { signal });
+    await (invocation?.runArchiveWriter ?? runCommand)("scp", scpArgs, {
+      signal
+    });
   } catch (error) {
     throw translateRemoteProcessError({
       host: env.host,
@@ -925,6 +929,7 @@ export async function createArchiveBackup(
     selection?: DumpSelection;
     outputMode?: OutputMode;
     signal?: AbortSignal;
+    runArchiveWriter?: typeof runCommand;
     remotePreflightSession?: CommandInvocationContext["remotePreflightSession"];
   } = {}
 ): Promise<void> {
@@ -979,7 +984,7 @@ export async function createArchiveBackup(
   };
 
   if (env.kind === "local") {
-    await runCommand(
+    await (options.runArchiveWriter ?? runCommand)(
       "mongodump",
       [...dumpArgs, `--archive=${destinationFile}`],
       { streamOutput, signal: options.signal }
