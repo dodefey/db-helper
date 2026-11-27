@@ -324,9 +324,18 @@ already absent; an unavailable or missing backup root fails. Backup-directory
 symlinks and non-directory targets are refused. Internal links are unlinked
 without following targets. A configured root symlink is resolved before prompting.
 A same-host creation marker with a confirmed stopped PID is removed with the
-backup. Live, foreign-host, unreadable, or malformed markers block deletion
-because they do not establish that creation stopped. PID reuse remains a local
-process-identification limitation.
+backup. On macOS, new markers use a hash of the hardware UUID when available,
+so a hostname change does not prevent checking the local PID. Markers without
+a machine ID require an exact hostname match. Live, foreign-host, unreadable,
+or malformed markers block deletion because they do not establish that creation
+stopped. PID reuse remains a local process-identification limitation.
+
+Backup creation also records the PID of the local process writing the archive
+(the dump or download). Delete and prune check it even after the main dbh
+process exits. A confirmed stopped writer can be cleared with the backup.
+If dbh exits before recording the PID, the writer marker blocks deletion.
+Confirm the writer has stopped before manually removing the marker shown in
+the error.
 
 The guard is a private sibling file and is removed after creation setup or
 deletion, including handled failures. Forced termination can leave the guard

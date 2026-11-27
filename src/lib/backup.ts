@@ -16,7 +16,10 @@ import {
   writeBackupManifest
 } from "./backups.js";
 import { ensureDirectory } from "./fs.js";
-import { beginBackupCreation } from "./backupActivity.js";
+import {
+  beginBackupCreation,
+  createBackupArchiveCommand
+} from "./backupActivity.js";
 import {
   createArchiveBackup,
   getCollectionCounts,
@@ -290,6 +293,10 @@ export async function runBackupCreate(
       outputMode: input.outputMode,
       signal: abortController.signal,
       remotePreflightSession: context.remotePreflightSession,
+      runArchiveWriter: createBackupArchiveCommand(
+        appConfig.backupRoot,
+        backupName
+      ),
       ...(input.collections
         ? { selection: { collections: input.collections, sourceCollections } }
         : {})

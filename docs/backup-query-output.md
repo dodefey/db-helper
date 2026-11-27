@@ -59,10 +59,13 @@ warnings or retain a debug log solely because creation is unfinished. Manifest
 and archive inspection is deferred (`not-inspected`, null metadata/size); active
 creation does not imply a usable backup. The optional field is absent otherwise.
 
-Markers are removed after validation or failure cleanup. Missing, malformed,
-symlinked, foreign-host, and stopped-process markers do not suppress normal
-artifact checks. Process liveness is a local PID observation, not a distributed
-lock or a guarantee against PID reuse. Exact-name creation markers remain compatible with the previous implementation.
+Markers are removed after validation or failure cleanup. On macOS, new markers
+use a hash of the hardware UUID when available to identify the same Mac after
+a hostname change. Markers without a machine ID use the recorded hostname.
+The machine ID is private to the marker. Missing, malformed, symlinked,
+foreign-host, and stopped-process markers do not suppress normal artifact checks.
+Process liveness is a local PID observation, not a distributed lock or a
+guarantee against PID reuse.
 Backups from versions predating creation markers retain normal artifact checks. Backup creation
 refuses existing directories and same-name creation markers; stale markers are
 not automatically removed or reused by creation. Explicit `backup delete` can

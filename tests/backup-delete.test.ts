@@ -81,6 +81,27 @@ test("delete refuses traversal, symlink roots of backups, files, active and unkn
   });
 });
 
+test("delete checks machine identity before treating a missing PID as stopped", async () => {
+  await withQueryFixture(async ({ backupRoot }) => {
+    const name = "abandoned";
+    await mkdir(path.join(backupRoot, name));
+    const marker = activityPath(backupRoot, name);
+    const pid = 2147483647;
+    for (const activity of [
+      { pid, hostname: "foreign-host" },
+      { pid, hostname: hostname(), machineId: "0".repeat(64) },
+      { pid, hostname: hostname(), machineId: null }
+    ]) {
+      await writeFile(marker, JSON.stringify(activity));
+      await assert.rejects(
+        deleteBackup(backupRoot, name),
+        /Cannot establish ownership of backup creation marker/
+      );
+    }
+    assert.ok((await readdir(backupRoot)).includes(name));
+  });
+});
+
 test("stopped creation markers and incomplete backups can be removed and recreated", async () => {
   await withQueryFixture(async ({ backupRoot }) => {
     await mkdir(path.join(backupRoot, "abandoned"));
@@ -97,6 +118,24 @@ test("stopped creation markers and incomplete backups can be removed and recreat
     );
     await release();
     assert.equal(await deleteBackup(backupRoot, "abandoned"), "deleted");
+  });
+});
+
+test("delete refuses a writer marker left before its PID was recorded", async () => {
+  await withQueryFixture(async ({ backupRoot }) => {
+    const name = "starting-writer";
+    await mkdir(path.join(backupRoot, name));
+    const marker = activityPath(backupRoot, name);
+    await writeFile(
+      marker,
+      JSON.stringify({ pid: 2147483647, hostname: hostname() })
+    );
+    await writeFile(`${marker}.writer`, "");
+    await assert.rejects(
+      deleteBackup(backupRoot, name),
+      /Cannot verify backup archive writer has stopped/
+    );
+    assert.ok((await readdir(backupRoot)).includes(name));
   });
 });
 

@@ -8,6 +8,8 @@ export interface RunCommandOptions {
   streamOutput?: boolean;
   captureOutput?: "combined" | "combined-on-failure";
   signal?: AbortSignal;
+  // A tracked subprocess must close before the caller can remove its files.
+  trackProcess?: (pid: number) => void;
 }
 
 export class CommandExitError extends Error {
@@ -45,6 +47,7 @@ export async function runCommand(
 
   return new Promise((resolve, reject) => {
     let settled = false;
+    let failureBeforeClose: Error | undefined;
     const child = spawn(command, args, {
       cwd: options.cwd,
       env: { ...process.env, ...options.env },
@@ -61,8 +64,11 @@ export async function runCommand(
         rendered,
         durationMs: Date.now() - startedAt
       });
+      const error = new Error(`Command interrupted: ${rendered}`);
+      if (options.trackProcess && child.pid !== undefined)
+        failureBeforeClose ??= error;
       child.kill("SIGINT");
-      rejectOnce(new Error(`Command interrupted: ${rendered}`));
+      if (!failureBeforeClose) rejectOnce(error);
     };
 
     const cleanupAbortListener = (): void => {
@@ -111,14 +117,19 @@ export async function runCommand(
         durationMs: Date.now() - startedAt,
         error: error.message
       });
-      rejectOnce(
-        new Error(
-          `Failed to run command: ${rendered}\n${redactText(error.message)}`
-        )
+      const failure = new Error(
+        `Failed to run command: ${rendered}\n${redactText(error.message)}`
       );
+      if (options.trackProcess && child.pid !== undefined)
+        failureBeforeClose ??= failure;
+      else rejectOnce(failure);
     });
 
     child.on("close", (code) => {
+      if (failureBeforeClose) {
+        rejectOnce(failureBeforeClose);
+        return;
+      }
       if (code === 0) {
         runLogger.debug("exec", "Subprocess completed", {
           rendered,
@@ -152,6 +163,19 @@ export async function runCommand(
         )
       );
     });
+
+    if (options.trackProcess && child.pid !== undefined) {
+      try {
+        options.trackProcess(child.pid);
+      } catch (error) {
+        failureBeforeClose = new Error("Could not record the subprocess PID.", {
+          cause: error
+        });
+        child.kill("SIGINT");
+        child.stdin.end();
+        return;
+      }
+    }
 
     if (options.signal) {
       if (options.signal.aborted) {
